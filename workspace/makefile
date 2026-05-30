@@ -21,12 +21,22 @@ all:
 	cd ./all/minui/ && make
 	cd ./all/minarch/ && make
 	cd ./all/clock/ && make
-	cd ./$(PLATFORM)/cores && make
+	cd ./all/settings/ && make
+	cd ./all/minput/ && make
+	cd ./all/syncsettings/ && make
+	cd ./all/say/ && make
 	cd ./$(PLATFORM) && make
+	cd ./$(PLATFORM)/cores && make
 
 clean:
 	cd ./$(PLATFORM)/libmsettings && make clean
 	cd ./$(PLATFORM)/keymon && make clean
 	cd ./all/minui/ && make clean
 	cd ./all/minarch/ && make clean
+	cd ./all/clock/ && make clean
+	cd ./all/settings/ && make clean
+	cd ./all/minput/ && make clean
+	cd ./all/syncsettings/ && make clean
+	cd ./all/say/ && make clean
 	cd ./$(PLATFORM) && make clean
+	cd ./$(PLATFORM)/cores && make clean

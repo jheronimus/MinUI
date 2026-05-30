@@ -12,9 +12,8 @@ endif
 
 # overrides shared by all cores
 
-# commits after these break save states (gpsp as of 20231025)
-fake-08_HASH = 6279216
-gpsp_HASH = 1d1c719
+# commits after this one break save states (as of 20231025)
+# gpsp_HASH = 1d1c719
 
 ###############################
 
@@ -41,7 +40,7 @@ src/$(1):
 src/$(1)/.patched: src/$(1)
 	(test ! -f patches/$(1).patch) || (test -f src/$(1)/.patched) || (cd src/$(1) && $(PATCH) -p1 < ../../patches/$(1).patch && touch .patched && true)
 
-src/$(1)/.patched-all:
+src/$(1)/.patched-all: src/$(1)
 	(test ! -d ../../all/cores/patches/$(1)) || (test -f src/$(1)/.patched-all) || (cd src/$(1) && $(foreach patch, $(sort $(wildcard ../../all/cores/patches/$(1)/*.patch)), $(PATCH) -p1 < ../../$(patch) &&) touch .patched-all && true)
 	
 

@@ -54,6 +54,8 @@ export CPU_SPEED_PERF=1488000
 echo userspace > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
 overclock.elf $CPU_SPEED_PERF
 
+export MY_MODEL=`strings -n 5 /customer/app/MainUI | grep MY` # 0.13s
+
 MIYOO_VERSION=`/etc/fw_printenv miyoo_version`
 export MIYOO_VERSION=${MIYOO_VERSION#miyoo_version=}
 
@@ -100,7 +102,7 @@ keymon.elf & # &> /mnt/SDCARD/keymon.txt &
 #######################################
 
 # init datetime
-if [ -f "$DATETIME_PATH" ]; then
+if [ -f "$DATETIME_PATH" ] && [ ! -f "$USERDATA_PATH/enable-rtc" ]; then
 	DATETIME=`cat "$DATETIME_PATH"`
 	date +'%F %T' -s "$DATETIME"
 	DATETIME=`date +'%s'`

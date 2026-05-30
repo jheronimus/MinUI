@@ -1,0 +1,12 @@
+diff --git a/platform/common/mp3_drmp3.c b/platform/common/mp3_drmp3.c
+index a8b52f1..ef0fa4c 100644
+--- a/platform/common/mp3_drmp3.c
++++ b/platform/common/mp3_drmp3.c
+@@ -17,6 +17,7 @@
+ #define __acrt_iob_func __acrt_iob_func2
+ #define _wfopen_s(p,m)	NULL
+ #define _wfopen(p,m)	NULL
++#define fopen64 rfopen
+ #endif
+ #ifdef __GP2X__
+ #define mp3dec_decode _mp3dec_decode
