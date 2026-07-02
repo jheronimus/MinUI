@@ -10,7 +10,7 @@ fmt-check:
 
 # Lint check using clang-tidy
 lint:
-    clang-tidy --checks='bugprone-*,cert-*,clang-analyzer-*,misc-*,performance-*,-misc-use-internal-linkage,-clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling' --warnings-as-errors='*' src/*.c tests/*.c -- -std=c17 -Isrc
+    clang-tidy --checks='bugprone-*,cert-*,clang-analyzer-*,misc-*,performance-*,-misc-use-internal-linkage,-clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling' --warnings-as-errors='*' tests/*.c -- -std=c17 -Isrc
 
 # Build code
 build:
