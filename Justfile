@@ -6,7 +6,7 @@ default:
 
 # Format check using clang-format
 fmt-check:
-    clang-format -style=LLVM --dry-run --Werror src/*.c tests/*.c
+    find src tests -name "*.c" -o -name "*.h" | xargs clang-format --dry-run --Werror
 
 # Lint check using clang-tidy
 lint:
