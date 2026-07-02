@@ -18,156 +18,155 @@
 
 #include <libretro.h>
 
-#include "defines.h"
 #include "api.h"
 #include "core_registry.h"
+#include "defines.h"
 #include "scaler.h"
 #include "utils.h"
 
 enum {
-	SCALE_NATIVE,
-	SCALE_ASPECT,
-	SCALE_FULLSCREEN,
-	SCALE_CROPPED,
-	SCALE_COUNT,
+    SCALE_NATIVE,
+    SCALE_ASPECT,
+    SCALE_FULLSCREEN,
+    SCALE_CROPPED,
+    SCALE_COUNT,
 };
 
 enum {
-	FE_OPT_SCALING,
-	FE_OPT_EFFECT,
-	FE_OPT_SHARPNESS,
-	FE_OPT_TEARING,
-	FE_OPT_OVERCLOCK,
-	FE_OPT_THREAD,
-	FE_OPT_DEBUG,
-	FE_OPT_MAXFF,
-	FE_OPT_REWIND_ENABLE,
-	FE_OPT_REWIND_BUFFER,
-	FE_OPT_REWIND_CAPTURE,
-	FE_OPT_REWIND_KEYFRAME,
-	FE_OPT_REWIND_COMPRESSION,
-	FE_OPT_REWIND_AUDIO,
-	FE_OPT_COUNT,
+    FE_OPT_SCALING,
+    FE_OPT_EFFECT,
+    FE_OPT_SHARPNESS,
+    FE_OPT_TEARING,
+    FE_OPT_OVERCLOCK,
+    FE_OPT_THREAD,
+    FE_OPT_DEBUG,
+    FE_OPT_MAXFF,
+    FE_OPT_REWIND_ENABLE,
+    FE_OPT_REWIND_BUFFER,
+    FE_OPT_REWIND_CAPTURE,
+    FE_OPT_REWIND_KEYFRAME,
+    FE_OPT_REWIND_COMPRESSION,
+    FE_OPT_REWIND_AUDIO,
+    FE_OPT_COUNT,
 };
 
 enum {
-	SHORTCUT_SAVE_STATE,
-	SHORTCUT_LOAD_STATE,
-	SHORTCUT_RESET_GAME,
-	SHORTCUT_SAVE_QUIT,
-	SHORTCUT_CYCLE_SCALE,
-	SHORTCUT_CYCLE_EFFECT,
-	SHORTCUT_TOGGLE_FF,
-	SHORTCUT_HOLD_FF,
-	SHORTCUT_TOGGLE_REWIND,
-	SHORTCUT_HOLD_REWIND,
-	SHORTCUT_COUNT,
+    SHORTCUT_SAVE_STATE,
+    SHORTCUT_LOAD_STATE,
+    SHORTCUT_RESET_GAME,
+    SHORTCUT_SAVE_QUIT,
+    SHORTCUT_CYCLE_SCALE,
+    SHORTCUT_CYCLE_EFFECT,
+    SHORTCUT_TOGGLE_FF,
+    SHORTCUT_HOLD_FF,
+    SHORTCUT_TOGGLE_REWIND,
+    SHORTCUT_HOLD_REWIND,
+    SHORTCUT_COUNT,
 };
 
 enum {
-	CONFIG_NONE,
-	CONFIG_CONSOLE,
-	CONFIG_GAME,
+    CONFIG_NONE,
+    CONFIG_CONSOLE,
+    CONFIG_GAME,
 };
 
 enum {
-	CONFIG_WRITE_ALL,
-	CONFIG_WRITE_GAME,
+    CONFIG_WRITE_ALL,
+    CONFIG_WRITE_GAME,
 };
 
 #define LOCAL_BUTTON_COUNT 18
 #define RETRO_BUTTON_COUNT 16
 
 typedef struct Option {
-	char *key;
-	char *name;
-	char *desc;
-	char *full;
-	char *var;
-	int default_value;
-	int value;
-	int count;
-	int lock;
-	char **values;
-	char **labels;
+    char *key;
+    char *name;
+    char *desc;
+    char *full;
+    char *var;
+    int default_value;
+    int value;
+    int count;
+    int lock;
+    char **values;
+    char **labels;
 } Option;
 
 typedef struct OptionList {
-	int count;
-	int changed;
-	Option *options;
-	int enabled_count;
-	Option **enabled_options;
+    int count;
+    int changed;
+    Option *options;
+    int enabled_count;
+    Option **enabled_options;
 } OptionList;
 
 typedef struct ButtonMapping {
-	char *name;
-	int retro;
-	int local;
-	int mod;
-	int default_;
-	int ignore;
+    char *name;
+    int retro;
+    int local;
+    int mod;
+    int default_;
+    int ignore;
 } ButtonMapping;
 
 typedef struct Core {
-	int initialized;
-	int game_loaded;
-	int need_fullpath;
-	char tag[8];
-	char name[128];
-	char version[128];
-	char extensions[128];
-	char config_dir[MAX_PATH];
-	char states_dir[MAX_PATH];
-	char saves_dir[MAX_PATH];
-	char bios_dir[MAX_PATH];
-	double fps;
-	double sample_rate;
-	double aspect_ratio;
-	void *handle;
-	void (*init)(void);
-	void (*deinit)(void);
-	void (*get_system_info)(struct retro_system_info *info);
-	void (*get_system_av_info)(struct retro_system_av_info *info);
-	void (*set_controller_port_device)(unsigned port, unsigned device);
-	void (*reset)(void);
-	void (*run)(void);
-	size_t (*serialize_size)(void);
-	bool (*serialize)(void *data, size_t size);
-	bool (*unserialize)(const void *data, size_t size);
-	bool (*load_game)(const struct retro_game_info *game);
-	bool (*load_game_special)(unsigned game_type,
-		const struct retro_game_info *info, size_t num_info);
-	void (*unload_game)(void);
-	unsigned (*get_region)(void);
-	void *(*get_memory_data)(unsigned id);
-	size_t (*get_memory_size)(unsigned id);
-	uint64_t serialization_quirks;
-	int pixel_format;
+    int initialized;
+    int game_loaded;
+    int need_fullpath;
+    char tag[8];
+    char name[128];
+    char version[128];
+    char extensions[128];
+    char config_dir[MAX_PATH];
+    char states_dir[MAX_PATH];
+    char saves_dir[MAX_PATH];
+    char bios_dir[MAX_PATH];
+    double fps;
+    double sample_rate;
+    double aspect_ratio;
+    void *handle;
+    void (*init)(void);
+    void (*deinit)(void);
+    void (*get_system_info)(struct retro_system_info *info);
+    void (*get_system_av_info)(struct retro_system_av_info *info);
+    void (*set_controller_port_device)(unsigned port, unsigned device);
+    void (*reset)(void);
+    void (*run)(void);
+    size_t (*serialize_size)(void);
+    bool (*serialize)(void *data, size_t size);
+    bool (*unserialize)(const void *data, size_t size);
+    bool (*load_game)(const struct retro_game_info *game);
+    bool (*load_game_special)(unsigned game_type, const struct retro_game_info *info, size_t num_info);
+    void (*unload_game)(void);
+    unsigned (*get_region)(void);
+    void *(*get_memory_data)(unsigned id);
+    size_t (*get_memory_size)(unsigned id);
+    uint64_t serialization_quirks;
+    int pixel_format;
 } Core;
 
 typedef struct Game {
-	char path[MAX_PATH];
-	char bundle_path[MAX_PATH];
-	char name[MAX_PATH];
-	char m3u_path[MAX_PATH];
-	char tmp_path[MAX_PATH];
-	void *data;
-	size_t size;
-	int is_open;
+    char path[MAX_PATH];
+    char bundle_path[MAX_PATH];
+    char name[MAX_PATH];
+    char m3u_path[MAX_PATH];
+    char tmp_path[MAX_PATH];
+    void *data;
+    size_t size;
+    int is_open;
 } Game;
 
 typedef struct Config {
-	char *system_cfg;
-	char *default_cfg;
-	char *user_cfg;
-	char *device_tag;
-	OptionList frontend;
-	OptionList core;
-	ButtonMapping *controls;
-	ButtonMapping *shortcuts;
-	int loaded;
-	int initialized;
+    char *system_cfg;
+    char *default_cfg;
+    char *user_cfg;
+    char *device_tag;
+    OptionList frontend;
+    OptionList core;
+    ButtonMapping *controls;
+    ButtonMapping *shortcuts;
+    int loaded;
+    int initialized;
 } Config;
 
 extern SDL_Surface *screen;
@@ -265,8 +264,7 @@ void OptionList_reset(void);
 Option *OptionList_getOption(OptionList *list, const char *key);
 char *OptionList_getOptionValue(OptionList *list, const char *key);
 void OptionList_setOptionRawValue(OptionList *list, const char *key, int value);
-void OptionList_setOptionValue(OptionList *list, const char *key,
-	const char *value);
+void OptionList_setOptionValue(OptionList *list, const char *key, const char *value);
 void Special_init(void);
 void Special_render(void);
 void Special_quit(void);
@@ -283,18 +281,15 @@ void Rewind_onStateChange(void);
 enum retro_savestate_context Rewind_getSavestateContext(void);
 int Rewind_audioEnabled(void);
 void input_poll_callback(void);
-int16_t input_state_callback(unsigned port, unsigned device, unsigned index,
-	unsigned id);
+int16_t input_state_callback(unsigned port, unsigned device, unsigned index, unsigned id);
 void Input_init(const struct retro_input_descriptor *vars);
 
 void hdmimon(void);
 void MSG_init(void);
 void MSG_quit(void);
 void selectScaler(int src_w, int src_h, int src_p);
-void video_refresh_callback_main(const void *data, unsigned width,
-	unsigned height, size_t pitch);
-void video_refresh_callback(const void *data, unsigned width, unsigned height,
-	size_t pitch);
+void video_refresh_callback_main(const void *data, unsigned width, unsigned height, size_t pitch);
+void video_refresh_callback(const void *data, unsigned width, unsigned height, size_t pitch);
 void trackFPS(void);
 void limitFF(void);
 void buffer_dealloc(void);

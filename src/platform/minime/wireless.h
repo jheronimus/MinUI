@@ -10,8 +10,7 @@ int MINIME_wirelessWifiInit(void);
 int MINIME_wirelessWifiRefresh(struct settings_snapshot *snapshot);
 int MINIME_wirelessWifiSetEnabled(int enabled);
 int MINIME_wirelessWifiSetScanning(int enabled);
-int MINIME_wirelessWifiConnect(const char *ssid, const char *passphrase,
-	int hidden);
+int MINIME_wirelessWifiConnect(const char *ssid, const char *passphrase, int hidden);
 int MINIME_wirelessWifiDisconnect(void);
 int MINIME_wirelessWifiForget(const char *ssid);
 

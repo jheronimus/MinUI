@@ -14,9 +14,7 @@ int SETTINGS_TIMEZONE_offsetAt(int index);
 int SETTINGS_TIMEZONE_findIndex(int offset_minutes);
 int SETTINGS_TIMEZONE_isValidOffset(int offset_minutes);
 void SETTINGS_TIMEZONE_format(int offset_minutes, char *dst, size_t dst_size);
-void SETTINGS_TIMEZONE_formatPosix(int offset_minutes, char *dst,
-	size_t dst_size);
-void SETTINGS_TIMEZONE_formatZoneId(int offset_minutes, char *dst,
-	size_t dst_size);
+void SETTINGS_TIMEZONE_formatPosix(int offset_minutes, char *dst, size_t dst_size);
+void SETTINGS_TIMEZONE_formatZoneId(int offset_minutes, char *dst, size_t dst_size);
 
 #endif
