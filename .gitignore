@@ -7,7 +7,7 @@
 
 build
 releases
-toolchains
+toolchains/*/host-sdk
 libretro-common
 
 **/cores/src
