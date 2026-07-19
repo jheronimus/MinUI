@@ -1,0 +1,5 @@
+# Minime — build output assembly.
+# Copies built artifacts into the skeleton tree for packaging.
+
+$(PLATFORM):
+	cp ./workspace/$@/show/show.elf ./build/SYSTEM/$@/bin/

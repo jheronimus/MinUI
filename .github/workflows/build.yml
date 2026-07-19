@@ -1,0 +1,76 @@
+name: Build MinUI for Minime
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version tag (e.g. v20260719)'
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build toolchain image
+        uses: docker/build-push-action@v5
+        with:
+          context: toolchains/minime-toolchain
+          load: true
+          tags: minime-toolchain:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Setup build directory
+        run: |
+          make setup
+
+      - name: Build MinUI binaries
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/workspace:/root/workspace \
+            minime-toolchain \
+            /bin/bash -c '. ~/.bashrc && make'
+
+      - name: Assemble system
+        run: |
+          make system PLATFORM=minime
+
+      - name: Assemble cores
+        run: |
+          make cores PLATFORM=minime
+
+      - name: Package release
+        run: |
+          make package
+
+      - name: Check release name
+        run: |
+          echo "RELEASE_NAME=$(cat build/latest.txt)" >> $GITHUB_ENV
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version }}
+          name: MinUI for Minime ${{ inputs.version }}
+          body: |
+            MinUI distribution for Minime firmware.
+            Built from commit ${{ github.sha }}.
+          files: |
+            releases/*.zip
+          draft: false
+          prerelease: false
