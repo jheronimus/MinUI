@@ -13,8 +13,8 @@
 
 #include <msettings.h>
 
-#include "api.h"
 #include "defines.h"
+#include "api.h"
 #include "platform.h"
 #include "utils.h"
 
