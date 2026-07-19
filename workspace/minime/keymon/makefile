@@ -6,10 +6,10 @@ TARGET = keymon
 PRODUCT = $(TARGET).elf
 
 CC = $(CROSS_COMPILE)gcc
-CFLAGS = -O2
-LDFLAGS = -lpthread -lrt
+CFLAGS = -O2 -I../libmsettings -I../platform
+LDFLAGS = -L../libmsettings -lmsettings -lpthread -lrt
 
 all:
-	$(CC) $(TARGET).c -I../libmsettings -I../platform -o $(PRODUCT) $(CFLAGS) $(LDFLAGS)
+	$(CC) $(TARGET).c -o $(PRODUCT) $(CFLAGS) $(LDFLAGS)
 clean:
 	rm -rf $(PRODUCT)
