@@ -15,7 +15,7 @@ endif
 ###########################################################
 
 TARGET = syncsettings
-SOURCE = $(TARGET).c ../../$(PLATFORM)/platform/platform.c ../../$(PLATFORM)/platform/traits.c ../../$(PLATFORM)/platform/input.c ../../$(PLATFORM)/platform/power.c ../../$(PLATFORM)/platform/video.c ../../$(PLATFORM)/platform/audio.c ../../$(PLATFORM)/platform/wireless.c ../../$(PLATFORM)/platform/wireless_bluetooth.c
+SOURCE = $(TARGET).c ../../$(PLATFORM)/platform/platform.c ../../$(PLATFORM)/platform/traits.c ../../$(PLATFORM)/platform/input.c ../../$(PLATFORM)/platform/power.c ../../$(PLATFORM)/platform/video.c ../../$(PLATFORM)/platform/audio.c
 
 CC = $(CROSS_COMPILE)gcc
 CFLAGS   = $(ARCH) -DPLATFORM=\"$(PLATFORM)\"
