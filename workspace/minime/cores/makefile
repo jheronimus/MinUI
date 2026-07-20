@@ -12,6 +12,10 @@ CORES+= fake-08
 # *_MAKEFILE=
 # *_BUILD_PATH=
 
+# gpsp: "unix" detects x86_64 via uname and tries x86 JIT stubs.
+# "arm64" enables aarch64 dynarec with mmap'd JIT cache.
+gpsp_PLATFORM = arm64
+
 fake-08_REPO = https://github.com/jtothebell/fake-08
 fake-08_CORE = fake08_libretro.so
 fake-08_BUILD_PATH = fake-08/platform/libretro
