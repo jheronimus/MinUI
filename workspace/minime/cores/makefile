@@ -38,4 +38,6 @@ snes9x2005_plus_FLAGS = USE_BLARGG_APU=1
 
 ###############################
 
+export CC = aarch64-linux-gnu-gcc
+
 include ../../all/cores/makefile
