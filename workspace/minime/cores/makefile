@@ -39,9 +39,9 @@ snes9x2005_plus_FLAGS = USE_BLARGG_APU=1
 ###############################
 
 # Libretro cores don't recognize "minime" as a platform.
-# Use "aarch64" which sets correct arch flags and excludes x86 JIT code.
+# Use "unix" which fceumm (and most cores) recognize to produce .so.
 # Must use override because PLATFORM=minime is set via Docker ENV.
-override PLATFORM = aarch64
+override PLATFORM = unix
 
 export CC = aarch64-linux-gnu-gcc
 export CXX = aarch64-linux-gnu-g++
