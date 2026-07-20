@@ -1,15 +1,41 @@
-# Minime cores — pre-built aarch64 libretro cores.
-# CI populates this directory before the zip is assembled.
-# Placeholder files so the assembly step doesn't fail.
+CORES = fceumm gambatte gpsp pcsx_rearmed picodrive snes9x2005_plus
+CORES+= mednafen_pce_fast mednafen_vb mednafen_supafaust mgba pokemini race
+CORES+= fake-08
 
-CORES = fceumm gambatte gpsp picodrive snes9x2005_plus pcsx_rearmed mgba mednafen_pce_fast pokemini race mednafen_supafaust mednafen_vb
+###############################
 
-all: output
-	@echo "cores: $(CORES)"
+# optional core vars
+# *_REPO=
+# *_HASH=
+# *_CORE=
+# *_FLAGS=
+# *_MAKEFILE=
+# *_BUILD_PATH=
 
-output:
-	mkdir -p output
-	@for core in $(CORES); do touch output/$${core}_libretro.so; done
+fake-08_REPO = https://github.com/jtothebell/fake-08
+fake-08_CORE = fake08_libretro.so
+fake-08_BUILD_PATH = fake-08/platform/libretro
 
-clean:
-	rm -rf output
+mednafen_pce_fast_REPO = https://github.com/libretro/beetle-pce-fast-libretro
+mednafen_vb_REPO = https://github.com/libretro/beetle-vb-libretro
+
+fceumm_REPO = https://github.com/libretro/libretro-fceumm
+
+gambatte_REPO = https://github.com/libretro/gambatte-libretro
+
+mednafen_supafaust_REPO = https://github.com/libretro/supafaust
+
+pcsx_rearmed_MAKEFILE = Makefile.libretro
+
+picodrive_REPO = https://github.com/irixxxx/picodrive
+picodrive_MAKEFILE = Makefile.libretro
+
+pokemini_REPO = https://github.com/libretro/PokeMini
+pokemini_MAKEFILE = Makefile.libretro
+
+snes9x2005_plus_REPO = https://github.com/libretro/snes9x2005
+snes9x2005_plus_FLAGS = USE_BLARGG_APU=1
+
+###############################
+
+include ../../all/cores/makefile
