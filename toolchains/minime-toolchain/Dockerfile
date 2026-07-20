@@ -20,7 +20,11 @@ RUN dpkg --add-architecture arm64 && \
         curl \
         && \
     apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    ln -sf /usr/bin/aarch64-linux-gnu-gcc /usr/local/bin/cc && \
+    ln -sf /usr/bin/aarch64-linux-gnu-g++ /usr/local/bin/c++ && \
+    ln -sf /usr/bin/aarch64-linux-gnu-g++ /usr/local/bin/g++ && \
+    ln -sf /usr/bin/aarch64-linux-gnu-ar /usr/local/bin/ar
 
 ENV CROSS_COMPILE=aarch64-linux-gnu-
 ENV PLATFORM=minime
