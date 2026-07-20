@@ -7,7 +7,7 @@ CORES = fceumm gambatte gpsp picodrive snes9x2005_plus pcsx_rearmed mgba mednafe
 all: output
 	@echo "cores: $(CORES)"
 
-output: Makefile
+output:
 	mkdir -p output
 	@for core in $(CORES); do touch output/$${core}_libretro.so; done
 
