@@ -14,12 +14,20 @@ endif
 
 ###########################################################
 
+include ../../$(PLATFORM)/platform/makefile.env
+SDL?=SDL
+
+###########################################################
+
 TARGET = syncsettings
-SOURCE = $(TARGET).c ../../$(PLATFORM)/platform/platform.c ../../$(PLATFORM)/platform/traits.c ../../$(PLATFORM)/platform/input.c ../../$(PLATFORM)/platform/power.c ../../$(PLATFORM)/platform/video.c ../../$(PLATFORM)/platform/audio.c
+INCDIR = -I. -I../common/ -I../../$(PLATFORM)/platform/
+SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../common/scaler.c ../../$(PLATFORM)/platform/platform.c ../../$(PLATFORM)/platform/traits.c ../../$(PLATFORM)/platform/input.c ../../$(PLATFORM)/platform/power.c ../../$(PLATFORM)/platform/video.c ../../$(PLATFORM)/platform/audio.c
 
 CC = $(CROSS_COMPILE)gcc
-CFLAGS   = $(ARCH) -DPLATFORM=\"$(PLATFORM)\"
-LDFLAGS	 = -Os -lmsettings -lrt -ldl -Wl,--gc-sections -s
+CFLAGS   = $(ARCH) -fomit-frame-pointer
+CFLAGS  += $(INCDIR) -DPLATFORM=\"$(PLATFORM)\" -DUSE_$(SDL) -Ofast
+LDFLAGS	 = -ldl $(LIBS) -l$(SDL) -l$(SDL)_image -l$(SDL)_ttf -lpthread -lm -lz
+LDFLAGS += -lmsettings
 
 PRODUCT= build/$(PLATFORM)/$(TARGET).elf
 
