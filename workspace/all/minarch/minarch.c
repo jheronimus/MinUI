@@ -675,7 +675,7 @@ enum {
 	SHORTCUT_COUNT,
 };
 
-#define LOCAL_BUTTON_COUNT 16 // depends on device
+#define LOCAL_BUTTON_COUNT 18 // depends on device
 #define RETRO_BUTTON_COUNT 16 // allow L3/R3 to be remapped by user if desired, eg. Virtual Boy uses extra buttons for right d-pad
 
 typedef struct ButtonMapping { 
