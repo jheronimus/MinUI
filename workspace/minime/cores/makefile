@@ -38,6 +38,10 @@ snes9x2005_plus_FLAGS = USE_BLARGG_APU=1
 
 ###############################
 
+# Libretro cores don't recognize "minime" as a platform.
+# They need a standard name to produce .so and pick correct arch flags.
+PLATFORM = unix
+
 export CC = aarch64-linux-gnu-gcc
 
 include ../../all/cores/makefile
