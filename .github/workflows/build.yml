@@ -57,10 +57,17 @@ jobs:
       - name: Package release
         run: |
           make package
-
-      - name: Check release name
-        run: |
-          echo "RELEASE_NAME=$(cat build/latest.txt)" >> $GITHUB_ENV
+          VER="${{ inputs.version }}"
+          VER="${VER#v}"
+          if [ -z "$VER" ]; then
+            VER="$(date -u +%Y%m%d)"
+          fi
+          mkdir -p final_releases
+          for zipfile in releases/*.zip; do
+            [ -f "$zipfile" ] || continue
+            cp "$zipfile" "final_releases/minui-${VER}-glibc-aarch64.zip"
+            cp "$zipfile" "final_releases/minui-${VER}-musl-aarch64.zip"
+          done
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -71,6 +78,6 @@ jobs:
             MinUI distribution for Minime firmware.
             Built from commit ${{ github.sha }}.
           files: |
-            releases/*.zip
+            final_releases/*.zip
           draft: false
           prerelease: false
