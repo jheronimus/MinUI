@@ -46,6 +46,7 @@ gambatte_REPO = https://github.com/libretro/gambatte-libretro
 mednafen_supafaust_REPO = https://github.com/libretro/supafaust
 
 pcsx_rearmed_MAKEFILE = Makefile.libretro
+pcsx_rearmed_FLAGS = HAVE_ZLIB=1
 
 picodrive_REPO = https://github.com/irixxxx/picodrive
 picodrive_MAKEFILE = Makefile.libretro
