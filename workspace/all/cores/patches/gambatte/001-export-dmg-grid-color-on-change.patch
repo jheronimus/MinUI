@@ -1,8 +1,8 @@
-diff --git forkSrcPrefix/libgambatte/libretro/libretro.cpp forkDstPrefix/libgambatte/libretro/libretro.cpp
-index 74b2b1dd0bb3f76b77a616ebac2485ba09565467..caa2d1ef21235ffb09ad22440266495d99d9be4e 100644
---- forkSrcPrefix/libgambatte/libretro/libretro.cpp
-+++ forkDstPrefix/libgambatte/libretro/libretro.cpp
-@@ -2387,6 +2387,12 @@ static void check_variables(bool startup)
+diff --git a/libgambatte/libretro/libretro.cpp b/libgambatte/libretro/libretro.cpp
+index 15b042c..2fa832e 100644
+--- a/libgambatte/libretro/libretro.cpp
++++ b/libgambatte/libretro/libretro.cpp
+@@ -2626,6 +2626,14 @@ static void check_variables(bool startup)
           {
              rgb32 = gb.gbcToRgb32(gbc_bios_palette[palnum * 4 + colornum]);
              gb.setDmgPaletteColor(palnum, colornum, rgb32);
