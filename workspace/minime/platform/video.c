@@ -9,7 +9,9 @@
 int MINIME_videoHDMIConnected(void) {
     const MinimeTraits *traits = MINIME_traits();
 
-    return (traits && MINIME_traitAvailable(traits->hdmi_state_path)) ? getInt((char *)traits->hdmi_state_path) : 0;
+    return (traits && MINIME_traitAvailable(traits->hdmi_state_path))
+               ? getInt((char *)traits->hdmi_state_path)
+               : 0;
 }
 
 void MINIME_videoSetBacklight(int value) {

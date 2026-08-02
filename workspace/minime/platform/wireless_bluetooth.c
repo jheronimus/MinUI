@@ -144,7 +144,8 @@ static DBusMessage *bt_call(DBusMessage *msg, int timeout_ms) {
     return reply;
 }
 
-static DBusMessage *bt_call_noarg(const char *path, const char *iface, const char *method, int timeout_ms) {
+static DBusMessage *bt_call_noarg(const char *path, const char *iface, const char *method,
+                                  int timeout_ms) {
     DBusMessage *msg;
 
     msg = dbus_message_new_method_call(BT_SERVICE, path, iface, method);
@@ -332,7 +333,8 @@ static void bt_parse_managed_objects(DBusMessage *reply) {
     DBusMessageIter iter;
     DBusMessageIter objects;
 
-    if (!reply || !dbus_message_iter_init(reply, &iter) || dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_ARRAY)
+    if (!reply || !dbus_message_iter_init(reply, &iter) ||
+        dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_ARRAY)
         return;
     dbus_message_iter_recurse(&iter, &objects);
     while (dbus_message_iter_get_arg_type(&objects) == DBUS_TYPE_DICT_ENTRY) {
@@ -408,7 +410,8 @@ static int bt_wait_for_adapter(void) {
     return -ENODEV;
 }
 
-static int bt_set_bool_property(const char *path, const char *iface, const char *property, int enabled) {
+static int bt_set_bool_property(const char *path, const char *iface, const char *property,
+                                int enabled) {
     DBusMessage *msg;
     DBusMessageIter iter;
     DBusMessageIter variant;
@@ -486,7 +489,8 @@ int MINIME_wirelessBluetoothRefresh(struct settings_snapshot *snapshot) {
         dst->kind = src->kind;
         if (src->connected) {
             SETTINGS_copyText(dst->state, sizeof(dst->state), "connected");
-            SETTINGS_copyText(snapshot->bt_connected_name, sizeof(snapshot->bt_connected_name), dst->name);
+            SETTINGS_copyText(snapshot->bt_connected_name, sizeof(snapshot->bt_connected_name),
+                              dst->name);
         } else if (src->paired) {
             SETTINGS_copyText(dst->state, sizeof(dst->state), "paired");
         } else {
@@ -531,10 +535,16 @@ int MINIME_wirelessBluetoothSetScanning(int enabled) {
         return -ENODEV;
     if (enabled) {
         (void)bt_set_bool_property(bt_state.adapter_path, BT_ADAPTER_IFACE, "Pairable", 1);
-        return bt_reply_ok(bt_call_noarg(bt_state.adapter_path, BT_ADAPTER_IFACE, "StartDiscovery", 5000)) ? 0 : -EIO;
+        return bt_reply_ok(
+                   bt_call_noarg(bt_state.adapter_path, BT_ADAPTER_IFACE, "StartDiscovery", 5000))
+                   ? 0
+                   : -EIO;
     }
     (void)bt_set_bool_property(bt_state.adapter_path, BT_ADAPTER_IFACE, "Pairable", 0);
-    return bt_reply_ok(bt_call_noarg(bt_state.adapter_path, BT_ADAPTER_IFACE, "StopDiscovery", 5000)) ? 0 : -EIO;
+    return bt_reply_ok(
+               bt_call_noarg(bt_state.adapter_path, BT_ADAPTER_IFACE, "StopDiscovery", 5000))
+               ? 0
+               : -EIO;
 }
 
 int MINIME_wirelessBluetoothToggleDevice(const char *addr) {
@@ -552,7 +562,9 @@ int MINIME_wirelessBluetoothToggleDevice(const char *addr) {
         return -ENOENT;
 
     if (device->connected)
-        return bt_reply_ok(bt_call_noarg(device->path, BT_DEVICE_IFACE, "Disconnect", 12000)) ? 0 : -EIO;
+        return bt_reply_ok(bt_call_noarg(device->path, BT_DEVICE_IFACE, "Disconnect", 12000))
+                   ? 0
+                   : -EIO;
 
     if (!device->paired) {
         if (bt_state.adapter_path[0])
@@ -582,7 +594,8 @@ int MINIME_wirelessBluetoothForgetDevice(const char *addr) {
     if (!device)
         return -ENOENT;
 
-    msg = dbus_message_new_method_call(BT_SERVICE, bt_state.adapter_path, BT_ADAPTER_IFACE, "RemoveDevice");
+    msg = dbus_message_new_method_call(BT_SERVICE, bt_state.adapter_path, BT_ADAPTER_IFACE,
+                                       "RemoveDevice");
     if (!msg)
         return -ENOMEM;
     if (!dbus_message_append_args(msg, DBUS_TYPE_OBJECT_PATH, &device->path, DBUS_TYPE_INVALID)) {

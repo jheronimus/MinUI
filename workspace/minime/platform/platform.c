@@ -13,8 +13,8 @@
 
 #include <msettings.h>
 
-#include "defines.h"
 #include "api.h"
+#include "defines.h"
 #include "platform.h"
 #include "utils.h"
 
@@ -119,7 +119,8 @@ static int anyButtonSourcePressed(int btn) {
     return (local_pad_pressed & btn) != 0;
 }
 
-static void updateButtonState(uint32_t *source_pressed, int btn, int pressed, int id, uint32_t tick) {
+static void updateButtonState(uint32_t *source_pressed, int btn, int pressed, int id,
+                              uint32_t tick) {
     if (!source_pressed || btn == BTN_NONE || id < 0 || id >= BTN_ID_COUNT)
         return;
 
@@ -355,10 +356,12 @@ void PLAT_pollInput(void) {
                 }
                 if (code == traits->axis_lx) {
                     pad.laxis.x = MINIME_inputNormalizeAxis(value, traits->axis_lx_invert);
-                    PAD_setAnalog(BTN_ID_ANALOG_LEFT, BTN_ID_ANALOG_RIGHT, pad.laxis.x, tick + PAD_REPEAT_DELAY);
+                    PAD_setAnalog(BTN_ID_ANALOG_LEFT, BTN_ID_ANALOG_RIGHT, pad.laxis.x,
+                                  tick + PAD_REPEAT_DELAY);
                 } else if (code == traits->axis_ly) {
                     pad.laxis.y = MINIME_inputNormalizeAxis(value, traits->axis_ly_invert);
-                    PAD_setAnalog(BTN_ID_ANALOG_UP, BTN_ID_ANALOG_DOWN, pad.laxis.y, tick + PAD_REPEAT_DELAY);
+                    PAD_setAnalog(BTN_ID_ANALOG_UP, BTN_ID_ANALOG_DOWN, pad.laxis.y,
+                                  tick + PAD_REPEAT_DELAY);
                 } else if (code == traits->axis_rx)
                     pad.raxis.x = MINIME_inputNormalizeAxis(value, traits->axis_rx_invert);
                 else if (code == traits->axis_ry)
@@ -544,7 +547,8 @@ static void PLAT_presentSurfaceDirectFB(SDL_Surface *surface) {
     ioctl(vid.fb_fd, FBIOPAN_DISPLAY, &vid.fb_vinfo);
 }
 
-static void PLAT_computeRendererRects(const GFX_Renderer *renderer, SDL_Rect *src_rect, SDL_Rect *dst_rect) {
+static void PLAT_computeRendererRects(const GFX_Renderer *renderer, SDL_Rect *src_rect,
+                                      SDL_Rect *dst_rect) {
     int x;
     int y;
     int w;
@@ -679,18 +683,21 @@ SDL_Surface *PLAT_initVideo(void) {
     }
     SDL_ShowCursor(0);
 
-    vid.window = SDL_CreateWindow("", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, w, h, SDL_WINDOW_SHOWN);
+    vid.window = SDL_CreateWindow("", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, w, h,
+                                  SDL_WINDOW_SHOWN);
     if (!vid.window) {
         LOG_error("SDL window creation failed: %s\n", SDL_GetError());
         exit(1);
     }
-    vid.renderer = SDL_CreateRenderer(vid.window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    vid.renderer =
+        SDL_CreateRenderer(vid.window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!vid.renderer) {
         LOG_error("SDL renderer creation failed: %s\n", SDL_GetError());
         exit(1);
     }
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1"); // linear
-    vid.texture = SDL_CreateTexture(vid.renderer, SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING, w, h);
+    vid.texture =
+        SDL_CreateTexture(vid.renderer, SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING, w, h);
     if (!vid.texture) {
         LOG_error("SDL texture creation failed: %s\n", SDL_GetError());
         exit(1);
@@ -760,14 +767,15 @@ static void resizeVideo(int w, int h, int p) {
     if (vid.target)
         SDL_DestroyTexture(vid.target);
 
-    SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, vid.sharpness == SHARPNESS_SOFT ? "1" : "0",
-                            SDL_HINT_OVERRIDE);
-    vid.texture = SDL_CreateTexture(vid.renderer, SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING, w, h);
+    SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY,
+                            vid.sharpness == SHARPNESS_SOFT ? "1" : "0", SDL_HINT_OVERRIDE);
+    vid.texture =
+        SDL_CreateTexture(vid.renderer, SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING, w, h);
 
     if (vid.sharpness == SHARPNESS_CRISP) {
         SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "1", SDL_HINT_OVERRIDE);
-        vid.target = SDL_CreateTexture(vid.renderer, SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_TARGET, w * hard_scale,
-                                       h * hard_scale);
+        vid.target = SDL_CreateTexture(vid.renderer, SDL_PIXELFORMAT_RGB565,
+                                       SDL_TEXTUREACCESS_TARGET, w * hard_scale, h * hard_scale);
     } else {
         vid.target = NULL;
     }
@@ -827,7 +835,8 @@ static void rgb565_to_rgb888(uint32_t rgb565, uint8_t *r, uint8_t *g, uint8_t *b
     *b = (blue << 3) | (blue >> 2);
 }
 static void updateEffect(void) {
-    if (effect.next_scale == effect.scale && effect.next_type == effect.type && effect.next_color == effect.color)
+    if (effect.next_scale == effect.scale && effect.next_type == effect.type &&
+        effect.next_color == effect.color)
         return; // unchanged
 
     int live_scale = effect.scale;
@@ -959,8 +968,9 @@ void PLAT_flip(SDL_Surface *IGNORED, int ignored) {
                 dx = 0;
                 dy = device_width;
             }
-            SDL_RenderCopyEx(vid.renderer, vid.texture, NULL, &(SDL_Rect){dx, dy, device_width, device_height},
-                             rotate * 90, &(SDL_Point){0, 0}, SDL_FLIP_NONE);
+            SDL_RenderCopyEx(vid.renderer, vid.texture, NULL,
+                             &(SDL_Rect){dx, dy, device_width, device_height}, rotate * 90,
+                             &(SDL_Point){0, 0}, SDL_FLIP_NONE);
         } else
             SDL_RenderCopy(vid.renderer, vid.texture, NULL, NULL);
         SDL_RenderPresent(vid.renderer);
@@ -1002,8 +1012,8 @@ void PLAT_flip(SDL_Surface *IGNORED, int ignored) {
     ox = -oy;
     if (rotate && !on_hdmi)
         SDL_RenderCopyEx(vid.renderer, target, src_rect,
-                         &(SDL_Rect){ox + dst_rect->x, oy + dst_rect->y, dst_rect->w, dst_rect->h}, rotate * 90, NULL,
-                         SDL_FLIP_NONE);
+                         &(SDL_Rect){ox + dst_rect->x, oy + dst_rect->y, dst_rect->w, dst_rect->h},
+                         rotate * 90, NULL, SDL_FLIP_NONE);
     else
         SDL_RenderCopy(vid.renderer, target, src_rect, dst_rect);
 
@@ -1014,11 +1024,13 @@ void PLAT_flip(SDL_Surface *IGNORED, int ignored) {
         // if (ox==effect.scale) ox = 0;
         // if (oy==effect.scale) oy = 0;
         if (rotate && !on_hdmi)
-            SDL_RenderCopyEx(vid.renderer, vid.effect, &(SDL_Rect){0, 0, dst_rect->w, dst_rect->h},
-                             &(SDL_Rect){ox + dst_rect->x, oy + dst_rect->y, dst_rect->w, dst_rect->h}, rotate * 90,
-                             NULL, SDL_FLIP_NONE);
+            SDL_RenderCopyEx(
+                vid.renderer, vid.effect, &(SDL_Rect){0, 0, dst_rect->w, dst_rect->h},
+                &(SDL_Rect){ox + dst_rect->x, oy + dst_rect->y, dst_rect->w, dst_rect->h},
+                rotate * 90, NULL, SDL_FLIP_NONE);
         else
-            SDL_RenderCopy(vid.renderer, vid.effect, &(SDL_Rect){0, 0, dst_rect->w, dst_rect->h}, dst_rect);
+            SDL_RenderCopy(vid.renderer, vid.effect, &(SDL_Rect){0, 0, dst_rect->w, dst_rect->h},
+                           dst_rect);
     }
 
     // uint32_t then = SDL_GetTicks();
@@ -1044,8 +1056,8 @@ static struct OVL_Context {
 } ovl;
 
 SDL_Surface *PLAT_initOverlay(void) {
-    ovl.overlay =
-        SDL_CreateRGBSurface(SDL_SWSURFACE, SCALE2(OVERLAY_WIDTH, OVERLAY_HEIGHT), OVERLAY_DEPTH, OVERLAY_RGBA_MASK);
+    ovl.overlay = SDL_CreateRGBSurface(SDL_SWSURFACE, SCALE2(OVERLAY_WIDTH, OVERLAY_HEIGHT),
+                                       OVERLAY_DEPTH, OVERLAY_RGBA_MASK);
     return ovl.overlay;
 }
 void PLAT_quitOverlay(void) {

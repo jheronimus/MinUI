@@ -88,7 +88,8 @@ static int is_wifi_supplicant_ready(void) {
 }
 
 static int is_wifi_enabled(void) {
-    return is_wifi_interface_present() && (is_wifi_interface_admin_up() || is_wifi_supplicant_ready());
+    return is_wifi_interface_present() &&
+           (is_wifi_interface_admin_up() || is_wifi_supplicant_ready());
 }
 
 static int wait_for_wifi_enabled(void) {
@@ -347,7 +348,8 @@ int MINIME_wirelessWifiRefresh(struct settings_snapshot *snapshot) {
 
     if (wifi_enabled) {
         get_connected_ssid(connected_ssid, sizeof(connected_ssid));
-        strncpy(snapshot->wifi_connected_ssid, connected_ssid, sizeof(snapshot->wifi_connected_ssid));
+        strncpy(snapshot->wifi_connected_ssid, connected_ssid,
+                sizeof(snapshot->wifi_connected_ssid));
 
         parse_scan_results();
 
@@ -396,7 +398,8 @@ int MINIME_wirelessWifiSetEnabled(int enabled) {
 int MINIME_wirelessWifiSetScanning(int enabled) {
     if (enabled && wifi_enabled) {
         char command[256];
-        snprintf(command, sizeof(command), "wpa_cli -i '%s' scan >/dev/null 2>&1", wifi_interface());
+        snprintf(command, sizeof(command), "wpa_cli -i '%s' scan >/dev/null 2>&1",
+                 wifi_interface());
         system(command);
         wifi_scanning = 1;
     } else {
@@ -420,7 +423,8 @@ int MINIME_wirelessWifiConnect(const char *ssid, const char *passphrase, int hid
 
 int MINIME_wirelessWifiDisconnect(void) {
     char command[256];
-    snprintf(command, sizeof(command), "wpa_cli -i '%s' disconnect >/dev/null 2>&1", wifi_interface());
+    snprintf(command, sizeof(command), "wpa_cli -i '%s' disconnect >/dev/null 2>&1",
+             wifi_interface());
     system(command);
     connected_ssid[0] = '\0';
     return 0;

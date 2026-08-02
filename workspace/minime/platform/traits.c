@@ -30,11 +30,11 @@ static int parseInt(const char *value) {
 }
 
 static void setValue(const char *key, const char *value) {
-#define STRING_TRAIT(name)                                                                                             \
-    if (!strcmp(key, #name))                                                                                           \
+#define STRING_TRAIT(name)                                                                         \
+    if (!strcmp(key, #name))                                                                       \
     copyText(traits.name, sizeof(traits.name), value)
-#define INT_TRAIT(name)                                                                                                \
-    if (!strcmp(key, #name))                                                                                           \
+#define INT_TRAIT(name)                                                                            \
+    if (!strcmp(key, #name))                                                                       \
     traits.name = parseInt(value)
 
     STRING_TRAIT(device_id);
@@ -64,7 +64,8 @@ static void setValue(const char *key, const char *value) {
     else STRING_TRAIT(bluetooth_adapter);
     else if (!strcmp(key, "input_gamepad_device_name"))
         copyText(traits.input_gamepad, sizeof(traits.input_gamepad), value);
-    else if (!strcmp(key, "input_power_device_name")) copyText(traits.input_power, sizeof(traits.input_power), value);
+    else if (!strcmp(key, "input_power_device_name"))
+        copyText(traits.input_power, sizeof(traits.input_power), value);
     else if (!strcmp(key, "input_volume_device_name"))
         copyText(traits.input_volume, sizeof(traits.input_volume), value);
     else INT_TRAIT(key_up);
@@ -111,13 +112,16 @@ int MINIME_traitAvailable(const char *value) {
 }
 
 static int validate(void) {
-    if (!traits.device_id[0] || !traits.device_model[0] || !MINIME_traitAvailable(traits.video_device) ||
-        traits.screen_width <= 0 || traits.screen_height <= 0 || traits.screen_rotation < 0 ||
-        !MINIME_traitAvailable(traits.backlight_path) || !MINIME_traitAvailable(traits.input_gamepad) ||
+    if (!traits.device_id[0] || !traits.device_model[0] ||
+        !MINIME_traitAvailable(traits.video_device) || traits.screen_width <= 0 ||
+        traits.screen_height <= 0 || traits.screen_rotation < 0 ||
+        !MINIME_traitAvailable(traits.backlight_path) ||
+        !MINIME_traitAvailable(traits.input_gamepad) ||
         !MINIME_traitAvailable(traits.input_power) || !MINIME_traitAvailable(traits.input_volume) ||
-        traits.key_up < 0 || traits.key_down < 0 || traits.key_left < 0 || traits.key_right < 0 || traits.key_a < 0 ||
-        traits.key_b < 0 || traits.key_x < 0 || traits.key_y < 0 || traits.key_start < 0 || traits.key_select < 0 ||
-        traits.key_menu < 0 || traits.key_power < 0 || traits.key_vol_up < 0 || traits.key_vol_down < 0) {
+        traits.key_up < 0 || traits.key_down < 0 || traits.key_left < 0 || traits.key_right < 0 ||
+        traits.key_a < 0 || traits.key_b < 0 || traits.key_x < 0 || traits.key_y < 0 ||
+        traits.key_start < 0 || traits.key_select < 0 || traits.key_menu < 0 ||
+        traits.key_power < 0 || traits.key_vol_up < 0 || traits.key_vol_down < 0) {
         fprintf(stderr, "Invalid required Minime traits in %s\n", TRAITS_PATH);
         return -1;
     }

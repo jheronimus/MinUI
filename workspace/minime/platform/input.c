@@ -60,12 +60,15 @@ int MINIME_inputNormalizeAxis(int value, int invert) {
     const MinimeTraits *traits = MINIME_traits();
     int normalized;
 
-    if (!traits || traits->axis_min >= traits->axis_center || traits->axis_center >= traits->axis_max)
+    if (!traits || traits->axis_min >= traits->axis_center ||
+        traits->axis_center >= traits->axis_max)
         return 0;
     if (value < traits->axis_center) {
-        normalized = -((traits->axis_center - value) * 32767) / (traits->axis_center - traits->axis_min);
+        normalized =
+            -((traits->axis_center - value) * 32767) / (traits->axis_center - traits->axis_min);
     } else {
-        normalized = ((value - traits->axis_center) * 32767) / (traits->axis_max - traits->axis_center);
+        normalized =
+            ((value - traits->axis_center) * 32767) / (traits->axis_max - traits->axis_center);
     }
     return invert ? -normalized : normalized;
 }
