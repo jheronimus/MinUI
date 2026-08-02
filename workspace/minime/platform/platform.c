@@ -13,10 +13,12 @@
 
 #include <msettings.h>
 
+// clang-format off
 #include "defines.h"
 #include "api.h"
 #include "platform.h"
 #include "utils.h"
+// clang-format on
 
 #include "input.h"
 #include "power.h"
