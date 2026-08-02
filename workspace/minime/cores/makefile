@@ -9,10 +9,14 @@ CORES+= fake-08
 # "unix" produces .so for most cores.
 # "arm64" enables aarch64 dynarec for gpsp (detects x86_64 via uname with "unix").
 fceumm_PLATFORM := unix
+fceumm_FLAGS = FRONTEND_SUPPORTS_RGB565=1
 gambatte_PLATFORM := unix
 gpsp_PLATFORM := arm64
 pcsx_rearmed_PLATFORM := unix
-picodrive_PLATFORM := unix
+pcsx_rearmed_MAKEFILE = Makefile.libretro
+pcsx_rearmed_FLAGS = USE_MINIZ=0 ARCH=aarch64 DYNAREC=arm64
+picodrive_PLATFORM := aarch64
+picodrive_MAKEFILE = Makefile.libretro
 snes9x2005_plus_PLATFORM := unix
 mednafen_pce_fast_PLATFORM := unix
 mednafen_vb_PLATFORM := unix
@@ -23,14 +27,6 @@ race_PLATFORM := unix
 fake-08_PLATFORM := unix
 
 ###############################
-
-# optional core vars
-# *_REPO=
-# *_HASH=
-# *_CORE=
-# *_FLAGS=
-# *_MAKEFILE=
-# *_BUILD_PATH=
 
 fake-08_REPO = https://github.com/jtothebell/fake-08
 fake-08_CORE = fake08_libretro.so
@@ -44,12 +40,6 @@ fceumm_REPO = https://github.com/libretro/libretro-fceumm
 gambatte_REPO = https://github.com/libretro/gambatte-libretro
 
 mednafen_supafaust_REPO = https://github.com/libretro/supafaust
-
-pcsx_rearmed_MAKEFILE = Makefile.libretro
-pcsx_rearmed_FLAGS = USE_MINIZ=0 ARCH=aarch64 DYNAREC=ari64
-
-picodrive_REPO = https://github.com/irixxxx/picodrive
-picodrive_MAKEFILE = Makefile.libretro
 
 pokemini_REPO = https://github.com/libretro/PokeMini
 pokemini_MAKEFILE = Makefile.libretro

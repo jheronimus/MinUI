@@ -58,13 +58,27 @@ int GetMute(void)       { return shared ? shared->mute : 0; }
 
 void SetBrightness(int value) {
 	if (!shared) return;
+	if (value < 0) value = 0;
+	if (value > 10) value = 10;
 	shared->brightness = value;
-	// TODO: implement actual brightness via traits (backlight_path)
+
+	// Write brightness to /sys/class/backlight/*/brightness
+	FILE *f = fopen("/sys/class/backlight/backlight/brightness", "w");
+	if (!f) {
+		// Glob/try alternate backlight paths
+		f = fopen("/sys/class/backlight/backlight_lcd/brightness", "w");
+	}
+	if (f) {
+		// Scale 0..10 to 0..255 (or 1..10)
+		int raw = (value * 255) / 10;
+		if (value > 0 && raw == 0) raw = 1;
+		fprintf(f, "%d\n", raw);
+		fclose(f);
+	}
 }
 
 void SetRawBrightness(int value) {
-	// TODO: implement via traits backlight_path
-	(void)value;
+	SetBrightness(value / 25);
 }
 
 void SetVolume(int value) {
@@ -74,13 +88,19 @@ void SetVolume(int value) {
 	shared->volume = value;
 	
 	int percent = (value * 100) / 20;
-	char cmd[256];
-	snprintf(cmd, sizeof(cmd), "amixer sset 'Line Out' %d%% unmute >/dev/null 2>&1; amixer sset 'DAC' 100%% unmute >/dev/null 2>&1; amixer sset 'Speaker' unmute >/dev/null 2>&1", percent);
+	char cmd[512];
+	snprintf(cmd, sizeof(cmd),
+		"amixer sset 'Playback' %d%% unmute >/dev/null 2>&1 || "
+		"amixer sset 'Line Out' %d%% unmute >/dev/null 2>&1 || "
+		"amixer sset 'Master' %d%% unmute >/dev/null 2>&1 || "
+		"amixer sset 'DAC' %d%% unmute >/dev/null 2>&1 || "
+		"amixer sset 'Speaker' %d%% unmute >/dev/null 2>&1",
+		percent, percent, percent, percent, percent);
 	system(cmd);
 }
 
 void SetRawVolume(int value) {
-	SetVolume(value);
+	SetVolume(value / 5);
 }
 
 void SetJack(int value)  { if (shared) shared->jack = value; }
