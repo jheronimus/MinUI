@@ -52,6 +52,11 @@ static void setValue(const char *key, const char *value) {
     else STRING_TRAIT(rumble_path);
     else STRING_TRAIT(power_led_path);
     else STRING_TRAIT(cpu_governor_path);
+    else STRING_TRAIT(cpu_clock_path);
+    else INT_TRAIT(cpu_clock_menu);
+    else INT_TRAIT(cpu_clock_powersave);
+    else INT_TRAIT(cpu_clock_normal);
+    else INT_TRAIT(cpu_clock_performance);
     else STRING_TRAIT(sound_card);
     else STRING_TRAIT(sound_mixer);
     else STRING_TRAIT(jack_state_path);

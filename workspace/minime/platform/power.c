@@ -76,14 +76,28 @@ void MINIME_powerSetRumble(int enabled) {
 void MINIME_powerSetCPUSpeed(int speed) {
     const MinimeTraits *traits = MINIME_traits();
     const char *governor;
+    int clock = -1;
 
-    if (!traits || !MINIME_traitAvailable(traits->cpu_governor_path))
+    if (!traits)
         return;
-    if (speed <= 1)
-        governor = "powersave";
-    else if (speed >= 3)
-        governor = "performance";
-    else
+
+    if (speed <= 0) {
         governor = "schedutil";
-    putFile((char *)traits->cpu_governor_path, (char *)governor);
+        clock = traits->cpu_clock_menu;
+    } else if (speed == 1) {
+        governor = "schedutil";
+        clock = traits->cpu_clock_powersave;
+    } else if (speed == 2) {
+        governor = "schedutil";
+        clock = traits->cpu_clock_normal;
+    } else {
+        governor = "performance";
+        clock = traits->cpu_clock_performance;
+    }
+
+    if (MINIME_traitAvailable(traits->cpu_governor_path))
+        putFile((char *)traits->cpu_governor_path, (char *)governor);
+
+    if (MINIME_traitAvailable(traits->cpu_clock_path) && clock > 0)
+        putInt((char *)traits->cpu_clock_path, clock);
 }

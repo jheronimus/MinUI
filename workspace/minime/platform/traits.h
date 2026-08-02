@@ -20,6 +20,11 @@ typedef struct MinimeTraits {
     char rumble_path[MINIME_TRAIT_PATH_MAX];
     char power_led_path[MINIME_TRAIT_PATH_MAX];
     char cpu_governor_path[MINIME_TRAIT_PATH_MAX];
+    char cpu_clock_path[MINIME_TRAIT_PATH_MAX];
+    int cpu_clock_menu;
+    int cpu_clock_powersave;
+    int cpu_clock_normal;
+    int cpu_clock_performance;
     char sound_card[MINIME_TRAIT_NAME_MAX];
     char sound_mixer[MINIME_TRAIT_NAME_MAX];
     char jack_state_path[MINIME_TRAIT_PATH_MAX];
