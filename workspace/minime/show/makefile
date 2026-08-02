@@ -6,9 +6,12 @@ TARGET = show
 PRODUCT = $(TARGET).elf
 
 CC = $(CROSS_COMPILE)gcc
+CFLAGS = -O2 -I../platform -I../../all/common -DPLATFORM=\"minime\"
 FLAGS	= -Os -lSDL2 -lSDL2_image -lrt -ldl -Wl,--gc-sections -s
 
+SOURCES = $(TARGET).c ../platform/traits.c ../../all/common/utils.c
+
 all:
-	$(CC) $(TARGET).c -o $(PRODUCT) $(FLAGS)
+	$(CC) $(SOURCES) -o $(PRODUCT) $(CFLAGS) $(FLAGS)
 clean:
 	rm -rf $(PRODUCT)

@@ -15,15 +15,18 @@ CC = $(CROSS_COMPILE)gcc
 SYSROOT     := $(shell $(CC) --print-sysroot)
 
 INCLUDEDIR = $(SYSROOT)/usr/include
-CFLAGS = -I$(INCLUDEDIR)
+CFLAGS = -I$(INCLUDEDIR) -I../platform -I../../all/common -DPLATFORM=\"minime\"
 LDFLAGS = -ldl -lrt -s
 
 OPTM=-Ofast
 
+SOURCES = $(TARGET).c ../platform/traits.c ../platform/audio.c ../platform/video.c ../../all/common/utils.c
+OBJECTS = $(TARGET).o traits.o audio.o video.o utils.o
+
 build:
 	mkdir -p "$(PREFIX)/include" "$(PREFIX)/lib"
-	$(CC) -c -Werror -fpic "$(TARGET).c" -Wl,--no-as-needed $(LDFLAGS)
-	$(CC) -shared -o "lib$(TARGET).so" "$(TARGET).o" $(LDFLAGS)
+	$(CC) -c -Werror -fpic $(OPTM) $(CFLAGS) $(SOURCES)
+	$(CC) -shared -o "lib$(TARGET).so" $(OBJECTS) $(LDFLAGS)
 	cp "$(TARGET).h" "$(PREFIX)/include"
 	cp "lib$(TARGET).so" "$(PREFIX)/lib"
 clean:

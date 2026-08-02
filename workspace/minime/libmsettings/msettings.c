@@ -1,7 +1,7 @@
 /*
- * Minime libmsettings — minimal stub.
- * Reads settings from shared memory (same contract as upstream).
- * Feature imports will add traits-based hardware access.
+ * Minime libmsettings.
+ * Shared-memory settings bridge (same contract as upstream).
+ * All hardware access is traits-driven via the MINIME_* helpers.
  */
 #include <fcntl.h>
 #include <stdio.h>
@@ -11,7 +11,10 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "audio.h"
 #include "msettings.h"
+#include "traits.h"
+#include "video.h"
 
 typedef struct {
     int brightness;
@@ -47,6 +50,7 @@ void InitSettings(void) {
     } else {
         is_host = 0;
     }
+    SetJack(MINIME_audioJackConnected());
 }
 
 void QuitSettings(void) {
@@ -85,24 +89,14 @@ void SetBrightness(int value) {
         value = 10;
     shared->brightness = value;
 
-    // Write brightness to /sys/class/backlight/*/brightness
-    FILE *f = fopen("/sys/class/backlight/backlight/brightness", "w");
-    if (!f) {
-        // Glob/try alternate backlight paths
-        f = fopen("/sys/class/backlight/backlight_lcd/brightness", "w");
-    }
-    if (f) {
-        // Scale 0..10 to 0..255 (or 1..10)
-        int raw = (value * 255) / 10;
-        if (value > 0 && raw == 0)
-            raw = 1;
-        fprintf(f, "%d\n", raw);
-        fclose(f);
-    }
+    int raw = (value * 255) / 10;
+    if (value > 0 && raw == 0)
+        raw = 1;
+    MINIME_videoSetBacklight(raw);
 }
 
 void SetRawBrightness(int value) {
-    SetBrightness(value / 25);
+    MINIME_videoSetBacklight(value);
 }
 
 void SetVolume(int value) {
@@ -114,20 +108,11 @@ void SetVolume(int value) {
         value = 20;
     shared->volume = value;
 
-    int percent = (value * 100) / 20;
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd),
-             "amixer sset 'Playback' %d%% unmute >/dev/null 2>&1 || "
-             "amixer sset 'Line Out' %d%% unmute >/dev/null 2>&1 || "
-             "amixer sset 'Master' %d%% unmute >/dev/null 2>&1 || "
-             "amixer sset 'DAC' %d%% unmute >/dev/null 2>&1 || "
-             "amixer sset 'Speaker' %d%% unmute >/dev/null 2>&1",
-             percent, percent, percent, percent, percent);
-    system(cmd);
+    MINIME_audioSetRawVolume((value * 100) / 20);
 }
 
 void SetRawVolume(int value) {
-    SetVolume(value / 5);
+    MINIME_audioSetRawVolume(value);
 }
 
 void SetJack(int value) {

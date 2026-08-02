@@ -1724,7 +1724,3 @@ int PLAT_setDateTime(int y, int m, int d, int h, int i, int s) {
 	system(cmd);
 	return 0; // why does this return an int?
 }
-
-void PWR_requestLidAction(void) {
-	// stub — lid suspend/resume not yet implemented
-}

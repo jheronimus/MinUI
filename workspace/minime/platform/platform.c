@@ -387,7 +387,7 @@ void PLAT_pollInput(void) {
     }
 
     if (lid.has_lid && PLAT_lidChanged(NULL) && !lid.is_open)
-        PWR_requestLidAction();
+        pad.just_released |= BTN_SLEEP;
 }
 
 int PLAT_shouldWake(void) {
