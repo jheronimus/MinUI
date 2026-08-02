@@ -1049,7 +1049,13 @@ size_t SND_batchSamples(const SND_Frame* frames, size_t frame_count) { // plat_s
 			SDL_Delay(1);
 			SDL_LockAudio();
 		}
-		// if (tries) LOG_info("%8i waited %ims for buffer to get low...\n", ms(), tries);
+		if (snd.frame_in == snd.frame_filled) {
+			// Buffer full and audio callback not consuming samples -> flush to avoid hang
+			snd.frame_in = 0;
+			snd.frame_out = 0;
+			snd.frame_filled = snd.frame_count - 1;
+			break;
+		}
 
 		while (amount && snd.frame_in != snd.frame_filled) {
 			consumed_frames = snd.resample(*frames);
@@ -1090,7 +1096,12 @@ void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
 	spec_in.samples = SAMPLES;
 	spec_in.callback = SND_audioCallback;
 	
-	if (SDL_OpenAudio(&spec_in, &spec_out)<0) LOG_info("SDL_OpenAudio error: %s\n", SDL_GetError());
+	if (SDL_OpenAudio(&spec_in, &spec_out)<0) {
+		LOG_info("SDL_OpenAudio error: %s\n", SDL_GetError());
+		snd.frame_count = 0;
+		snd.initialized = 0;
+		return;
+	}
 	
 	snd.buffer_seconds = 5;
 	snd.sample_rate_in  = sample_rate;

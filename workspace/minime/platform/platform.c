@@ -435,6 +435,7 @@ static struct VID_Context {
     int fb_red_offset;
     int fb_green_offset;
     int fb_blue_offset;
+    struct fb_var_screeninfo fb_vinfo;
 } vid;
 
 static int device_width;
@@ -473,6 +474,10 @@ static int PLAT_initDirectFB(void) {
     vid.fb_red_offset = (int)vinfo.red.offset;
     vid.fb_green_offset = (int)vinfo.green.offset;
     vid.fb_blue_offset = (int)vinfo.blue.offset;
+    vinfo.xoffset = 0;
+    vinfo.yoffset = 0;
+    ioctl(vid.fb_fd, FBIOPAN_DISPLAY, &vinfo);
+    vid.fb_vinfo = vinfo;
     return 0;
 
 fail:
@@ -534,6 +539,9 @@ static void PLAT_presentSurfaceDirectFB(SDL_Surface *surface) {
             dst[x] = rgb565_to_fb32(src[x]);
         }
     }
+    vid.fb_vinfo.xoffset = 0;
+    vid.fb_vinfo.yoffset = 0;
+    ioctl(vid.fb_fd, FBIOPAN_DISPLAY, &vid.fb_vinfo);
 }
 
 static void PLAT_computeRendererRects(const GFX_Renderer *renderer, SDL_Rect *src_rect, SDL_Rect *dst_rect) {

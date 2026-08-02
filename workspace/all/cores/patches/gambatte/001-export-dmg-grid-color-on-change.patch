@@ -8,9 +8,11 @@ index 74b2b1dd0bb3f76b77a616ebac2485ba09565467..caa2d1ef21235ffb09ad22440266495d
              gb.setDmgPaletteColor(palnum, colornum, rgb32);
 +			
 +			if (palnum==0 && colornum==0) {
-+			    char cmd[32];
-+			    sprintf(cmd, "echo %i > /tmp/dmg_grid_color", rgb32);
-+			    system(cmd);
++			    FILE *f = fopen("/tmp/dmg_grid_color", "w");
++			    if (f) {
++			        fprintf(f, "%u\n", rgb32);
++			        fclose(f);
++			    }
 +			}
           }
        }

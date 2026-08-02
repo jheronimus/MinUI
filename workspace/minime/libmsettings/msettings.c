@@ -69,13 +69,18 @@ void SetRawBrightness(int value) {
 
 void SetVolume(int value) {
 	if (!shared) return;
+	if (value < 0) value = 0;
+	if (value > 20) value = 20;
 	shared->volume = value;
-	// TODO: implement actual volume via traits (sound_card, sound_mixer)
+	
+	int percent = (value * 100) / 20;
+	char cmd[256];
+	snprintf(cmd, sizeof(cmd), "amixer sset 'Line Out' %d%% unmute >/dev/null 2>&1; amixer sset 'DAC' 100%% unmute >/dev/null 2>&1; amixer sset 'Speaker' unmute >/dev/null 2>&1", percent);
+	system(cmd);
 }
 
 void SetRawVolume(int value) {
-	// TODO: implement via traits sound_card/sound_mixer
-	(void)value;
+	SetVolume(value);
 }
 
 void SetJack(int value)  { if (shared) shared->jack = value; }
