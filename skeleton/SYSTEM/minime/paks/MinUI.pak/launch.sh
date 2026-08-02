@@ -19,7 +19,7 @@ export LD_LIBRARY_PATH=$SYSTEM_PATH/lib:$LD_LIBRARY_PATH
 
 #######################################
 
-keymon & # > $LOGS_PATH/keymon.txt 2>&1 &
+keymon.elf & # > $LOGS_PATH/keymon.txt 2>&1 &
 
 #######################################
 
@@ -38,7 +38,7 @@ EXEC_PATH="/tmp/minui_exec"
 NEXT_PATH="/tmp/next"
 touch "$EXEC_PATH" && sync
 while [ -f "$EXEC_PATH" ]; do
-	minui > $LOGS_PATH/minui.txt 2>&1
+	minui.elf > $LOGS_PATH/minui.txt 2>&1
 	echo `date +'%F %T'` > "$DATETIME_PATH"
 	sync
 	
