@@ -14,7 +14,7 @@ gambatte_PLATFORM := unix
 gpsp_PLATFORM := arm64
 pcsx_rearmed_PLATFORM := unix
 pcsx_rearmed_MAKEFILE = Makefile.libretro
-pcsx_rearmed_FLAGS = USE_MINIZ=0 ARCH=aarch64 DYNAREC=arm64
+pcsx_rearmed_FLAGS = USE_MINIZ=0 ARCH=aarch64 DYNAREC=ari64
 picodrive_PLATFORM := aarch64
 picodrive_MAKEFILE = Makefile.libretro
 snes9x2005_plus_PLATFORM := unix
@@ -40,6 +40,14 @@ fceumm_REPO = https://github.com/libretro/libretro-fceumm
 gambatte_REPO = https://github.com/libretro/gambatte-libretro
 
 mednafen_supafaust_REPO = https://github.com/libretro/supafaust
+
+# irixxxx/picodrive is the actively maintained fork; libretro/picodrive (the
+# default) lags behind and drifts. Pin the exact commit so CI builds are
+# deterministic.
+picodrive_REPO = https://github.com/irixxxx/picodrive
+picodrive_HASH = 5f9e79f2177443939f21ab965b1c294edbef514c
+
+pcsx_rearmed_HASH = 99d2ce02c6a5836096ade6ced9f8ca23a1fbb7bd
 
 pokemini_REPO = https://github.com/libretro/PokeMini
 pokemini_MAKEFILE = Makefile.libretro
