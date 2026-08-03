@@ -56,6 +56,23 @@ static int has_custom_controllers = 0;
 static int gamepad_type = 0; // index in gamepad_labels/gamepad_values
 static int downsample = 0; // set to 1 to convert from 8888 to 565
 
+// rewind module state (defined in rewind.c, which is included below)
+extern int rewind_pressed;
+extern int rewind_toggle;
+extern int rewinding;
+
+// rewind module API (defined in rewind.c)
+extern void Rewind_init(void);
+extern void Rewind_quit(void);
+extern void Rewind_applyConfig(void);
+extern void Rewind_afterFrame(void);
+extern int Rewind_processFrame(void);
+extern void Rewind_onStateChange(void);
+extern enum retro_savestate_context Rewind_getSavestateContext(void);
+extern int Rewind_audioEnabled(void);
+extern int setRewindToggle(int enable);
+extern int setRewindPressed(int enable);
+
 // these are no longer constants as of the RG CubeXX (even though they look like it)
 static int DEVICE_WIDTH = 0; // FIXED_WIDTH;
 static int DEVICE_HEIGHT = 0; // FIXED_HEIGHT;
@@ -68,6 +85,7 @@ GFX_Renderer renderer;
 static struct Core {
 	int initialized;
 	int need_fullpath;
+	uint64_t serialization_quirks;
 	
 	const char tag[8]; // eg. GBC
 	const char name[128]; // eg. gambatte
@@ -376,9 +394,11 @@ static void Game_changeDisc(char* path) {
 	game_info.data = game.data;
 	game_info.size = game.size;
 	
-	disk_control_ext.replace_image_index(0, &game_info);
-	putFile(CHANGE_DISC_PATH, path); // MinUI still needs to know this to update recents.txt
-}
+ 	disk_control_ext.replace_image_index(0, &game_info);
+ 	putFile(CHANGE_DISC_PATH, path); // MinUI still needs this to know to update recents.txt
+
+ 	Rewind_onStateChange();
+ }
 
 ///////////////////////////////////////
 
@@ -520,6 +540,8 @@ static void State_read(void) { // from picoarch
 		goto error;
 	}
 
+	Rewind_onStateChange();
+
 error:
 	if (state) free(state);
 	if (state_file) fclose(state_file);
@@ -649,6 +671,29 @@ static char* max_ff_labels[] = {
 	NULL,
 };
 
+static char* rewind_buffer_labels[] = {
+	"16", "32", "64", "96", "128", "192", "256", NULL,
+};
+static char* rewind_capture_values[] = {
+	"16", "22", "25", "33", "50", "66", "100", "150", "200", NULL,
+};
+static char* rewind_capture_labels[] = {
+	"16 ms (~60 fps)", "22 ms (~45 fps)",  "25 ms (~40 fps)", "33 ms (~30 fps)", "50 ms (~20 fps)",
+	"66 ms (~15 fps)", "100 ms (~10 fps)", "150 ms (~7 fps)", "200 ms (~5 fps)", NULL,
+};
+static char* rewind_keyframe_values[] = {
+	"125", "250", "500", "1000", "2000", NULL,
+};
+static char* rewind_keyframe_labels[] = {
+	"125 ms", "250 ms", "500 ms", "1000 ms", "2000 ms", NULL,
+};
+static char* rewind_compression_values[] = {
+	"1", "2", "4", "8", "12", NULL,
+};
+static char* rewind_compression_labels[] = {
+	"1 (best ratio)", "2 (default)", "4 (fast)", "8 (faster)", "12 (fastest)", NULL,
+};
+
 ///////////////////////////////
 
 enum {
@@ -660,6 +705,12 @@ enum {
 	FE_OPT_THREAD,
 	FE_OPT_DEBUG,
 	FE_OPT_MAXFF,
+	FE_OPT_REWIND_ENABLE,
+	FE_OPT_REWIND_BUFFER,
+	FE_OPT_REWIND_CAPTURE,
+	FE_OPT_REWIND_KEYFRAME,
+	FE_OPT_REWIND_COMPRESSION,
+	FE_OPT_REWIND_AUDIO,
 	FE_OPT_COUNT,
 };
 
@@ -672,6 +723,8 @@ enum {
 	SHORTCUT_CYCLE_EFFECT,
 	SHORTCUT_TOGGLE_FF,
 	SHORTCUT_HOLD_FF,
+	SHORTCUT_TOGGLE_REWIND,
+	SHORTCUT_HOLD_REWIND,
 	SHORTCUT_COUNT,
 };
 
@@ -918,6 +971,66 @@ static struct Config {
 				.values = max_ff_labels,
 				.labels = max_ff_labels,
 			},
+			[FE_OPT_REWIND_ENABLE] = {
+				.key	= "minarch_rewind_enable",
+				.name	= "Rewind Enable",
+				.desc	= "Keep a compressed in-memory rewind history.\nRequires a rewind shortcut binding.",
+				.default_value = 0,
+				.value = 0,
+				.count = 2,
+				.values = onoff_labels,
+				.labels = onoff_labels,
+			},
+			[FE_OPT_REWIND_BUFFER] = {
+				.key	= "minarch_rewind_buffer_mb",
+				.name	= "Rewind Buffer",
+				.desc	= "Memory reserved for rewind history.\nLarger buffers extend rewind time.",
+				.default_value = 1, // 32 MB
+				.value = 1, // 32 MB
+				.count = 7,
+				.values = rewind_buffer_labels,
+				.labels = rewind_buffer_labels,
+			},
+			[FE_OPT_REWIND_CAPTURE] = {
+				.key	= "minarch_rewind_capture_ms",
+				.name	= "Rewind Capture",
+				.desc	= "Interval between rewind captures.\nLower values improve smoothness\nbut cost more CPU.",
+				.default_value = 0, // 16 ms (~60 fps)
+				.value = 0, // 16 ms (~60 fps)
+				.count = 9,
+				.values = rewind_capture_values,
+				.labels = rewind_capture_labels,
+			},
+			[FE_OPT_REWIND_KEYFRAME] = {
+				.key	= "minarch_rewind_keyframe_ms",
+				.name	= "Rewind Keyframe",
+				.desc	= "How often rewind stores a full keyframe.\nLower values improve seek cost\nbut use more memory.",
+				.default_value = 1, // 250 ms
+				.value = 1, // 250 ms
+				.count = 5,
+				.values = rewind_keyframe_values,
+				.labels = rewind_keyframe_labels,
+			},
+			[FE_OPT_REWIND_COMPRESSION] = {
+				.key	= "minarch_rewind_compression_speed",
+				.name	= "Rewind Compression",
+				.desc	= "LZ4 acceleration for rewind history.\nLower values compress more but\nuse more CPU.",
+				.default_value = 1, // 2 (default)
+				.value = 1, // 2 (default)
+				.count = 5,
+				.values = rewind_compression_values,
+				.labels = rewind_compression_labels,
+			},
+			[FE_OPT_REWIND_AUDIO] = {
+				.key	= "minarch_rewind_audio",
+				.name	= "Rewind Audio",
+				.desc	= "Play audio while rewinding\ninstead of muting it.",
+				.default_value = 0,
+				.value = 0,
+				.count = 2,
+				.values = onoff_labels,
+				.labels = onoff_labels,
+			},
 			[FE_OPT_COUNT] = {NULL}
 		}
 	},
@@ -937,6 +1050,8 @@ static struct Config {
 		[SHORTCUT_CYCLE_EFFECT]			= {"Cycle Effect",		-1, BTN_ID_NONE, 0},
 		[SHORTCUT_TOGGLE_FF]			= {"Toggle FF",			-1, BTN_ID_NONE, 0},
 		[SHORTCUT_HOLD_FF]				= {"Hold FF",			-1, BTN_ID_NONE, 0},
+		[SHORTCUT_TOGGLE_REWIND]		= {"Toggle Rewind",		-1, BTN_ID_NONE, 0},
+		[SHORTCUT_HOLD_REWIND]			= {"Hold Rewind",		-1, BTN_ID_NONE, 0},
 		{NULL}
 	},
 };
@@ -1016,7 +1131,26 @@ static void Config_syncFrontend(char* key, int value) {
 		max_ff_speed = value;
 		i = FE_OPT_MAXFF;
 	}
+	else if (exactMatch(key,config.frontend.options[FE_OPT_REWIND_ENABLE].key)) {
+		i = FE_OPT_REWIND_ENABLE;
+	}
+	else if (exactMatch(key,config.frontend.options[FE_OPT_REWIND_BUFFER].key)) {
+		i = FE_OPT_REWIND_BUFFER;
+	}
+	else if (exactMatch(key,config.frontend.options[FE_OPT_REWIND_CAPTURE].key)) {
+		i = FE_OPT_REWIND_CAPTURE;
+	}
+	else if (exactMatch(key,config.frontend.options[FE_OPT_REWIND_KEYFRAME].key)) {
+		i = FE_OPT_REWIND_KEYFRAME;
+	}
+	else if (exactMatch(key,config.frontend.options[FE_OPT_REWIND_COMPRESSION].key)) {
+		i = FE_OPT_REWIND_COMPRESSION;
+	}
+	else if (exactMatch(key,config.frontend.options[FE_OPT_REWIND_AUDIO].key)) {
+		i = FE_OPT_REWIND_AUDIO;
+	}
 	if (i==-1) return;
+	if (i>=FE_OPT_REWIND_ENABLE && i<=FE_OPT_REWIND_AUDIO && core.initialized) Rewind_applyConfig();
 	Option* option = &config.frontend.options[i];
 	option->value = value;
 }
@@ -1260,13 +1394,13 @@ static void Config_free(void) {
 	if (config.default_cfg) free(config.default_cfg);
 	if (config.user_cfg) free(config.user_cfg);
 }
-static void Config_readOptions(void) {
-	Config_readOptionsString(config.system_cfg);
-	Config_readOptionsString(config.default_cfg);
-	Config_readOptionsString(config.user_cfg);
+ static void Config_readOptions(void) {
+ 	Config_readOptionsString(config.system_cfg);
+ 	Config_readOptionsString(config.default_cfg);
+ 	Config_readOptionsString(config.user_cfg);
 
-	// screen_scaling = SCALE_NATIVE; // TODO: tmp
-}
+ 	// screen_scaling = SCALE_NATIVE; // TODO: tmp
+ }
 static void Config_readControls(void) {
 	Config_readControlsString(config.default_cfg);
 	Config_readControlsString(config.user_cfg);
@@ -1680,57 +1814,86 @@ static void input_poll_callback(void) {
 		}
 	}
 	
-	static int toggled_ff_on = 0; // this logic only works because TOGGLE_FF is before HOLD_FF in the menu...
-	for (int i=0; i<SHORTCUT_COUNT; i++) {
-		ButtonMapping* mapping = &config.shortcuts[i];
-		int btn = 1 << mapping->local;
-		if (btn==BTN_NONE) continue; // not bound
-		if (!mapping->mod || PAD_isPressed(BTN_MENU)) {
-			if (i==SHORTCUT_TOGGLE_FF) {
-				if (PAD_justPressed(btn)) {
-					toggled_ff_on = setFastForward(!fast_forward);
-					if (mapping->mod) ignore_menu = 1;
-					break;
-				}
-				else if (PAD_justReleased(btn)) {
-					if (mapping->mod) ignore_menu = 1;
-					break;
-				}
-			}
-			else if (i==SHORTCUT_HOLD_FF) {
-				// don't allow turn off fast_forward with a release of the hold button 
-				// if it was initially turned on with the toggle button
-				if (PAD_justPressed(btn) || (!toggled_ff_on && PAD_justReleased(btn))) {
-					fast_forward = setFastForward(PAD_isPressed(btn));
-					if (mapping->mod) ignore_menu = 1; // very unlikely but just in case
-				}
-			}
-			else if (PAD_justPressed(btn)) {
-				switch (i) {
-					case SHORTCUT_SAVE_STATE: Menu_saveState(); break;
-					case SHORTCUT_LOAD_STATE: Menu_loadState(); break;
-					case SHORTCUT_RESET_GAME: core.reset(); break;
-					case SHORTCUT_SAVE_QUIT:
-						Menu_saveState();
-						quit = 1;
-						break;
-					case SHORTCUT_CYCLE_SCALE:
-						screen_scaling += 1;
-						int count = config.frontend.options[FE_OPT_SCALING].count;
-						if (screen_scaling>=count) screen_scaling -= count;
-						Config_syncFrontend(config.frontend.options[FE_OPT_SCALING].key, screen_scaling);
-						break;
-					case SHORTCUT_CYCLE_EFFECT:
-						screen_effect += 1;
-						if (screen_effect>=EFFECT_COUNT) screen_effect -= EFFECT_COUNT;
-						Config_syncFrontend(config.frontend.options[FE_OPT_EFFECT].key, screen_effect);
-						break;
-					default: break;
-				}
-				
-				if (mapping->mod) ignore_menu = 1;
-			}
-		}
+ 	static int toggled_ff_on = 0; // this logic only works because TOGGLE_FF is before HOLD_FF in the menu...
+ 	for (int i=0; i<SHORTCUT_COUNT; i++) {
+ 		ButtonMapping* mapping = &config.shortcuts[i];
+ 		int btn = 1 << mapping->local;
+ 		if (btn==BTN_NONE) continue; // not bound
+ 		if (!mapping->mod || PAD_isPressed(BTN_MENU)) {
+ 			if (i==SHORTCUT_HOLD_REWIND) {
+ 				// holding rewind disables fast forward and rewinds
+ 				if (PAD_isPressed(btn)) {
+ 					toggled_ff_on = 0;
+ 					setFastForward(0);
+ 				}
+ 				setRewindPressed(PAD_isPressed(btn));
+ 				if (mapping->mod) ignore_menu = 1;
+ 				continue;
+ 			}
+ 			if (i==SHORTCUT_TOGGLE_FF) {
+ 				if (PAD_justPressed(btn)) {
+ 					setRewindToggle(0);
+ 					setRewindPressed(0);
+ 					toggled_ff_on = setFastForward(!fast_forward);
+ 					if (mapping->mod) ignore_menu = 1;
+ 					break;
+ 				}
+ 				else if (PAD_justReleased(btn)) {
+ 					if (mapping->mod) ignore_menu = 1;
+ 					break;
+ 				}
+ 			}
+ 			else if (i==SHORTCUT_HOLD_FF) {
+ 				// don't allow turn off fast_forward with a release of the hold button 
+ 				// if it was initially turned on with the toggle button
+ 				if (PAD_justPressed(btn) || (!toggled_ff_on && PAD_justReleased(btn))) {
+ 					if (PAD_isPressed(btn)) {
+ 						setRewindToggle(0);
+ 						setRewindPressed(0);
+ 					}
+ 					fast_forward = setFastForward(PAD_isPressed(btn));
+ 					if (mapping->mod) ignore_menu = 1; // very unlikely but just in case
+ 				}
+ 			}
+ 			else if (i==SHORTCUT_TOGGLE_REWIND) {
+ 				if (PAD_justPressed(btn)) {
+ 					toggled_ff_on = 0;
+ 					setFastForward(0);
+ 					setRewindToggle(!rewind_toggle);
+ 					if (mapping->mod) ignore_menu = 1;
+ 					break;
+ 				}
+ 				else if (PAD_justReleased(btn)) {
+ 					if (mapping->mod) ignore_menu = 1;
+ 					break;
+ 				}
+ 			}
+ 			else if (PAD_justPressed(btn)) {
+ 				switch (i) {
+ 					case SHORTCUT_SAVE_STATE: Menu_saveState(); break;
+ 					case SHORTCUT_LOAD_STATE: Menu_loadState(); break;
+ 					case SHORTCUT_RESET_GAME: core.reset(); break;
+ 					case SHORTCUT_SAVE_QUIT:
+ 						Menu_saveState();
+ 						quit = 1;
+ 						break;
+ 					case SHORTCUT_CYCLE_SCALE:
+ 						screen_scaling += 1;
+ 						int count = config.frontend.options[FE_OPT_SCALING].count;
+ 						if (screen_scaling>=count) screen_scaling -= count;
+ 						Config_syncFrontend(config.frontend.options[FE_OPT_SCALING].key, screen_scaling);
+ 						break;
+ 					case SHORTCUT_CYCLE_EFFECT:
+ 						screen_effect += 1;
+ 						if (screen_effect>=EFFECT_COUNT) screen_effect -= EFFECT_COUNT;
+ 						Config_syncFrontend(config.frontend.options[FE_OPT_EFFECT].key, screen_effect);
+ 						break;
+ 					default: break;
+ 				}
+ 				
+ 				if (mapping->mod) ignore_menu = 1;
+ 			}
+ 		}
 	}
 	
 	if (!ignore_menu && PAD_justReleased(BTN_MENU)) {
@@ -1963,11 +2126,23 @@ static bool environment_callback(unsigned cmd, void *data) { // copied from pico
 		// LOG_info("%i: RETRO_ENVIRONMENT_SET_AUDIO_CALLBACK\n", cmd);
 		break;
 	}
+	case RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS: { /* 24 */
+		const uint64_t *quirks = (const uint64_t *)data;
+		if (quirks)
+			core.serialization_quirks = *quirks;
+		break;
+	}
 	case RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE: { /* 23 */
 	        struct retro_rumble_interface *iface = (struct retro_rumble_interface*)data;
 
 	        // LOG_info("Setup rumble interface.\n");
 	        iface->set_rumble_state = set_rumble_state;
+		break;
+	}
+	case RETRO_ENVIRONMENT_GET_SAVESTATE_CONTEXT: { /* 46 */
+		enum retro_savestate_context *out = (enum retro_savestate_context *)data;
+		if (out)
+			*out = Rewind_getSavestateContext();
 		break;
 	}
 	case RETRO_ENVIRONMENT_GET_INPUT_DEVICE_CAPABILITIES: {
@@ -2872,11 +3047,12 @@ static void video_refresh_callback(const void *data, unsigned width, unsigned he
 ///////////////////////////////
 
 // NOTE: sound must be disabled for fast forward to work...
+// (rewind mutes audio unless Rewind Audio is enabled)
 static void audio_sample_callback(int16_t left, int16_t right) {
-	if (!fast_forward) SND_batchSamples(&(const SND_Frame){left,right}, 1);
+	if (!fast_forward && (!rewinding || Rewind_audioEnabled())) SND_batchSamples(&(const SND_Frame){left,right}, 1);
 }
 static size_t audio_sample_batch_callback(const int16_t *data, size_t frames) { 
-	if (!fast_forward) return SND_batchSamples((const SND_Frame*)data, frames);
+	if (!fast_forward && (!rewinding || Rewind_audioEnabled())) return SND_batchSamples((const SND_Frame*)data, frames);
 	else return frames;
 	// return frames;
 };
@@ -2984,9 +3160,10 @@ void Core_load(void) {
 	
 	LOG_info("aspect_ratio: %f (%ix%i) fps: %f\n", a, av_info.geometry.base_width,av_info.geometry.base_height, core.fps);
 }
-void Core_reset(void) {
-	core.reset();
-}
+ void Core_reset(void) {
+ 	core.reset();
+ 	Rewind_onStateChange();
+ }
 void Core_unload(void) {
 	SND_quit();
 }
@@ -4644,6 +4821,9 @@ static void limitFF(void) {
 	last_time = now;
 }
 
+// rewind module (compiled inline so it shares minarch.c's core/config state)
+#include "rewind.c"
+
 static void* coreThread(void *arg) {
 	// force a vsync immediately before loop
 	// for better frame pacing?
@@ -4657,7 +4837,10 @@ static void* coreThread(void *arg) {
 		pthread_mutex_unlock(&core_mx);
 		
 		if (run) {
-			core.run();
+			if (!Rewind_processFrame()) {
+				core.run();
+				Rewind_afterFrame();
+			}
 			limitFF();
 			trackFPS();
 		}
@@ -4728,6 +4911,8 @@ int main(int argc , char* argv[]) {
 	InitSettings(); // after we initialize audio
 	Menu_init();
 	State_resume();
+	Rewind_init();
+	Rewind_onStateChange();
 	Menu_initState(); // make ready for state shortcuts
 	
 	if (thread_video) {
@@ -4751,7 +4936,10 @@ int main(int argc , char* argv[]) {
 		GFX_startFrame();
 		
 		if (!thread_video) {
-			core.run();
+			if (!Rewind_processFrame()) {
+				core.run();
+				Rewind_afterFrame();
+			}
 			limitFF();
 			trackFPS();
 		}
@@ -4805,8 +4993,9 @@ int main(int argc , char* argv[]) {
 	Menu_quit();
 	QuitSettings();
 	
-finish:
+ finish:
 
+	Rewind_quit();
 	Game_close();
 	Core_unload();
 	
