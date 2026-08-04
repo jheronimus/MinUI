@@ -27,6 +27,4 @@ int getInt(char* path);
 
 uint64_t getMicroseconds(void);
 
-char *trim(char *text);
-
 #endif

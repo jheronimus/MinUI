@@ -9,6 +9,17 @@
 #define TRAITS_PATH "/mnt/sdcard/.minime/traits"
 #define NA "na"
 
+static char *trim(char *text) {
+    char *end;
+    while (*text && isspace((unsigned char)*text))
+        text++;
+    end = text + strlen(text);
+    while (end > text && isspace((unsigned char)end[-1]))
+        end--;
+    *end = '\0';
+    return text;
+}
+
 static MinimeTraits traits;
 static int initialized;
 static int valid;

@@ -21,7 +21,7 @@ SDL?=SDL
 
 TARGET = minput
 INCDIR = -I. -I../common/ -I../../$(PLATFORM)/platform/
-SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../common/scaler.c ../../$(PLATFORM)/platform/platform.c ../../$(PLATFORM)/platform/traits.c ../../$(PLATFORM)/platform/input.c ../../$(PLATFORM)/platform/power.c ../../$(PLATFORM)/platform/video.c ../../$(PLATFORM)/platform/audio.c
+SOURCE = $(TARGET).c ../common/utils.c ../common/api.c ../common/scaler.c ../../$(PLATFORM)/platform/platform.c
 
 CC = $(CROSS_COMPILE)gcc
 CFLAGS   = $(ARCH) -fomit-frame-pointer

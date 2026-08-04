@@ -3,9 +3,9 @@
 # Cores are pre-built aarch64 binaries copied from the rgb30/rk3566 build.
 
 all:
-	@echo "Nothing to build for early platform boot"
+	cd ./show && make
 
 early:
 
 clean:
-	@echo "Clean"
+	cd ./show && make clean

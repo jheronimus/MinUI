@@ -30,7 +30,7 @@ define TEMPLATE=
 
 $1_REPO ?= https://github.com/libretro/$(1)
 $1_PLATFORM ?= $(PLATFORM)
-$1_MAKE ?= make $(and $($1_MAKEFILE),-f $($1_MAKEFILE) PLATFORM=libretro) platform=$($1_PLATFORM) $($(1)_FLAGS)
+$1_MAKE ?= make $(and $($1_MAKEFILE),-f $($1_MAKEFILE)) platform=$($1_PLATFORM) $($(1)_FLAGS)
 $1_BUILD_PATH ?= $(1)
 
 src/$(1):
