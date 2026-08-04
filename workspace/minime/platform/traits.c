@@ -54,7 +54,7 @@ static void setValue(const char *key, const char *value) {
     else INT_TRAIT(screen_width);
     else INT_TRAIT(screen_height);
     else INT_TRAIT(screen_rotation);
-    else     STRING_TRAIT(backlight_path);
+    else STRING_TRAIT(backlight_path);
     else INT_TRAIT(backlight_max);
     else STRING_TRAIT(framebuffer_blank_path);
     else STRING_TRAIT(hdmi_state_path);
