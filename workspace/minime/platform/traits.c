@@ -54,12 +54,12 @@ static void setValue(const char *key, const char *value) {
     else INT_TRAIT(screen_width);
     else INT_TRAIT(screen_height);
     else INT_TRAIT(screen_rotation);
-    else STRING_TRAIT(backlight_path);
+    else     STRING_TRAIT(backlight_path);
+    else INT_TRAIT(backlight_max);
     else STRING_TRAIT(framebuffer_blank_path);
     else STRING_TRAIT(hdmi_state_path);
     else STRING_TRAIT(battery_capacity_path);
     else STRING_TRAIT(charger_online_path);
-    else STRING_TRAIT(lid_switch_path);
     else STRING_TRAIT(rumble_path);
     else STRING_TRAIT(power_led_path);
     else STRING_TRAIT(cpu_governor_path);
@@ -78,6 +78,8 @@ static void setValue(const char *key, const char *value) {
         copyText(traits.input_power, sizeof(traits.input_power), value);
     else if (!strcmp(key, "input_volume_device_name"))
         copyText(traits.input_volume, sizeof(traits.input_volume), value);
+    else if (!strcmp(key, "input_lid_device_name"))
+        copyText(traits.input_lid, sizeof(traits.input_lid), value);
     else INT_TRAIT(key_up);
     else INT_TRAIT(key_down);
     else INT_TRAIT(key_left);
@@ -125,7 +127,7 @@ static int validate(void) {
     if (!traits.device_id[0] || !traits.device_model[0] ||
         !MINIME_traitAvailable(traits.video_device) || traits.screen_width <= 0 ||
         traits.screen_height <= 0 || traits.screen_rotation < 0 ||
-        !MINIME_traitAvailable(traits.backlight_path) ||
+        !MINIME_traitAvailable(traits.backlight_path) || traits.backlight_max <= 0 ||
         !MINIME_traitAvailable(traits.input_gamepad) ||
         !MINIME_traitAvailable(traits.input_power) || !MINIME_traitAvailable(traits.input_volume) ||
         traits.key_up < 0 || traits.key_down < 0 || traits.key_left < 0 || traits.key_right < 0 ||

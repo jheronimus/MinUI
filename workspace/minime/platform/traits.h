@@ -12,11 +12,11 @@ typedef struct MinimeTraits {
     int screen_height;
     int screen_rotation;
     char backlight_path[MINIME_TRAIT_PATH_MAX];
+    int backlight_max;
     char framebuffer_blank_path[MINIME_TRAIT_PATH_MAX];
     char hdmi_state_path[MINIME_TRAIT_PATH_MAX];
     char battery_capacity_path[MINIME_TRAIT_PATH_MAX];
     char charger_online_path[MINIME_TRAIT_PATH_MAX];
-    char lid_switch_path[MINIME_TRAIT_PATH_MAX];
     char rumble_path[MINIME_TRAIT_PATH_MAX];
     char power_led_path[MINIME_TRAIT_PATH_MAX];
     char cpu_governor_path[MINIME_TRAIT_PATH_MAX];
@@ -32,6 +32,7 @@ typedef struct MinimeTraits {
     char input_gamepad[MINIME_TRAIT_NAME_MAX];
     char input_power[MINIME_TRAIT_NAME_MAX];
     char input_volume[MINIME_TRAIT_NAME_MAX];
+    char input_lid[MINIME_TRAIT_NAME_MAX];
     int key_up;
     int key_down;
     int key_left;

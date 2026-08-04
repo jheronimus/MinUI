@@ -89,7 +89,9 @@ void SetBrightness(int value) {
         value = 10;
     shared->brightness = value;
 
-    int raw = (value * 255) / 10;
+    const MinimeTraits *traits = MINIME_traits();
+    int max = (traits && traits->backlight_max > 0) ? traits->backlight_max : 255;
+    int raw = (value * max) / 10;
     if (value > 0 && raw == 0)
         raw = 1;
     MINIME_videoSetBacklight(raw);

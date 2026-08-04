@@ -28,6 +28,29 @@
 #ifndef EVIOCGNAME
 #define EVIOCGNAME(len) _IOC(_IOC_READ, 'E', 0x06, len)
 #endif
+#ifndef EVIOCGSW
+#define EVIOCGSW(len) _IOC(_IOC_READ, 'E', 0x0b, len)
+#endif
+#ifndef SW_LID
+#define SW_LID 0x00
+#endif
+#ifndef SW_MAX
+#define SW_MAX 0x0f
+#endif
+#ifndef EV_SW
+#define EV_SW 0x05
+#endif
+#define EV_KEY 0x01
+#define EV_ABS 0x03
+
+// from <linux/input.h> which has BTN_ constants that conflict with platform.h
+struct input_event {
+    struct timeval time;
+    unsigned short type;
+    unsigned short code;
+    int value;
+};
+
 #define INPUT_EVENT_LIMIT 32
 
 int plat_fixed_width = 640;
@@ -347,17 +370,32 @@ static void clearStaleAggregateButtons(void) {
     }
 }
 
+static int lid_fd = -1;
+
 void PLAT_initLid(void) {
-    lid.has_lid = traits && MINIME_traitAvailable(traits->lid_switch_path);
+    if (!traits)
+        load_traits();
+    lid_fd = MINIME_inputOpenByName(traits->input_lid);
+    lid.has_lid = lid_fd >= 0;
+    if (lid.has_lid) {
+        unsigned long sw[SW_MAX / 8 / sizeof(unsigned long) + 1] = {0};
+        if (ioctl(lid_fd, EVIOCGSW(sizeof(sw)), sw) >= 0)
+            lid.is_open = !((sw[0] >> SW_LID) & 1);
+    }
 }
 int PLAT_lidChanged(int *state) {
-    if (lid.has_lid) {
-        int lid_open = getInt((char *)traits->lid_switch_path);
-        if (lid_open != lid.is_open) {
-            lid.is_open = lid_open;
-            if (state)
-                *state = lid_open;
-            return 1;
+    if (!lid.has_lid)
+        return 0;
+    struct input_event event;
+    while (read(lid_fd, &event, sizeof(event)) == sizeof(event)) {
+        if (event.type == EV_SW && event.code == SW_LID) {
+            int lid_open = !event.value;
+            if (lid_open != lid.is_open) {
+                lid.is_open = lid_open;
+                if (state)
+                    *state = lid_open;
+                return 1;
+            }
         }
     }
     return 0;
@@ -376,17 +414,11 @@ void PLAT_quitInput(void) {
         if (inputs[i] >= 0)
             close(inputs[i]);
     }
+    if (lid_fd >= 0) {
+        close(lid_fd);
+        lid_fd = -1;
+    }
 }
-
-// from <linux/input.h> which has BTN_ constants that conflict with platform.h
-struct input_event {
-    struct timeval time;
-    __u16 type;
-    __u16 code;
-    __s32 value;
-};
-#define EV_KEY 0x01
-#define EV_ABS 0x03
 
 static void drainInputFd(int input) {
     struct input_event event;
