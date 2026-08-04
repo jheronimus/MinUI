@@ -9,7 +9,10 @@ CORES+= fake-08
 # "unix" produces .so for most cores.
 # "arm64" enables aarch64 dynarec for gpsp (detects x86_64 via uname with "unix").
 fceumm_PLATFORM := unix
-fceumm_FLAGS = FRONTEND_SUPPORTS_RGB565=1
+# WANT_32BPP=0 keeps fceumm at RGB565 (minarch is RGB565-only). The unix
+# platform branch in Makefile.libretro defaults WANT_32BPP to 1 (RGB888),
+# which minarch rejects -> wrong palette + overscan.
+fceumm_FLAGS = WANT_32BPP=0
 gambatte_PLATFORM := unix
 gpsp_PLATFORM := arm64
 pcsx_rearmed_PLATFORM := unix
