@@ -49,6 +49,11 @@ picodrive_HASH = 5f9e79f2177443939f21ab965b1c294edbef514c
 
 pcsx_rearmed_HASH = 99d2ce02c6a5836096ade6ced9f8ca23a1fbb7bd
 
+# Upstream libretro/mgba removed its Makefile/Makefile.libretro in
+# 89404771 (2026-08-04, migrated to CMake). Pin to the last commit that
+# still ships the Makefile our build expects.
+mgba_HASH = 517e518c48e351def04042dc159064dd098830a9
+
 pokemini_REPO = https://github.com/libretro/PokeMini
 pokemini_MAKEFILE = Makefile.libretro
 
