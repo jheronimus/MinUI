@@ -1029,7 +1029,7 @@ static void SND_selectResampler(void) { // plat_sound_select_resampler
 }
 size_t SND_batchSamples(const SND_Frame* frames, size_t frame_count) { // plat_sound_write / plat_sound_write_resample
 	
-	// return frame_count; // TODO: tmp, silent
+	return frame_count; // TODO: tmp, silent
 	
 	if (snd.frame_count==0) return 0;
 	
@@ -1048,6 +1048,13 @@ size_t SND_batchSamples(const SND_Frame* frames, size_t frame_count) { // plat_s
 			SDL_UnlockAudio();
 			SDL_Delay(1);
 			SDL_LockAudio();
+		}
+		if (snd.frame_in == snd.frame_filled) {
+			// Buffer full and audio callback not consuming samples -> flush to avoid hang
+			snd.frame_in = 0;
+			snd.frame_out = 0;
+			snd.frame_filled = snd.frame_count - 1;
+			break;
 		}
 
 		while (amount && snd.frame_in != snd.frame_filled) {

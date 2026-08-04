@@ -721,6 +721,9 @@ SDL_Surface *PLAT_initVideo(void) {
 
     vid.sharpness = SHARPNESS_SOFT;
 
+    LOG_info("PLAT_initVideo: window %ix%i use_direct_fb=%i fb_fd=%i\n", w, h,
+             vid.use_direct_fb, vid.fb_fd);
+
     return vid.screen;
 }
 
@@ -949,6 +952,9 @@ void PLAT_blitRenderer(GFX_Renderer *renderer) {
 void PLAT_flip(SDL_Surface *IGNORED, int ignored) {
 
     on_hdmi = GetHDMI(); // use settings instead of getInt(HDMI_STATE_PATH)
+
+    LOG_info("PLAT_flip: blit=%i direct=%i hdmi=%i\n", vid.blit != NULL, vid.use_direct_fb,
+             on_hdmi);
 
     if (!vid.blit) {
         resizeVideo(device_width, device_height, FIXED_PITCH); // !!!???

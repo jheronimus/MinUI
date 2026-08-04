@@ -2021,6 +2021,10 @@ static bool set_rumble_state(unsigned port, enum retro_rumble_effect effect, uin
 	return 1;
 }
 static bool environment_callback(unsigned cmd, void *data) { // copied from picoarch initially
+	static int dbg_env_count = 0;
+	dbg_env_count++;
+	if (dbg_env_count <= 100 || dbg_env_count % 200 == 0)
+		LOG_info("environment_callback: cmd=%u count=%i ms=%u\n", cmd, dbg_env_count, SDL_GetTicks());
 	// LOG_info("environment_callback: %i\n", cmd);
 	
 	switch(cmd) {
@@ -2947,6 +2951,10 @@ static void selectScaler(int src_w, int src_h, int src_p) {
 }
 static void video_refresh_callback_main(const void *data, unsigned width, unsigned height, size_t pitch) {
 	// return;
+	
+	static int dbg_refresh_count = 0;
+	if (++dbg_refresh_count <= 20 || dbg_refresh_count % 300 == 0)
+		LOG_info("video_refresh_callback_main: call=%i ms=%u data=%p %ux%u\n", dbg_refresh_count, SDL_GetTicks(), data, width, height);
 	
 	Special_render();
 	
@@ -4830,16 +4838,25 @@ static void* coreThread(void *arg) {
 	GFX_clearAll();
 	GFX_flip(screen);
 	
-	while (!quit) {
+ 	while (!quit) {
 		int run = 0;
 		pthread_mutex_lock(&core_mx);
 		run = should_run_core;
 		pthread_mutex_unlock(&core_mx);
 		
 		if (run) {
+			static uint32_t dbg_last = 0;
+			uint32_t dbg_now = SDL_GetTicks();
+			if (dbg_now - dbg_last >= 1000) {
+				dbg_last = dbg_now;
+				LOG_info("coreThread loop tick ms=%u\n", dbg_now);
+			}
 			if (!Rewind_processFrame()) {
+				LOG_info("loop pre-run ms=%u\n", SDL_GetTicks());
 				core.run();
+				LOG_info("loop post-run ms=%u\n", SDL_GetTicks());
 				Rewind_afterFrame();
+				LOG_info("loop post-rewind ms=%u\n", SDL_GetTicks());
 			}
 			limitFF();
 			trackFPS();
@@ -4936,9 +4953,12 @@ int main(int argc , char* argv[]) {
 		GFX_startFrame();
 		
 		if (!thread_video) {
+			LOG_info("main pre-run ms=%u\n", SDL_GetTicks());
 			if (!Rewind_processFrame()) {
 				core.run();
+				LOG_info("main post-run ms=%u\n", SDL_GetTicks());
 				Rewind_afterFrame();
+				LOG_info("main post-rewind ms=%u\n", SDL_GetTicks());
 			}
 			limitFF();
 			trackFPS();
