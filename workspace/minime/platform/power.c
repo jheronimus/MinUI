@@ -50,15 +50,6 @@ int MINIME_powerGetBattery(int *charging, int *capacity) {
     return 0;
 }
 
-int MINIME_powerReadLid(void) {
-    const MinimeTraits *traits = MINIME_traits();
-    int value = 1;
-
-    if (traits && MINIME_traitAvailable(traits->lid_switch_path))
-        value = getInt((char *)traits->lid_switch_path);
-    return value;
-}
-
 void MINIME_powerSetLED(int enabled) {
     const MinimeTraits *traits = MINIME_traits();
 

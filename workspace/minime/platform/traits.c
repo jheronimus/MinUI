@@ -61,7 +61,6 @@ static void setValue(const char *key, const char *value) {
     else STRING_TRAIT(sound_mixer);
     else STRING_TRAIT(jack_state_path);
     else STRING_TRAIT(wifi_interface);
-    else STRING_TRAIT(bluetooth_adapter);
     else if (!strcmp(key, "input_gamepad_device_name"))
         copyText(traits.input_gamepad, sizeof(traits.input_gamepad), value);
     else if (!strcmp(key, "input_power_device_name"))

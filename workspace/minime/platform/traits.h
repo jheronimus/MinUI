@@ -29,7 +29,6 @@ typedef struct MinimeTraits {
     char sound_mixer[MINIME_TRAIT_NAME_MAX];
     char jack_state_path[MINIME_TRAIT_PATH_MAX];
     char wifi_interface[MINIME_TRAIT_NAME_MAX];
-    char bluetooth_adapter[MINIME_TRAIT_NAME_MAX];
     char input_gamepad[MINIME_TRAIT_NAME_MAX];
     char input_power[MINIME_TRAIT_NAME_MAX];
     char input_volume[MINIME_TRAIT_NAME_MAX];
