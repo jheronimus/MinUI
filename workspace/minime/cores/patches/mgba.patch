@@ -1,0 +1,27 @@
+diff --git forkSrcPrefix/Makefile.libretro forkDstPrefix/Makefile.libretro
+index 06fad5254..88dffe8c9 100644
+--- forkSrcPrefix/Makefile.libretro
++++ forkDstPrefix/Makefile.libretro
+@@ -422,6 +422,22 @@ else ifeq ($(platform), miyoo)
+    DEFINES += -std=c99
+
+ # Windows
++# Minime
++else ifeq ($(platform), minime)
++   TARGET := $(TARGET_NAME)_libretro.so
++   fpic := -fPIC
++   SHARED := -shared -Wl,-version-script=link.T
++   CC = $(CROSS_COMPILE)gcc
++   AR = $(CROSS_COMPILE)ar
++   PLATFORM_DEFINES += -D_GNU_SOURCE
++   CPUFLAGS := -march=armv8-a+crc+simd
++   CFLAGS += -Ofast -flto -DUSE_RENDER_THREAD -DNO_ASM -DARM_ASM -frename-registers -ftree-vectorize -DNDEBUG -fno-ident
++   CFLAGS  += -fpic -fomit-frame-pointer -fno-exceptions -fno-non-call-exceptions -Wno-psabi -Wno-format
++   LDFLAGS += $(CPUFLAGS) -lpthread -Wl,--gc-sections -shared
++   LDFLAGS += -Ofast -fno-ident
++   DEFINES += -std=c99 -D_GNU_SOURCE -DHAVE_LOCALE
++   HAVE_VFS_FD = 0
++
+ else
+    TARGET := $(TARGET_NAME)_libretro.dll
+    CC ?= gcc

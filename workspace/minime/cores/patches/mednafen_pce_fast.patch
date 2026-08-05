@@ -1,0 +1,25 @@
+diff --git forkSrcPrefix/Makefile forkDstPrefix/Makefile
+index be005e4..e24ed82 100644
+--- forkSrcPrefix/Makefile
++++ forkDstPrefix/Makefile
+@@ -603,6 +603,20 @@ CFLAGS += -D_CRT_SECURE_NO_DEPRECATE
+ WINDOWS_VERSION=1
+
+ # Windows
++# Minime
++else ifeq ($(platform), minime)
++   TARGET := $(TARGET_NAME)_libretro.so
++   CC = $(CROSS_COMPILE)gcc
++   CXX = $(CROSS_COMPILE)g++
++   AR = $(CROSS_COMPILE)ar
++   fpic := -fPIC
++   SHARED := -shared -Wl,--no-undefined -Wl,--version-script=link.T
++   LDFLAGS += -lrt
++   FLAGS += -march=armv8-a+crc+simd
++   FLAGS += -fomit-frame-pointer -ffast-math -D_GNU_SOURCE
++   CXXFLAGS += -std=c++11
++   CFLAGS += -std=gnu11
++
+ else
+    TARGET := $(TARGET_NAME)_libretro.dll
+    CC ?= gcc

@@ -1,0 +1,22 @@
+diff --git forkSrcPrefix/Makefile.libretro forkDstPrefix/Makefile.libretro
+index 5b90d40..fe80e60 100644
+--- forkSrcPrefix/Makefile.libretro
++++ forkDstPrefix/Makefile.libretro
+@@ -460,6 +460,17 @@ else ifeq ($(platform), miyoo)
+ 	SHARED := -shared -Wl,--version-script=src/drivers/libretro/link.T -Wl,-no-undefined
+ 	PLATFORM_DEFINES += -fomit-frame-pointer -ffast-math -mcpu=arm926ej-s
+
++# Minime
++else ifeq ($(platform), minime)
++	TARGET := $(TARGET_NAME)_libretro.so
++	CC = $(CROSS_COMPILE)gcc
++	CXX = $(CROSS_COMPILE)g++
++	AR = $(CROSS_COMPILE)ar
++	fpic := -fPIC
++	SHARED := -shared -Wl,--version-script=src/drivers/libretro/link.T -Wl,-no-undefined
++	PLATFORM_DEFINES += -fomit-frame-pointer -ffast-math -march=armv8-a+crc
++	EXTERNAL_ZLIB = 1
++
+ # Windows MSVC 2017 all architectures
+ else ifneq (,$(findstring windows_msvc2017,$(platform)))
+ 	CC  = cl.exe

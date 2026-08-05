@@ -1,0 +1,23 @@
+diff --git forkSrcPrefix/Makefile forkDstPrefix/Makefile
+index 5cc312e..2925716 100644
+--- forkSrcPrefix/Makefile
++++ forkDstPrefix/Makefile
+@@ -527,6 +527,18 @@ else ifneq (,$(findstring windows_msvc2017,$(platform)))
+ 	LDFLAGS += -DLL
+
+ # Windows
++# Minime
++else ifeq ($(platform), minime)
++   TARGET := $(TARGET_NAME)_libretro.so
++   CC = $(CROSS_COMPILE)gcc
++   CXX = $(CROSS_COMPILE)g++
++   AR = $(CROSS_COMPILE)ar
++   STRIP = $(CROSS_COMPILE)strip
++   NEED_BPP := 16
++   fpic := -fPIC
++   SHARED := -shared -Wl,--no-undefined -Wl,--version-script=link.T
++   FLAGS += -ffast-math  -march=armv8-a+crc+simd -flto
++
+ else
+    TARGET := $(TARGET_NAME)_libretro.dll
+    CC ?= gcc
