@@ -9,9 +9,7 @@
 
 #include <msettings.h>
 
-#include "input.h"
 #include "traits.h"
-#include "video.h"
 
 #define VOLUME_MIN 0
 #define VOLUME_MAX 20

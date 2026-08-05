@@ -20,8 +20,8 @@ LDFLAGS = -ldl -lrt -s
 
 OPTM=-Ofast
 
-SOURCES = $(TARGET).c ../platform/traits.c ../platform/audio.c ../platform/video.c ../platform/input.c ../platform/power.c ../../all/common/utils.c
-OBJECTS = $(TARGET).o traits.o audio.o video.o input.o power.o utils.o
+SOURCES = $(TARGET).c ../platform/traits.c ../../all/common/utils.c
+OBJECTS = $(TARGET).o traits.o utils.o
 
 build:
 	mkdir -p "$(PREFIX)/include" "$(PREFIX)/lib"
