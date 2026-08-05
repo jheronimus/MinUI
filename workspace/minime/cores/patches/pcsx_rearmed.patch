@@ -2,7 +2,7 @@ diff --git forkSrcPrefix/Makefile.libretro forkDstPrefix/Makefile.libretro
 index 4560aacc..12abee77 100644
 --- forkSrcPrefix/Makefile.libretro
 +++ forkDstPrefix/Makefile.libretro
-@@ -597,6 +597,21 @@ else ifeq ($(platform), miyoo)
+@@ -597,6 +597,15 @@ else ifeq ($(platform), miyoo)
  	DYNAREC = ari64
 
  # Emscripten
@@ -12,12 +12,6 @@ index 4560aacc..12abee77 100644
 +   CC = $(CROSS_COMPILE)gcc
 +   CXX = $(CROSS_COMPILE)g++
 +   AR = $(CROSS_COMPILE)ar
-+   CFLAGS += -march=armv8-a+crc+simd
-+   CFLAGS += -fomit-frame-pointer -ffast-math -fdata-sections -ffunction-sections -fsingle-precision-constant -flto -fPIC -ftree-vectorize
-+   LDFLAGS += -flto -fPIC
-+   OPTIMIZE += -Ofast -DNDEBUG=1
-+   HAVE_NEON = 1
-+   BUILTIN_GPU = neon
 +   ARCH = arm64
 +   DYNAREC = ari64
 +
