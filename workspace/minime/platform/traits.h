@@ -1,6 +1,8 @@
 #ifndef MINIME_TRAITS_H
 #define MINIME_TRAITS_H
 
+#include <stddef.h>
+
 #define MINIME_TRAIT_PATH_MAX 256
 #define MINIME_TRAIT_NAME_MAX 64
 
@@ -72,5 +74,25 @@ typedef struct MinimeTraits {
 int MINIME_traitsInit(void);
 const MinimeTraits *MINIME_traits(void);
 int MINIME_traitAvailable(const char *value);
+
+///////////////////////////////
+// traits-driven hardware HAL
+
+int MINIME_audioJackConnected(void);
+void MINIME_audioSetRawVolume(int value);
+
+int MINIME_videoHDMIConnected(void);
+void MINIME_videoSetBacklight(int value);
+void MINIME_videoBlank(int blank);
+
+int MINIME_inputOpenByName(const char *expected);
+int MINIME_inputOpenShortcutDevices(int *fds, size_t max_fds);
+int MINIME_inputHasCZ(void);
+int MINIME_inputNormalizeAxis(int value, int invert);
+
+int MINIME_powerGetBattery(int *charging, int *capacity);
+void MINIME_powerSetLED(int enabled);
+void MINIME_powerSetRumble(int enabled);
+void MINIME_powerSetCPUSpeed(int speed);
 
 #endif
