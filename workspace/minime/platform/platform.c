@@ -60,29 +60,29 @@ int is_rg34xx = 0;
 static int rotate = 0;
 static const MinimeTraits *traits;
 
-// Raw keycodes
-static int k_up = 544;
-static int k_down = 545;
-static int k_left = 546;
-static int k_right = 547;
-static int k_a = 305;
-static int k_b = 304;
-static int k_x = 308;
-static int k_y = 307;
-static int k_c = 306;
-static int k_z = 309;
-static int k_l1 = 310;
-static int k_r1 = 311;
-static int k_l2 = 312;
-static int k_r2 = 313;
-static int k_l3 = 317;
-static int k_r3 = 318;
-static int k_start = 315;
-static int k_select = 314;
-static int k_menu = 316;
-static int k_power = 116;
-static int k_vol_up = 115;
-static int k_vol_down = 114;
+// Keycodes, resolved from traits. Initialized in load_traits().
+static int k_up = -1;
+static int k_down = -1;
+static int k_left = -1;
+static int k_right = -1;
+static int k_a = -1;
+static int k_b = -1;
+static int k_x = -1;
+static int k_y = -1;
+static int k_c = -1;
+static int k_z = -1;
+static int k_l1 = -1;
+static int k_r1 = -1;
+static int k_l2 = -1;
+static int k_r2 = -1;
+static int k_l3 = -1;
+static int k_r3 = -1;
+static int k_start = -1;
+static int k_select = -1;
+static int k_menu = -1;
+static int k_power = -1;
+static int k_vol_up = -1;
+static int k_vol_down = -1;
 
 static void load_traits(void) {
     if (MINIME_traitsInit() != 0)
@@ -91,7 +91,7 @@ static void load_traits(void) {
     plat_fixed_width = traits->screen_width;
     plat_fixed_height = traits->screen_height;
     plat_screen_rotation = traits->screen_rotation;
-    plat_has_hdmi = MINIME_traitAvailable(traits->hdmi_state_path);
+    plat_has_hdmi = MINIME_traitAvailable(traits->gpu_hdmi_state_path);
     k_up = traits->key_up;
     k_down = traits->key_down;
     k_left = traits->key_left;
@@ -115,14 +115,17 @@ static void load_traits(void) {
     k_vol_up = traits->key_vol_up;
     k_vol_down = traits->key_vol_down;
 
-    // derive layout properties
+    // Derive layout properties from resolved traits.
     plat_padding = (plat_fixed_width >= 720) ? 40 : 10;
     plat_main_row_count = (plat_fixed_width >= 720) ? 8 : 6;
     if (plat_screen_rotation != -1) {
         rotate = plat_screen_rotation / 90;
     }
-    is_cubexx = (plat_fixed_width == 720 && plat_fixed_height == 720);
-    is_rg34xx = (plat_fixed_width == 720 && plat_fixed_height == 480);
+    // Device identity comes from the screen aspect ratio, not resolution:
+    // a 720x480 display is only an RG34XX if the aspect says 3:2 (an
+    // RG351P/M at 480x320 is also 3:2 but a different device shape).
+    is_cubexx = (traits->screen_aspect == MINIME_ASPECT_1x1);
+    is_rg34xx = (traits->screen_aspect == MINIME_ASPECT_3x2) && plat_fixed_width == 720;
 }
 
 ///////////////////////////////
@@ -482,7 +485,7 @@ static int PLAT_initDirectFB(void) {
     struct fb_fix_screeninfo finfo;
     struct fb_var_screeninfo vinfo;
 
-    vid.fb_fd = open(traits->video_device, O_RDWR | O_CLOEXEC);
+    vid.fb_fd = open(traits->gpu_device, O_RDWR | O_CLOEXEC);
     if (vid.fb_fd < 0)
         return -1;
 

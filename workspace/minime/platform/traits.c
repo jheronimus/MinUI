@@ -1,4 +1,6 @@
 #include <ctype.h>
+#include <dirent.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,6 +18,118 @@
 #define TRAITS_PATH "/mnt/sdcard/.minime/traits"
 #define NA "na"
 
+typedef enum {
+    TYPE_STRING,
+    TYPE_INT,
+} TraitType;
+
+typedef struct {
+    const char *key;
+    TraitType type;
+    size_t offset;
+} TraitField;
+
+#define FIELD(type, name) {#name, type, offsetof(MinimeTraits, name)}
+#define STR_FIELD(name) FIELD(TYPE_STRING, name)
+#define INT_FIELD(name) FIELD(TYPE_INT, name)
+
+// Schema table: the single list of keys the parser understands. Anything not
+// in this table is an error, so schema drift fails loudly instead of being
+// silently ignored. Strings that are not present or are "na" remain empty.
+static const TraitField TRAIT_FIELDS[] = {
+    STR_FIELD(device_id),
+    STR_FIELD(device_model),
+    INT_FIELD(screen_width),
+    INT_FIELD(screen_height),
+    INT_FIELD(screen_rotation),
+    INT_FIELD(screen_refresh_rate),
+    STR_FIELD(screen_backlight_path),
+    INT_FIELD(screen_backlight_max),
+    STR_FIELD(screen_blank_path),
+    INT_FIELD(screen2_width),
+    INT_FIELD(screen2_height),
+    INT_FIELD(screen2_rotation),
+    STR_FIELD(screen2_backlight_path),
+    STR_FIELD(screen2_blank_path),
+    INT_FIELD(screen2_touch),
+    STR_FIELD(screen2_touch_device_name),
+    STR_FIELD(cpu_governor_path),
+    STR_FIELD(cpu_clock_path),
+    INT_FIELD(cpu_clock_menu),
+    INT_FIELD(cpu_clock_powersave),
+    INT_FIELD(cpu_clock_normal),
+    INT_FIELD(cpu_clock_performance),
+    INT_FIELD(cpu_undervolt_supported),
+    STR_FIELD(cpu_thermal_path),
+    STR_FIELD(gpu_device),
+    STR_FIELD(gpu_device2),
+    STR_FIELD(gpu_hdmi_connector),
+    INT_FIELD(gpu_clock_min),
+    INT_FIELD(gpu_clock_max),
+    STR_FIELD(audio_card),
+    STR_FIELD(audio_mixer),
+    STR_FIELD(audio_jack_device_name),
+    INT_FIELD(audio_mic),
+    STR_FIELD(input_gamepad),
+    STR_FIELD(input_power),
+    STR_FIELD(input_volume),
+    STR_FIELD(input_lid),
+    STR_FIELD(input_rumble_device_name),
+    INT_FIELD(input_touch),
+    STR_FIELD(input_touch_device_name),
+    INT_FIELD(key_up),
+    INT_FIELD(key_down),
+    INT_FIELD(key_left),
+    INT_FIELD(key_right),
+    INT_FIELD(key_a),
+    INT_FIELD(key_b),
+    INT_FIELD(key_c),
+    INT_FIELD(key_x),
+    INT_FIELD(key_y),
+    INT_FIELD(key_z),
+    INT_FIELD(key_l1),
+    INT_FIELD(key_r1),
+    INT_FIELD(key_l2),
+    INT_FIELD(key_r2),
+    INT_FIELD(key_l3),
+    INT_FIELD(key_r3),
+    INT_FIELD(key_start),
+    INT_FIELD(key_select),
+    INT_FIELD(key_menu),
+    INT_FIELD(key_power),
+    INT_FIELD(key_vol_up),
+    INT_FIELD(key_vol_down),
+    INT_FIELD(axis_lx),
+    INT_FIELD(axis_ly),
+    INT_FIELD(axis_rx),
+    INT_FIELD(axis_ry),
+    INT_FIELD(axis_min),
+    INT_FIELD(axis_center),
+    INT_FIELD(axis_max),
+    INT_FIELD(axis_lx_invert),
+    INT_FIELD(axis_ly_invert),
+    INT_FIELD(axis_rx_invert),
+    INT_FIELD(axis_ry_invert),
+    STR_FIELD(wifi_interface),
+    STR_FIELD(bluetooth_interface),
+    STR_FIELD(power_battery_sysfs),
+    STR_FIELD(power_charger_online_path),
+    STR_FIELD(power_led_path),
+    INT_FIELD(usb_otg),
+    INT_FIELD(usb_host_ports),
+    INT_FIELD(usb_device_mode),
+    INT_FIELD(usb_controller_mode),
+    STR_FIELD(storage_sd_node),
+    STR_FIELD(storage_sd2_node),
+    STR_FIELD(storage_emmc_node),
+};
+
+#define TRAIT_FIELD_COUNT (sizeof(TRAIT_FIELDS) / sizeof(TRAIT_FIELDS[0]))
+
+static MinimeTraits traits;
+static int initialized;
+static int valid;
+
 static char *trim(char *text) {
     char *end;
     while (*text && isspace((unsigned char)*text))
@@ -26,10 +140,6 @@ static char *trim(char *text) {
     *end = '\0';
     return text;
 }
-
-static MinimeTraits traits;
-static int initialized;
-static int valid;
 
 static void copyText(char *dst, size_t size, const char *src) {
     if (!dst || !size)
@@ -47,94 +157,76 @@ static int parseInt(const char *value) {
     return *end ? -1 : (int)parsed;
 }
 
-static void setValue(const char *key, const char *value) {
-#define STRING_TRAIT(name)                                                                         \
-    if (!strcmp(key, #name))                                                                       \
-    copyText(traits.name, sizeof(traits.name), value)
-#define INT_TRAIT(name)                                                                            \
-    if (!strcmp(key, #name))                                                                       \
-    traits.name = parseInt(value)
+static const TraitField *findField(const char *key) {
+    for (size_t i = 0; i < TRAIT_FIELD_COUNT; i++) {
+        if (!strcmp(key, TRAIT_FIELDS[i].key))
+            return &TRAIT_FIELDS[i];
+    }
+    return NULL;
+}
 
-    STRING_TRAIT(device_id);
-    else STRING_TRAIT(device_model);
-    else STRING_TRAIT(video_device);
-    else INT_TRAIT(screen_width);
-    else INT_TRAIT(screen_height);
-    else INT_TRAIT(screen_rotation);
-    else STRING_TRAIT(backlight_path);
-    else INT_TRAIT(backlight_max);
-    else STRING_TRAIT(framebuffer_blank_path);
-    else STRING_TRAIT(hdmi_state_path);
-    else STRING_TRAIT(battery_capacity_path);
-    else STRING_TRAIT(charger_online_path);
-    else STRING_TRAIT(rumble_path);
-    else STRING_TRAIT(power_led_path);
-    else STRING_TRAIT(cpu_governor_path);
-    else STRING_TRAIT(cpu_clock_path);
-    else INT_TRAIT(cpu_clock_menu);
-    else INT_TRAIT(cpu_clock_powersave);
-    else INT_TRAIT(cpu_clock_normal);
-    else INT_TRAIT(cpu_clock_performance);
-    else STRING_TRAIT(sound_card);
-    else STRING_TRAIT(sound_mixer);
-    else STRING_TRAIT(jack_state_path);
-    else STRING_TRAIT(wifi_interface);
-    else if (!strcmp(key, "input_gamepad_device_name"))
-        copyText(traits.input_gamepad, sizeof(traits.input_gamepad), value);
-    else if (!strcmp(key, "input_power_device_name"))
-        copyText(traits.input_power, sizeof(traits.input_power), value);
-    else if (!strcmp(key, "input_volume_device_name"))
-        copyText(traits.input_volume, sizeof(traits.input_volume), value);
-    else if (!strcmp(key, "input_lid_device_name"))
-        copyText(traits.input_lid, sizeof(traits.input_lid), value);
-    else INT_TRAIT(key_up);
-    else INT_TRAIT(key_down);
-    else INT_TRAIT(key_left);
-    else INT_TRAIT(key_right);
-    else INT_TRAIT(key_a);
-    else INT_TRAIT(key_b);
-    else INT_TRAIT(key_c);
-    else INT_TRAIT(key_x);
-    else INT_TRAIT(key_y);
-    else INT_TRAIT(key_z);
-    else INT_TRAIT(key_l1);
-    else INT_TRAIT(key_r1);
-    else INT_TRAIT(key_l2);
-    else INT_TRAIT(key_r2);
-    else INT_TRAIT(key_l3);
-    else INT_TRAIT(key_r3);
-    else INT_TRAIT(key_start);
-    else INT_TRAIT(key_select);
-    else INT_TRAIT(key_menu);
-    else INT_TRAIT(key_power);
-    else INT_TRAIT(key_vol_up);
-    else INT_TRAIT(key_vol_down);
-    else INT_TRAIT(axis_lx);
-    else INT_TRAIT(axis_ly);
-    else INT_TRAIT(axis_rx);
-    else INT_TRAIT(axis_ry);
-    else INT_TRAIT(axis_min);
-    else INT_TRAIT(axis_center);
-    else INT_TRAIT(axis_max);
-    else INT_TRAIT(axis_lx_invert);
-    else INT_TRAIT(axis_ly_invert);
-    else INT_TRAIT(axis_rx_invert);
-    else INT_TRAIT(axis_ry_invert);
-    else INT_TRAIT(undervolt_supported);
+// Apply a single key=value line to the struct. Returns 0 on success, -1 on
+// unknown key, malformed int, or out-of-range value.
+static int setValue(const char *key, const char *value) {
+    const TraitField *field = findField(key);
+    if (!field) {
+        fprintf(stderr, "Minime traits: unknown key '%s' in %s\n", key, TRAITS_PATH);
+        return -1;
+    }
 
-#undef STRING_TRAIT
-#undef INT_TRAIT
+    if (field->type == TYPE_STRING) {
+        copyText((char *)&traits + field->offset, MINIME_TRAIT_NAME_MAX, value);
+        return 0;
+    }
+
+    int parsed = parseInt(value);
+    if (parsed < 0 && strcmp(value, NA)) {
+        fprintf(stderr, "Minime traits: invalid integer '%s' for '%s'\n", value, key);
+        return -1;
+    }
+    *(int *)((char *)&traits + field->offset) = parsed;
+    return 0;
 }
 
 int MINIME_traitAvailable(const char *value) {
     return value && value[0] && strcmp(value, NA);
 }
 
+// Resolve the stable gpu_hdmi_connector (e.g. "HDMI-A-1") to the actual DRM
+// sysfs status path. The card number prefix ("card0", "card1", ...) is the
+// DRM primary-minor index, allocated first-come-first-serve at probe time,
+// so it is NOT part of the trait file — we glob /sys/class/drm/card* and
+// pick the connector whose suffix matches. Empty connector means no HDMI.
+static void resolveHdmiConnector(void) {
+    const char *connector = traits.gpu_hdmi_connector;
+
+    if (!MINIME_traitAvailable(connector))
+        return;
+
+    DIR *dir = opendir("/sys/class/drm");
+    if (!dir)
+        return;
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        const char *name = entry->d_name;
+        const char *dash = strchr(name, '-');
+        if (!dash)
+            continue;
+        // name = "cardN-<connector>"; match the suffix after the card prefix.
+        if (strcmp(dash + 1, connector) == 0) {
+            snprintf(traits.gpu_hdmi_state_path, sizeof(traits.gpu_hdmi_state_path),
+                     "/sys/class/drm/%s/status", name);
+            break;
+        }
+    }
+    closedir(dir);
+}
+
 static int validate(void) {
     if (!traits.device_id[0] || !traits.device_model[0] ||
-        !MINIME_traitAvailable(traits.video_device) || traits.screen_width <= 0 ||
+        !MINIME_traitAvailable(traits.gpu_device) || traits.screen_width <= 0 ||
         traits.screen_height <= 0 || traits.screen_rotation < 0 ||
-        !MINIME_traitAvailable(traits.backlight_path) || traits.backlight_max <= 0 ||
+        !MINIME_traitAvailable(traits.screen_backlight_path) || traits.screen_backlight_max <= 0 ||
         !MINIME_traitAvailable(traits.input_gamepad) ||
         !MINIME_traitAvailable(traits.input_power) || !MINIME_traitAvailable(traits.input_volume) ||
         traits.key_up < 0 || traits.key_down < 0 || traits.key_left < 0 || traits.key_right < 0 ||
@@ -179,9 +271,27 @@ int MINIME_traitsInit(void) {
         if (!value)
             continue;
         *value++ = '\0';
-        setValue(trim(key), trim(value));
+        if (setValue(trim(key), trim(value)) != 0) {
+            fclose(file);
+            return -1;
+        }
     }
     fclose(file);
+
+    traits.screen_aspect = MINIME_ASPECT_UNKNOWN;
+    if (traits.screen_width > 0 && traits.screen_height > 0) {
+        if (traits.screen_width * 3 == traits.screen_height * 4)
+            traits.screen_aspect = MINIME_ASPECT_4x3;
+        else if (traits.screen_width * 2 == traits.screen_height * 3)
+            traits.screen_aspect = MINIME_ASPECT_3x2;
+        else if (traits.screen_width * 9 == traits.screen_height * 16)
+            traits.screen_aspect = MINIME_ASPECT_16x9;
+        else if (traits.screen_width == traits.screen_height)
+            traits.screen_aspect = MINIME_ASPECT_1x1;
+    }
+
+    resolveHdmiConnector();
+
     valid = validate() == 0;
     return valid ? 0 : -1;
 }
@@ -190,12 +300,16 @@ const MinimeTraits *MINIME_traits(void) {
     return MINIME_traitsInit() == 0 ? &traits : NULL;
 }
 
+int MINIME_hasSecondScreen(void) {
+    const MinimeTraits *traits = MINIME_traits();
+
+    return traits && traits->screen2_width > 0 && traits->screen2_height > 0;
+}
+
 int MINIME_audioJackConnected(void) {
     const MinimeTraits *traits = MINIME_traits();
 
-    return (traits && MINIME_traitAvailable(traits->jack_state_path))
-               ? getInt((char *)traits->jack_state_path)
-               : 0;
+    return (traits && MINIME_traitAvailable(traits->audio_jack_device_name)) ? 1 : 0;
 }
 
 void MINIME_audioSetRawVolume(int value) {
@@ -204,35 +318,35 @@ void MINIME_audioSetRawVolume(int value) {
 
     if (!traits)
         return;
-    if (strcmp(traits->sound_card, "default") == 0)
+    if (strcmp(traits->audio_card, "default") == 0)
         snprintf(command, sizeof(command), "amixer -q sset '%s' %d%% >/dev/null 2>&1",
-                 traits->sound_mixer, value);
+                 traits->audio_mixer, value);
     else
         snprintf(command, sizeof(command), "amixer -q -c '%s' sset '%s' %d%% >/dev/null 2>&1",
-                 traits->sound_card, traits->sound_mixer, value);
+                 traits->audio_card, traits->audio_mixer, value);
     (void)system(command);
 }
 
 int MINIME_videoHDMIConnected(void) {
     const MinimeTraits *traits = MINIME_traits();
 
-    return (traits && MINIME_traitAvailable(traits->hdmi_state_path))
-               ? getInt((char *)traits->hdmi_state_path)
+    return (traits && MINIME_traitAvailable(traits->gpu_hdmi_state_path))
+               ? getInt((char *)traits->gpu_hdmi_state_path)
                : 0;
 }
 
 void MINIME_videoSetBacklight(int value) {
     const MinimeTraits *traits = MINIME_traits();
 
-    if (traits && MINIME_traitAvailable(traits->backlight_path))
-        putInt((char *)traits->backlight_path, value);
+    if (traits && MINIME_traitAvailable(traits->screen_backlight_path))
+        putInt((char *)traits->screen_backlight_path, value);
 }
 
 void MINIME_videoBlank(int blank) {
     const MinimeTraits *traits = MINIME_traits();
 
-    if (traits && MINIME_traitAvailable(traits->framebuffer_blank_path))
-        putInt((char *)traits->framebuffer_blank_path, blank ? 4 : 0);
+    if (traits && MINIME_traitAvailable(traits->screen_blank_path))
+        putInt((char *)traits->screen_blank_path, blank ? 4 : 0);
 }
 
 #define INPUT_EVENT_LIMIT 32
@@ -315,13 +429,13 @@ static int readCharging(const MinimeTraits *traits, int *charging) {
     char status[32];
     FILE *file;
 
-    if (MINIME_traitAvailable(traits->charger_online_path)) {
-        *charging = getInt((char *)traits->charger_online_path);
+    if (MINIME_traitAvailable(traits->power_charger_online_path)) {
+        *charging = getInt((char *)traits->power_charger_online_path);
         return 0;
     }
-    if (!MINIME_traitAvailable(traits->battery_capacity_path))
+    if (!MINIME_traitAvailable(traits->power_battery_sysfs))
         return -1;
-    snprintf(path, sizeof(path), "%s/status", traits->battery_capacity_path);
+    snprintf(path, sizeof(path), "%s/status", traits->power_battery_sysfs);
     file = fopen(path, "r");
     if (!file)
         return -1;
@@ -335,9 +449,9 @@ static int readCharging(const MinimeTraits *traits, int *charging) {
 int MINIME_powerGetBattery(int *charging, int *capacity) {
     const MinimeTraits *traits = MINIME_traits();
 
-    if (!traits || !charging || !capacity || !MINIME_traitAvailable(traits->battery_capacity_path))
+    if (!traits || !charging || !capacity || !MINIME_traitAvailable(traits->power_battery_sysfs))
         return -1;
-    if (readCapacity(traits->battery_capacity_path, capacity) != 0)
+    if (readCapacity(traits->power_battery_sysfs, capacity) != 0)
         return -1;
     if (readCharging(traits, charging) != 0)
         *charging = 0;
@@ -353,9 +467,33 @@ void MINIME_powerSetLED(int enabled) {
 
 void MINIME_powerSetRumble(int enabled) {
     const MinimeTraits *traits = MINIME_traits();
+    int fd;
+    struct ff_effect effect;
 
-    if (traits && MINIME_traitAvailable(traits->rumble_path))
-        putInt((char *)traits->rumble_path, enabled);
+    if (!traits || !MINIME_traitAvailable(traits->input_rumble_device_name))
+        return;
+
+    // The rumble motor is exposed as an input device with FF_RUMBLE
+    // (e.g. "pwm-vibrator"). Upload an effect with the desired magnitude;
+    // the memless FF layer replays it until it is removed or replaced.
+    fd = MINIME_inputOpenByName(traits->input_rumble_device_name);
+    if (fd < 0)
+        return;
+
+    memset(&effect, 0, sizeof(effect));
+    effect.type = FF_RUMBLE;
+    effect.id = -1;
+    if (enabled) {
+        effect.u.rumble.strong_magnitude = 0xffff;
+        effect.u.rumble.weak_magnitude = 0xffff;
+    }
+    if (ioctl(fd, EVIOCSFF, &effect) < 0 && enabled) {
+        // No effect was ever uploaded; an explicit stop has nothing to remove.
+        if (errno != ENODEV)
+            close(fd);
+        return;
+    }
+    close(fd);
 }
 
 void MINIME_powerSetCPUSpeed(int speed) {
