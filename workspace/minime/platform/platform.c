@@ -1,11 +1,14 @@
 // minime platform
+#include <linux/fb.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 
 #include <errno.h>
+#include <fcntl.h>
 #include <pthread.h>
 #include <unistd.h>
 
@@ -460,11 +463,125 @@ static struct VID_Context {
     int height;
     int pitch;
     int sharpness;
+    int use_direct_fb;
+    int fb_fd;
+    uint8_t *fb_map;
+    size_t fb_map_len;
+    int fb_stride;
+    int fb_xres;
+    int fb_yres;
+    int fb_bpp;
+    int fb_red_offset;
+    int fb_green_offset;
+    int fb_blue_offset;
+    struct fb_var_screeninfo fb_vinfo;
 } vid;
 
 static int device_width;
 static int device_height;
 static int device_pitch;
+
+static int PLAT_initDirectFB(void) {
+    struct fb_fix_screeninfo finfo;
+    struct fb_var_screeninfo vinfo;
+
+    vid.fb_fd = open(traits->gpu_device, O_RDWR | O_CLOEXEC);
+    if (vid.fb_fd < 0)
+        return -1;
+
+    if (ioctl(vid.fb_fd, FBIOGET_FSCREENINFO, &finfo) != 0)
+        goto fail;
+    if (ioctl(vid.fb_fd, FBIOGET_VSCREENINFO, &vinfo) != 0)
+        goto fail;
+    if ((int)vinfo.bits_per_pixel != 32)
+        goto fail;
+    if ((int)vinfo.xres < FIXED_WIDTH || (int)vinfo.yres < FIXED_HEIGHT)
+        goto fail;
+
+    vid.fb_map_len = finfo.smem_len;
+    vid.fb_map = mmap(NULL, vid.fb_map_len, PROT_READ | PROT_WRITE, MAP_SHARED, vid.fb_fd, 0);
+    if (vid.fb_map == MAP_FAILED) {
+        vid.fb_map = NULL;
+        goto fail;
+    }
+
+    vid.use_direct_fb = 1;
+    vid.fb_stride = finfo.line_length;
+    vid.fb_xres = (int)vinfo.xres;
+    vid.fb_yres = (int)vinfo.yres;
+    vid.fb_bpp = (int)vinfo.bits_per_pixel;
+    vid.fb_red_offset = (int)vinfo.red.offset;
+    vid.fb_green_offset = (int)vinfo.green.offset;
+    vid.fb_blue_offset = (int)vinfo.blue.offset;
+    vinfo.xoffset = 0;
+    vinfo.yoffset = 0;
+    ioctl(vid.fb_fd, FBIOPAN_DISPLAY, &vinfo);
+    vid.fb_vinfo = vinfo;
+    return 0;
+
+fail:
+    if (vid.fb_map) {
+        munmap(vid.fb_map, vid.fb_map_len);
+        vid.fb_map = NULL;
+    }
+    if (vid.fb_fd >= 0) {
+        close(vid.fb_fd);
+        vid.fb_fd = -1;
+    }
+    vid.use_direct_fb = 0;
+    return -1;
+}
+
+static void PLAT_quitDirectFB(void) {
+    if (vid.fb_map) {
+        munmap(vid.fb_map, vid.fb_map_len);
+        vid.fb_map = NULL;
+    }
+    if (vid.fb_fd >= 0) {
+        close(vid.fb_fd);
+        vid.fb_fd = -1;
+    }
+    vid.use_direct_fb = 0;
+}
+
+static inline uint32_t rgb565_to_fb32(uint16_t px) {
+    uint32_t r = (px >> 11) & 0x1f;
+    uint32_t g = (px >> 5) & 0x3f;
+    uint32_t b = px & 0x1f;
+    r = (r << 3) | (r >> 2);
+    g = (g << 2) | (g >> 4);
+    b = (b << 3) | (b >> 2);
+    return (r << vid.fb_red_offset) | (g << vid.fb_green_offset) | (b << vid.fb_blue_offset);
+}
+
+static void PLAT_presentSurfaceDirectFB(SDL_Surface *surface) {
+    int copy_w;
+    int copy_h;
+
+    if (!vid.use_direct_fb || !vid.fb_map || !surface || !surface->pixels)
+        return;
+    if (surface->format->BitsPerPixel != 16)
+        return;
+
+    copy_w = surface->w < vid.fb_xres ? surface->w : vid.fb_xres;
+    copy_h = surface->h < vid.fb_yres ? surface->h : vid.fb_yres;
+    if (copy_w <= 0 || copy_h <= 0)
+        return;
+
+    if (copy_w != vid.fb_xres || copy_h != vid.fb_yres)
+        memset(vid.fb_map, 0, vid.fb_map_len);
+
+    for (int y = 0; y < copy_h; y++) {
+        const uint16_t *src = (const uint16_t *)((uint8_t *)surface->pixels + (y * surface->pitch));
+        uint32_t *dst = (uint32_t *)(vid.fb_map + (y * vid.fb_stride));
+        for (int x = 0; x < copy_w; x++) {
+            dst[x] = rgb565_to_fb32(src[x]);
+        }
+    }
+    vid.fb_vinfo.xoffset = 0;
+    vid.fb_vinfo.yoffset = 0;
+    ioctl(vid.fb_fd, FBIOPAN_DISPLAY, &vid.fb_vinfo);
+}
 
 static void PLAT_computeRendererRects(const GFX_Renderer *renderer, SDL_Rect *src_rect,
                                       SDL_Rect *dst_rect) {
@@ -528,6 +645,53 @@ static void PLAT_computeRendererRects(const GFX_Renderer *renderer, SDL_Rect *sr
     }
 }
 
+static void PLAT_blitRendererDirectFB(const GFX_Renderer *renderer) {
+    const uint16_t *src_pixels;
+    uint16_t *dst_pixels;
+    SDL_Rect src_rect;
+    SDL_Rect dst_rect;
+    int src_pitch_px;
+    int dst_pitch_px;
+    int clip_x0;
+    int clip_y0;
+    int clip_x1;
+    int clip_y1;
+    int dx;
+    int dy;
+
+    if (!renderer || !renderer->src || !vid.screen || !vid.screen->pixels)
+        return;
+
+    PLAT_computeRendererRects(renderer, &src_rect, &dst_rect);
+    if (src_rect.w <= 0 || src_rect.h <= 0 || dst_rect.w <= 0 || dst_rect.h <= 0)
+        return;
+
+    SDL_FillRect(vid.screen, NULL, 0);
+
+    src_pixels = (const uint16_t *)renderer->src;
+    dst_pixels = (uint16_t *)vid.screen->pixels;
+    src_pitch_px = renderer->src_p / FIXED_BPP;
+    dst_pitch_px = vid.screen->pitch / FIXED_BPP;
+
+    clip_x0 = MAX(0, -dst_rect.x);
+    clip_y0 = MAX(0, -dst_rect.y);
+    clip_x1 = MIN(dst_rect.w, device_width - dst_rect.x);
+    clip_y1 = MIN(dst_rect.h, device_height - dst_rect.y);
+    if (clip_x0 >= clip_x1 || clip_y0 >= clip_y1)
+        return;
+
+    for (dy = clip_y0; dy < clip_y1; dy++) {
+        int sy = src_rect.y + ((dy * src_rect.h) / dst_rect.h);
+        const uint16_t *src_row = src_pixels + (sy * src_pitch_px);
+        uint16_t *dst_row = dst_pixels + ((dst_rect.y + dy) * dst_pitch_px);
+
+        for (dx = clip_x0; dx < clip_x1; dx++) {
+            int sx = src_rect.x + ((dx * src_rect.w) / dst_rect.w);
+            dst_row[dst_rect.x + dx] = src_row[sx];
+        }
+    }
+}
+
 SDL_Surface *PLAT_initVideo(void) {
     load_traits();
 
@@ -539,6 +703,14 @@ SDL_Surface *PLAT_initVideo(void) {
         h = HDMI_HEIGHT;
         p = HDMI_PITCH;
         on_hdmi = 1;
+    }
+
+    vid.use_direct_fb = 0;
+    vid.fb_fd = -1;
+    vid.fb_map = NULL;
+    vid.fb_map_len = 0;
+    if (!on_hdmi) {
+        (void)PLAT_initDirectFB();
     }
 
     if (SDL_InitSubSystem(SDL_INIT_VIDEO) != 0) {
@@ -595,6 +767,7 @@ void PLAT_quitVideo(void) {
     SDL_DestroyTexture(vid.texture);
     SDL_DestroyRenderer(vid.renderer);
     SDL_DestroyWindow(vid.window);
+    PLAT_quitDirectFB();
 
     SDL_Quit();
 }
@@ -813,6 +986,10 @@ void PLAT_flip(SDL_Surface *IGNORED, int ignored) {
 
     if (!vid.blit) {
         resizeVideo(device_width, device_height, FIXED_PITCH); // !!!???
+        if (vid.use_direct_fb && !on_hdmi) {
+            PLAT_presentSurfaceDirectFB(vid.screen);
+            return;
+        }
         SDL_UpdateTexture(vid.texture, NULL, vid.screen->pixels, vid.screen->pitch);
         if (rotate && !on_hdmi) {
             int dx = 0;
@@ -833,6 +1010,13 @@ void PLAT_flip(SDL_Surface *IGNORED, int ignored) {
         } else
             SDL_RenderCopy(vid.renderer, vid.texture, NULL, NULL);
         SDL_RenderPresent(vid.renderer);
+        return;
+    }
+
+    if (vid.use_direct_fb && !on_hdmi) {
+        PLAT_blitRendererDirectFB(vid.blit);
+        PLAT_presentSurfaceDirectFB(vid.screen);
+        vid.blit = NULL;
         return;
     }
 
