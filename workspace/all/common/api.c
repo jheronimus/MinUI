@@ -1050,6 +1050,16 @@ size_t SND_batchSamples(const SND_Frame* frames, size_t frame_count) { // plat_s
 			SDL_LockAudio();
 		}
 
+		if (snd.frame_in == snd.frame_filled) {
+			// Audio callback is not consuming samples (buffer full), so the
+			// core would stall forever waiting for audio space. Drop the
+			// backlog so the emulator can keep producing frames.
+			snd.frame_in = 0;
+			snd.frame_out = 0;
+			snd.frame_filled = snd.frame_count - 1;
+			break;
+		}
+
 		while (amount && snd.frame_in != snd.frame_filled) {
 			consumed_frames = snd.resample(*frames);
 			
