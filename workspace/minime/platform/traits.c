@@ -366,9 +366,21 @@ void MINIME_audioSetRawVolume(int value) {
 int MINIME_videoHDMIConnected(void) {
     const MinimeTraits *traits = MINIME_traits();
 
-    return (traits && MINIME_traitAvailable(traits->gpu_hdmi_state_path))
-               ? getInt((char *)traits->gpu_hdmi_state_path)
-               : 0;
+    if (!traits || !MINIME_traitAvailable(traits->gpu_hdmi_state_path))
+        return 0;
+
+    // DRM connector status files ("/sys/class/drm/cardN-<connector>/status")
+    // contain text ("connected"/"disconnected"), not an integer. Parse the
+    // text first, then fall back to numeric paths for non-DRM backends.
+    char status[16] = "";
+    getFile((char *)traits->gpu_hdmi_state_path, status, sizeof(status));
+    if (status[0] != '\0') {
+        if (prefixMatch("connected", status))
+            return 1;
+        if (prefixMatch("disconnected", status) || prefixMatch("unknown", status))
+            return 0;
+    }
+    return getInt((char *)traits->gpu_hdmi_state_path);
 }
 
 void MINIME_videoSetBacklight(int value) {
