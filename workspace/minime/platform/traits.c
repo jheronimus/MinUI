@@ -21,6 +21,7 @@
 typedef enum {
     TYPE_STRING,
     TYPE_INT,
+    TYPE_ASPECT,
 } TraitType;
 
 typedef struct {
@@ -32,6 +33,11 @@ typedef struct {
 #define FIELD(type, name) {#name, type, offsetof(MinimeTraits, name)}
 #define STR_FIELD(name) FIELD(TYPE_STRING, name)
 #define INT_FIELD(name) FIELD(TYPE_INT, name)
+#define ASPECT_FIELD(name) FIELD(TYPE_ASPECT, name)
+// Entry where the file key differs from the struct field name. The traits
+// file is the source of truth for key names; struct fields may be shorter.
+#define KEYED_STR(key, name) {key, TYPE_STRING, offsetof(MinimeTraits, name)}
+#define KEYED_INT(key, name) {key, TYPE_INT, offsetof(MinimeTraits, name)}
 
 // Schema table: the single list of keys the parser understands. Anything not
 // in this table is an error, so schema drift fails loudly instead of being
@@ -42,6 +48,7 @@ static const TraitField TRAIT_FIELDS[] = {
     INT_FIELD(screen_width),
     INT_FIELD(screen_height),
     INT_FIELD(screen_rotation),
+    ASPECT_FIELD(screen_aspect),
     INT_FIELD(screen_refresh_rate),
     STR_FIELD(screen_backlight_path),
     INT_FIELD(screen_backlight_max),
@@ -49,6 +56,8 @@ static const TraitField TRAIT_FIELDS[] = {
     INT_FIELD(screen2_width),
     INT_FIELD(screen2_height),
     INT_FIELD(screen2_rotation),
+    ASPECT_FIELD(screen2_aspect),
+    INT_FIELD(screen2_refresh_rate),
     STR_FIELD(screen2_backlight_path),
     STR_FIELD(screen2_blank_path),
     INT_FIELD(screen2_touch),
@@ -71,10 +80,10 @@ static const TraitField TRAIT_FIELDS[] = {
     STR_FIELD(audio_mixer),
     STR_FIELD(audio_jack_device_name),
     INT_FIELD(audio_mic),
-    STR_FIELD(input_gamepad),
-    STR_FIELD(input_power),
-    STR_FIELD(input_volume),
-    STR_FIELD(input_lid),
+    KEYED_STR("input_gamepad_device_name", input_gamepad),
+    KEYED_STR("input_power_device_name", input_power),
+    KEYED_STR("input_volume_device_name", input_volume),
+    KEYED_STR("input_lid_device_name", input_lid),
     STR_FIELD(input_rumble_device_name),
     INT_FIELD(input_touch),
     STR_FIELD(input_touch_device_name),
@@ -100,17 +109,17 @@ static const TraitField TRAIT_FIELDS[] = {
     INT_FIELD(key_power),
     INT_FIELD(key_vol_up),
     INT_FIELD(key_vol_down),
-    INT_FIELD(axis_lx),
-    INT_FIELD(axis_ly),
-    INT_FIELD(axis_rx),
-    INT_FIELD(axis_ry),
-    INT_FIELD(axis_min),
-    INT_FIELD(axis_center),
-    INT_FIELD(axis_max),
-    INT_FIELD(axis_lx_invert),
-    INT_FIELD(axis_ly_invert),
-    INT_FIELD(axis_rx_invert),
-    INT_FIELD(axis_ry_invert),
+    KEYED_INT("input_axis_lx", axis_lx),
+    KEYED_INT("input_axis_ly", axis_ly),
+    KEYED_INT("input_axis_rx", axis_rx),
+    KEYED_INT("input_axis_ry", axis_ry),
+    KEYED_INT("input_axis_min", axis_min),
+    KEYED_INT("input_axis_center", axis_center),
+    KEYED_INT("input_axis_max", axis_max),
+    KEYED_INT("input_axis_lx_invert", axis_lx_invert),
+    KEYED_INT("input_axis_ly_invert", axis_ly_invert),
+    KEYED_INT("input_axis_rx_invert", axis_rx_invert),
+    KEYED_INT("input_axis_ry_invert", axis_ry_invert),
     STR_FIELD(wifi_interface),
     STR_FIELD(bluetooth_interface),
     STR_FIELD(power_battery_sysfs),
@@ -177,6 +186,25 @@ static int setValue(const char *key, const char *value) {
 
     if (field->type == TYPE_STRING) {
         copyText((char *)&traits + field->offset, MINIME_TRAIT_NAME_MAX, value);
+        return 0;
+    }
+
+    if (field->type == TYPE_ASPECT) {
+        // Value is "W:H" (e.g. "4:3"); maps to the aspect enum. Missing/na
+        // stays UNKNOWN and the init derive step fills it from dimensions.
+        MinimeScreenAspect aspect = MINIME_ASPECT_UNKNOWN;
+        int w = 0, h = 0;
+        if (sscanf(value, "%d:%d", &w, &h) == 2 && w > 0 && h > 0) {
+            if (w * 3 == h * 4)
+                aspect = MINIME_ASPECT_4x3;
+            else if (w * 2 == h * 3)
+                aspect = MINIME_ASPECT_3x2;
+            else if (w * 9 == h * 16)
+                aspect = MINIME_ASPECT_16x9;
+            else if (w == h)
+                aspect = MINIME_ASPECT_1x1;
+        }
+        *(MinimeScreenAspect *)((char *)&traits + field->offset) = aspect;
         return 0;
     }
 
@@ -279,8 +307,10 @@ int MINIME_traitsInit(void) {
     }
     fclose(file);
 
-    traits.screen_aspect = MINIME_ASPECT_UNKNOWN;
-    if (traits.screen_width > 0 && traits.screen_height > 0) {
+    // screen_aspect is parsed from the file when present; derive it from the
+    // panel dimensions only as a fallback so the emitted value is authoritative.
+    if (traits.screen_aspect == MINIME_ASPECT_UNKNOWN && traits.screen_width > 0 &&
+        traits.screen_height > 0) {
         if (traits.screen_width * 3 == traits.screen_height * 4)
             traits.screen_aspect = MINIME_ASPECT_4x3;
         else if (traits.screen_width * 2 == traits.screen_height * 3)
