@@ -345,21 +345,23 @@ int MINIME_audioJackConnected(void) {
 
 void MINIME_audioSetRawVolume(int value) {
     const MinimeTraits *traits = MINIME_traits();
+    char card_flag[64] = "";
     char command[512];
 
     if (!traits)
         return;
-    // NOTE: the H700/H616 codec exposes its volume controls only via raw
-    // control numids (amixer sset can't see them, cset can't resolve the name
-    // with %). See TODO: H700 mixer control — volume needs a numid-driven HAL
-    // or a different ALSA approach. Keep the historical sset invocation for
-    // the codecs where it works (rk817 etc.).
-    if (strcmp(traits->audio_card, "default") == 0)
-        snprintf(command, sizeof(command), "amixer -q sset '%s' %d%% >/dev/null 2>&1",
-                 traits->audio_mixer, value);
-    else
-        snprintf(command, sizeof(command), "amixer -q -c '%s' sset '%s' %d%% >/dev/null 2>&1",
-                 traits->audio_card, traits->audio_mixer, value);
+    // audio_mixer is the ALSA simple-mixer control (e.g. "Line Out"). Some
+    // codecs (sun4i/H616) keep a separate "DAC" pswitch that must be unmuted
+    // for sound to pass; sset with "unmute" handles both volume and switch.
+    // The H700 codec also exposes a raw numid control ("Line Out Playback
+    // Volume", numid=2) that is NOT a simple control — never use it here.
+    if (strcmp(traits->audio_card, "default") != 0) {
+        snprintf(card_flag, sizeof(card_flag), "-c '%s' ", traits->audio_card);
+    }
+    snprintf(command, sizeof(command),
+             "amixer -q %ssset '%s' %d%% unmute >/dev/null 2>&1; "
+             "amixer -q %ssset 'DAC' unmute >/dev/null 2>&1",
+             card_flag, traits->audio_mixer, value, card_flag);
     (void)system(command);
 }
 
