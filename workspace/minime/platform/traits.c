@@ -64,6 +64,7 @@ static const TraitField TRAIT_FIELDS[] = {
     STR_FIELD(gpu_device),
     STR_FIELD(gpu_device2),
     STR_FIELD(gpu_hdmi_connector),
+    STR_FIELD(gpu_driver),
     INT_FIELD(gpu_clock_min),
     INT_FIELD(gpu_clock_max),
     STR_FIELD(audio_card),
