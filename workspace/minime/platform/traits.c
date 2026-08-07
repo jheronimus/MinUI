@@ -349,6 +349,11 @@ void MINIME_audioSetRawVolume(int value) {
 
     if (!traits)
         return;
+    // NOTE: the H700/H616 codec exposes its volume controls only via raw
+    // control numids (amixer sset can't see them, cset can't resolve the name
+    // with %). See TODO: H700 mixer control — volume needs a numid-driven HAL
+    // or a different ALSA approach. Keep the historical sset invocation for
+    // the codecs where it works (rk817 etc.).
     if (strcmp(traits->audio_card, "default") == 0)
         snprintf(command, sizeof(command), "amixer -q sset '%s' %d%% >/dev/null 2>&1",
                  traits->audio_mixer, value);
