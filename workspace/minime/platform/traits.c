@@ -425,19 +425,19 @@ int MINIME_inputOpenByName(const char *expected) {
 
 int MINIME_inputOpenShortcutDevices(int *fds, size_t max_fds) {
     const MinimeTraits *traits = MINIME_traits();
-    const char *names[4];
-    int count = 0;
-
     if (!traits || !fds)
         return 0;
-    names[0] = traits->input_gamepad;
-    names[1] = traits->input_power;
-    names[2] = traits->input_volume;
-    // Some devices (e.g. RG Arc) put the menu button on a separate evdev
-    // device (adc-keys); keymon must open it to see the brightness/volume
-    // shortcut modifier. Empty/unset falls through (skipped).
-    names[3] = traits->input_menu;
-    for (size_t i = 0; i < 4 && (size_t)count < max_fds; i++) {
+    // Data-driven device list: add a device by adding a trait field + one
+    // element here — sizeof keeps the loop in sync (no separate count to
+    // forget to bump). Empty/unset names are skipped by MINIME_inputOpenByName.
+    const char *names[] = {
+        traits->input_gamepad,
+        traits->input_power,
+        traits->input_volume,
+        traits->input_menu,
+    };
+    int count = 0;
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]) && (size_t)count < max_fds; i++) {
         int fd = MINIME_inputOpenByName(names[i]);
 
         if (fd >= 0)
