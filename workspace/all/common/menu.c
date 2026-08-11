@@ -50,9 +50,8 @@ int Menu_message(char* message, char** pairs) {
 }
 
 int Menu_options(MenuList* list) {
-	MenuItem* items;
+	MenuItem* items = list->items;
 	int type = list->type;
-	int count;
 
 	int dirty = 1;
 	int show_options = 1;
@@ -62,29 +61,35 @@ int Menu_options(MenuList* list) {
 	// dependent on option list offset top and bottom, eg. the gray triangles
 	int max_visible_options = (menu_screen->h - ((SCALE1(PADDING + PILL_SIZE) * 2) + SCALE1(BUTTON_SIZE))) / SCALE1(BUTTON_SIZE); // 7 for 480, 10 for 720
 	
+	int count;
+	int end;
+	int visible_rows;
+	for (count=0; items[count].name; count++);
 	int selected = 0;
 	int start = 0;
-	int visible_rows = 0;
+	end = MIN(count,max_visible_options);
+	visible_rows = end;
 	
 	if (menu_update_desc) menu_update_desc();
 	
 	int defer_menu = 0;
 	while (show_options) {
-		// re-read items/count each frame so callbacks may rebuild the list
+		// re-read items/count so callbacks may rebuild the list (eg. PAKs);
+		// clamp scroll state if the list shrank between frames
 		items = list->items;
-		count = 0;
-		while (items[count].name) count++;
-		if (!visible_rows) {
-			visible_rows = MIN(count, max_visible_options);
-			start = 0;
+		{
+			int new_count;
+			for (new_count=0; items[new_count].name; new_count++);
+			if (new_count != count) {
+				count = new_count;
+				if (selected >= count) selected = count ? count - 1 : 0;
+				if (end > count) end = count;
+				if (start > selected) start = selected;
+				if (end - start > visible_rows) end = start + visible_rows;
+				if (end > count) end = count;
+			}
 		}
-		if (selected >= count) selected = 0;
-		int end = MIN(count, start + visible_rows);
-		if (end > count) end = count;
-		if (start > selected) start = selected;
-		if (end < visible_rows) { end = visible_rows; if (end > count) end = count; }
-		if (end <= selected && end < count) end = selected + 1;
-		
+
 		if (await_input) {
 			defer_menu = 1;
 			list->on_confirm(list, selected);
@@ -93,6 +98,11 @@ int Menu_options(MenuList* list) {
 			if (selected>=count) {
 				selected = 0;
 				start = 0;
+				end = visible_rows;
+			}
+			else if (selected>=end) {
+				start += 1;
+				end += 1;
 			}
 			dirty = 1;
 			await_input = false;
@@ -100,15 +110,36 @@ int Menu_options(MenuList* list) {
 		
 		GFX_startFrame();
 		PAD_poll();
+
+		if (list->on_update) {
+			list->on_update(list);
+			// on_update may rebuild the list; re-sync our local pointers
+			items = list->items;
+			{
+				int new_count;
+				for (new_count=0; items[new_count].name; new_count++);
+				if (new_count != count) {
+					count = new_count;
+					if (selected >= count) selected = count ? count - 1 : 0;
+					if (end > count) end = count;
+					if (start > selected) start = selected;
+					if (end - start > visible_rows) end = start + visible_rows;
+					if (end > count) end = count;
+				}
+			}
+			dirty = 1;
+		}
 		
 		if (PAD_justRepeated(BTN_UP)) {
 			selected -= 1;
 			if (selected<0) {
 				selected = count - 1;
 				start = MAX(0,count - max_visible_options);
+				end = count;
 			}
 			else if (selected<start) {
 				start -= 1;
+				end -= 1;
 			}
 			dirty = 1;
 		}
@@ -117,9 +148,11 @@ int Menu_options(MenuList* list) {
 			if (selected>=count) {
 				selected = 0;
 				start = 0;
+				end = visible_rows;
 			}
-			else if (selected>=start+visible_rows) {
+			else if (selected>=end) {
 				start += 1;
+				end += 1;
 			}
 			dirty = 1;
 		}
@@ -173,9 +206,11 @@ int Menu_options(MenuList* list) {
 					if (selected>=count) {
 						selected = 0;
 						start = 0;
+						end = visible_rows;
 					}
-					else if (selected>=start+visible_rows) {
+					else if (selected>=end) {
 						start += 1;
+						end += 1;
 					}
 				}
 				dirty = 1;
@@ -193,9 +228,11 @@ int Menu_options(MenuList* list) {
 				if (selected>=count) {
 					selected = 0;
 					start = 0;
+					end = visible_rows;
 				}
-				else if (selected>=start+visible_rows) {
+				else if (selected>=end) {
 					start += 1;
+					end += 1;
 				}
 				dirty = 1;
 			}

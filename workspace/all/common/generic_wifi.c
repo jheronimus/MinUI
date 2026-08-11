@@ -94,6 +94,9 @@ static FILE *wifi_popen(const char *cmd) {
 	return popen(shell, "r");
 }
 
+static void strip_ansi(char *s);
+static void trim(char *s);
+
 static void get_connected_ssid(char *ssid_out, size_t max_len) {
 	char cmd[256];
 	char line[256];
@@ -105,17 +108,15 @@ static void get_connected_ssid(char *ssid_out, size_t max_len) {
 	if (!f)
 		return;
 	while (fgets(line, sizeof(line), f)) {
+		strip_ansi(line);
 		if (strstr(line, "Connected network")) {
-			char *value = strchr(line, ':');
+			char *value = strstr(line, "Connected network") + strlen("Connected network");
 			size_t len;
 
-			if (!value)
-				continue;
-			value++;
 			while (*value == ' ' || *value == '\t')
 				value++;
 			len = strlen(value);
-			while (len > 0 && (value[len - 1] == '\n' || value[len - 1] == '\r')) {
+			while (len > 0 && (value[len - 1] == '\n' || value[len - 1] == '\r' || value[len - 1] == ' ')) {
 				value[len - 1] = '\0';
 				len--;
 			}
@@ -167,9 +168,71 @@ static void trim(char *s) {
 		s++;
 }
 
-// Parse `iwctl station <if> get-networks` output. Rows are right-anchored:
-//   <name...> <security> <signal>
-// The signal field is always a number, so parse from the right.
+// Strip ANSI escape sequences (iwctl colors the selected row and signal bars).
+static void strip_ansi(char *s) {
+	char *src = s;
+	char *dst = s;
+
+	while (*src) {
+		if (*src == 0x1b) {
+			// skip ESC [ ... letter
+			src++;
+			if (*src == '[') {
+				src++;
+				while (*src && !((*src >= 'A' && *src <= 'Z') || (*src >= 'a' && *src <= 'z')))
+					src++;
+				if (*src)
+					src++;
+				continue;
+			}
+		}
+		*dst++ = *src++;
+	}
+	*dst = '\0';
+}
+
+// signal column is asterisk bars ("****" = 100%, "*" = ~20%) or a number
+static int parse_signal(const char *s, int *signal_out) {
+	const char *p = s;
+	int bars = 0;
+
+	if (!s || !signal_out)
+		return 0;
+	while (*p == ' ')
+		p++;
+
+	if (*p == '*') {
+		while (*p == '*') {
+			bars++;
+			p++;
+		}
+		// strip trailing whitespace (bars are right-padded)
+		while (*p == ' ')
+			p++;
+		if (*p != '\0')
+			return 0;
+		*signal_out = bars >= 5 ? 100 : bars * 20;
+		return 1;
+	}
+
+	if (*p >= '0' && *p <= '9') {
+		*signal_out = (int)strtol(p, (char **)&p, 10);
+		while (*p == ' ')
+			p++;
+		if (*p != '\0')
+			return 0;
+		return 1;
+	}
+
+	return 0;
+}
+
+// Parse `iwctl station <if> get-networks` output. Rows are:
+//   [>] <name...> <security> <signal>
+// The name may contain spaces, so parse from the right: the signal is the
+// last whitespace-delimited token and security the second-to-last; everything
+// before security is the SSID. The selected row may have a leading ">" and
+// ANSI colors. Works on the raw line without destructive in-place edits.
 static void parse_scan_results(void) {
 	char cmd[256];
 	char line[256];
@@ -182,56 +245,77 @@ static void parse_scan_results(void) {
 		return;
 
 	while (fgets(line, sizeof(line), f) && network_count < WIFI_MAX_NETWORKS) {
-		char *tokens[32];
-		int n = 0;
-		char *saveptr = NULL;
-		char *tok;
-		char *last;
 		char *sec;
-		int i;
+		char *sig;
+		char *name_end;
+		char *name_start;
+		char *end;
+		char *p;
 		int signal;
+		size_t len;
+		WifiNetwork *net;
 
-		trim(line);
-		if (!line[0])
+		strip_ansi(line);
+		// skip header/separator/title rows
+		if (strstr(line, "Network name") || strstr(line, "---") || strstr(line, "Available"))
 			continue;
 
-		tok = strtok_r(line, " \t", &saveptr);
-		while (tok && n < 32) {
-			tokens[n++] = tok;
-			tok = strtok_r(NULL, " \t", &saveptr);
-		}
-		if (n < 3)
+		len = strlen(line);
+		while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r' || line[len - 1] == ' '))
+			line[--len] = '\0';
+		if (!len)
 			continue;
 
-		// signal is the last field and must be numeric
-		signal = (int)strtol(tokens[n - 1], &last, 10);
-		if (*last != '\0' || tokens[n - 1][0] == '-')
+		// signal = last token
+		end = line + len;
+		sig = end;
+		while (sig > line && sig[-1] != ' ' && sig[-1] != '\t')
+			sig--;
+		if (sig == end)
+			continue;
+		if (!parse_signal(sig, &signal))
+			continue;
+		// strip trailing whitespace between security and signal
+		sec = sig - 1;
+		while (sec >= line && (*sec == ' ' || *sec == '\t'))
+			sec--;
+		sec++;
+		// security = second-to-last token
+		p = sec;
+		while (p > line && p[-1] != ' ' && p[-1] != '\t')
+			p--;
+		if (p == sec)
+			continue;
+		sec = p;
+		// name = everything before security, trimmed and without ">"
+		name_end = sec;
+		while (name_end > line && (name_end[-1] == ' ' || name_end[-1] == '\t'))
+			name_end--;
+		name_start = line;
+		while (*name_start == ' ' || *name_start == '\t' || *name_start == '>')
+			name_start++;
+
+		if (name_end <= name_start)
 			continue;
 
-		sec = tokens[n - 2];
-		{
-			WifiNetwork *net = &networks[network_count];
+		net = &networks[network_count];
+		memset(net, 0, sizeof(*net));
+		len = (size_t)(name_end - name_start);
+		if (len >= sizeof(net->ssid))
+			len = sizeof(net->ssid) - 1;
+		memcpy(net->ssid, name_start, len);
+		net->ssid[len] = '\0';
 
-			net->ssid[0] = '\0';
-			for (i = 0; i < n - 2; i++) {
-				if (i > 0)
-					strncat(net->ssid, " ", sizeof(net->ssid) - strlen(net->ssid) - 1);
-				strncat(net->ssid, tokens[i], sizeof(net->ssid) - strlen(net->ssid) - 1);
-			}
-			if (!net->ssid[0])
-				continue;
-
-			if (signal > 100)
-				signal = 100;
-			if (signal < 0)
-				signal = 0;
-			net->signal = signal;
-			net->security = (strstr(sec, "open") || !strcasecmp(sec, "open")) ? WIFI_SECURITY_OPEN
-			                                                                  : WIFI_SECURITY_WPA;
-			net->known = is_ssid_known(net->ssid);
-			net->connected = 0;
-			network_count++;
-		}
+		if (signal > 100)
+			signal = 100;
+		if (signal < 0)
+			signal = 0;
+		net->signal = signal;
+		net->security = (strstr(sec, "open") || !strcasecmp(sec, "open")) ? WIFI_SECURITY_OPEN
+		                                                                  : WIFI_SECURITY_WPA;
+		net->known = is_ssid_known(net->ssid);
+		net->connected = 0;
+		network_count++;
 	}
 	pclose(f);
 
@@ -262,7 +346,9 @@ int WIFI_init(void) {
 }
 
 int WIFI_enabled(void) {
-	return wifi_enabled;
+	// always re-check live state: iwd may bring the interface up/down
+	// independently of this process (eg. auto-connect at boot, another UI)
+	return is_wifi_admin_up() || is_wifi_connected();
 }
 
 int WIFI_setEnabled(int enabled) {
@@ -300,7 +386,7 @@ int WIFI_setEnabled(int enabled) {
 int WIFI_scan(void) {
 	char cmd[256];
 
-	if (!wifi_enabled)
+	if (!WIFI_enabled())
 		return -1;
 	scanning = 1;
 	snprintf(cmd, sizeof(cmd), WIFI_SCAN_CMD, wifi_interface());

@@ -14,21 +14,25 @@
 #define BT_ENABLE_FILE "/mnt/sdcard/.minime/config/bluetooth/enabled"
 #define BT_SERVICE "/etc/init.d/bluetooth"
 
-#define BT_CMD_DEVICES "bluetoothctl devices 2>/dev/null"
-#define BT_CMD_INFO "bluetoothctl info %s 2>/dev/null"
-#define BT_CMD_POWER "bluetoothctl power %s >/dev/null 2>&1"
-#define BT_CMD_SCAN "bluetoothctl scan %s >/dev/null 2>&1"
-#define BT_CMD_DISCOVERABLE "bluetoothctl discoverable %s >/dev/null 2>&1"
-#define BT_CMD_PAIRABLE "bluetoothctl pairable %s >/dev/null 2>&1"
-#define BT_CMD_CONNECT "bluetoothctl connect %s >/dev/null 2>&1"
-#define BT_CMD_DISCONNECT "bluetoothctl disconnect %s >/dev/null 2>&1"
-#define BT_CMD_TRUST "bluetoothctl trust %s >/dev/null 2>&1"
-#define BT_CMD_REMOVE "bluetoothctl remove %s >/dev/null 2>&1"
-
 static int bt_enabled = 0;
 static BtDevice devices[BT_MAX_DEVICES];
 static int device_count = 0;
 static int busy = 0;
+
+// bluetoothctl blocks forever when bluetoothd is down or unreachable over
+// dbus. Always run it under `timeout` so a dead daemon can never freeze the
+// menu (observed: hard device freeze).
+#define BT_TIMEOUT "timeout 5 "
+#define BT_CMD_DEVICES BT_TIMEOUT "bluetoothctl devices 2>/dev/null"
+#define BT_CMD_INFO BT_TIMEOUT "bluetoothctl info %s 2>/dev/null"
+#define BT_CMD_POWER BT_TIMEOUT "bluetoothctl power %s >/dev/null 2>&1"
+#define BT_CMD_SCAN BT_TIMEOUT "bluetoothctl scan %s >/dev/null 2>&1"
+#define BT_CMD_DISCOVERABLE BT_TIMEOUT "bluetoothctl discoverable %s >/dev/null 2>&1"
+#define BT_CMD_PAIRABLE BT_TIMEOUT "bluetoothctl pairable %s >/dev/null 2>&1"
+#define BT_CMD_CONNECT BT_TIMEOUT "bluetoothctl connect %s >/dev/null 2>&1"
+#define BT_CMD_DISCONNECT BT_TIMEOUT "bluetoothctl disconnect %s >/dev/null 2>&1"
+#define BT_CMD_TRUST BT_TIMEOUT "bluetoothctl trust %s >/dev/null 2>&1"
+#define BT_CMD_REMOVE BT_TIMEOUT "bluetoothctl remove %s >/dev/null 2>&1"
 
 static FILE *bt_popen(const char *cmd) {
 	return popen(cmd, "r");
@@ -57,6 +61,27 @@ int BT_hasBluetooth(void) {
 	const MinimeTraits *traits = MINIME_traits();
 
 	return traits && traits->bluetooth_interface[0] && strcmp(traits->bluetooth_interface, "na") != 0;
+}
+
+// true when the bluetooth stack is actually usable: the adapter exists AND
+// bluetoothd is running (the gate file alone is not enough — the init script
+// marks the service started even when gated off, leaving bluetoothd dead and
+// bluetoothctl hanging on dbus).
+static int is_bt_service_up(void) {
+	char line[32];
+	FILE *f;
+
+	if (!is_bt_interface_present())
+		return 0;
+	f = bt_popen(BT_TIMEOUT "pgrep bluetoothd 2>/dev/null");
+	if (!f)
+		return 0;
+	if (!fgets(line, sizeof(line), f)) {
+		pclose(f);
+		return 0;
+	}
+	pclose(f);
+	return 1;
 }
 
 static BtDeviceKind bt_device_kind(const char *addr) {
@@ -193,7 +218,7 @@ static void bt_refresh_devices(void) {
 ///////////////////////////////////////
 
 int BT_init(void) {
-	bt_enabled = is_bt_interface_present();
+	bt_enabled = is_bt_service_up();
 	device_count = 0;
 	busy = 0;
 	return 0;
@@ -223,7 +248,9 @@ int BT_setEnabled(int enabled) {
 			fclose(f);
 		}
 		rc = system(BT_SERVICE " start");
-		if (rc != 0 && !is_bt_interface_present()) {
+		// give the daemon a moment to come up, then verify it is usable
+		sleep(2);
+		if (!is_bt_service_up()) {
 			(void)system(BT_SERVICE " stop");
 			bt_enabled = 0;
 			return -1;
@@ -240,16 +267,17 @@ int BT_setEnabled(int enabled) {
 }
 
 int BT_scan(void) {
-	if (!bt_enabled)
+	if (!bt_enabled || !is_bt_service_up())
 		return -1;
 	busy = 1;
-	(void)system("bluetoothctl power on >/dev/null 2>&1");
-	(void)system("bluetoothctl scan on >/dev/null 2>&1");
-	(void)system("bluetoothctl discoverable on >/dev/null 2>&1");
-	(void)system("bluetoothctl pairable on >/dev/null 2>&1");
-	// wait a moment for discovery to populate
+	(void)system(BT_CMD_POWER " on");
+	(void)system(BT_CMD_SCAN " on");
+	(void)system(BT_CMD_DISCOVERABLE " on");
+	(void)system(BT_CMD_PAIRABLE " on");
+	// give discovery a moment to populate (bounded; bluetoothctl is
+	// timeout-guarded so this can never hang)
 	sleep(2);
-	(void)system("bluetoothctl scan off >/dev/null 2>&1");
+	(void)system(BT_CMD_SCAN " off");
 	busy = 0;
 	return 0;
 }

@@ -53,13 +53,9 @@ static void rebuild(void) {
 
 	items[count].name = WIFI_enabled() ? "Disable Wi-Fi" : "Enable Wi-Fi";
 	items[count].desc = "Turn the Wi-Fi radio on or off.\nPress A to toggle.";
-	if (WIFI_isBusy()) {
-		items[count].name = WIFI_enabled() ? "Disabling Wi-Fi" : "Enabling Wi-Fi";
-	}
 	count++;
 
 	if (WIFI_enabled()) {
-		WIFI_scan();
 		network_count = WIFI_getNetworks(networks, WIFI_MAX_NETWORKS);
 
 		// connected first, then known, then others
@@ -96,6 +92,51 @@ static void rebuild(void) {
 	menu.max_width = 0;
 }
 
+// iwd scans are asynchronous: results appear a few seconds after `iwctl
+// station scan`. Re-scan periodically while the menu is open and rebuild the
+// list when the result set changes (or the first results arrive).
+#define WIFI_RESCAN_MS 4000
+static uint32_t last_scan_at = 0;
+
+static void wifi_update(MenuList* list) {
+	uint32_t now;
+	WifiNetwork fresh[WIFI_MAX_NETWORKS];
+	int fresh_count;
+	int changed;
+
+	(void)list;
+
+	if (!WIFI_enabled())
+		return;
+
+	now = SDL_GetTicks();
+	if (last_scan_at && (int)(now - last_scan_at) < WIFI_RESCAN_MS)
+		return;
+	last_scan_at = now;
+
+	WIFI_scan();
+	fresh_count = WIFI_getNetworks(fresh, WIFI_MAX_NETWORKS);
+
+	changed = fresh_count != network_count;
+	if (!changed) {
+		int i;
+		for (i = 0; i < fresh_count; i++) {
+			if (strcmp(fresh[i].ssid, networks[i].ssid) != 0 ||
+			    fresh[i].connected != networks[i].connected ||
+			    fresh[i].known != networks[i].known || fresh[i].signal != networks[i].signal) {
+				changed = 1;
+				break;
+			}
+		}
+	}
+
+	if (changed) {
+		network_count = fresh_count;
+		memcpy(networks, fresh, sizeof(WifiNetwork) * fresh_count);
+		rebuild();
+	}
+}
+
 // find the network row at index i (skip toggle)
 static WifiNetwork* network_for_index(int i) {
 	int idx = i - 1;
@@ -122,6 +163,7 @@ static int on_confirm(MenuList* list, int i) {
 		if (WIFI_setEnabled(target) != 0) {
 			Menu_message(target ? "Enable failed" : "Disable failed", (char*[]){"B","BACK", NULL});
 		}
+		last_scan_at = 0; // re-scan immediately on next frame
 		rebuild();
 		return MENU_CALLBACK_NOP;
 	}
@@ -239,7 +281,10 @@ int main(int argc, char* argv[]) {
 	menu.desc = "Wi-Fi";
 	menu.on_confirm = on_confirm;
 	menu.on_aux = on_aux; // X on a known network forgets it
+	menu.on_update = wifi_update;
 	WIFI_init();
+	last_scan_at = 0;
+	wifi_update(&menu); // initial scan + list
 	rebuild();
 
 	Menu_options(&menu);

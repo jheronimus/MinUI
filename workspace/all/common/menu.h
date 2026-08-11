@@ -49,6 +49,7 @@ typedef struct MenuList {
 	MenuList_callback_t on_confirm;
 	MenuList_callback_t on_change;
 	MenuList_callback_t on_aux; // optional, X button (eg. forget network)
+	void (*on_update)(MenuList* list); // optional, called every frame (eg. periodic re-scan)
 } MenuList;
 
 ///////////////////////////////
