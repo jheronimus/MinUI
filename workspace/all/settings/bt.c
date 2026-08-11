@@ -1,0 +1,177 @@
+// Bluetooth settings PAK for Minime (bluetoothctl backend).
+// Toggle, scan, pair/connect/disconnect devices, forget paired devices.
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include <msettings.h>
+
+#include "defines.h"
+#include "api.h"
+#include "menu.h"
+#include "utils.h"
+#include "wireless.h"
+
+///////////////////////////////////////
+
+static MenuList menu = {0};
+static BtDevice devices[BT_MAX_DEVICES];
+static int device_count = 0;
+
+static int is_toggle_row(int i) {
+	return i == 0;
+}
+
+static const char* kind_label(BtDeviceKind kind) {
+	switch (kind) {
+	case BT_DEVICE_AUDIO: return "audio";
+	case BT_DEVICE_GAMEPAD: return "gamepad";
+	default: return "device";
+	}
+}
+
+static void set_badge(MenuItem* item, const BtDevice* dev) {
+	char state[16];
+
+	if (dev->connected)
+		strcpy(state, "connected");
+	else if (dev->paired)
+		strcpy(state, "paired");
+	else
+		strcpy(state, "new");
+
+	snprintf(item->badge, sizeof(item->badge), "%s | %s", kind_label(dev->kind), state);
+}
+
+static void rebuild(void) {
+	MenuItem* items;
+	int i;
+	int count = 0;
+
+	items = calloc(1 + BT_MAX_DEVICES + 1, sizeof(MenuItem));
+
+	items[count].name = BT_enabled() ? "Disable Bluetooth" : "Enable Bluetooth";
+	items[count].desc = "Turn the Bluetooth radio on or off.\nPress A to toggle.";
+	if (BT_isBusy()) {
+		items[count].name = BT_enabled() ? "Disabling Bluetooth" : "Enabling Bluetooth";
+	}
+	count++;
+
+	if (BT_enabled()) {
+		BT_scan();
+		device_count = BT_getDevices(devices, BT_MAX_DEVICES);
+
+		// connected first, then paired, then new
+		for (i = 0; i < device_count; i++) {
+			if (devices[i].connected) {
+				MenuItem* item = &items[count++];
+				item->name = devices[i].name[0] ? devices[i].name : devices[i].addr;
+				item->desc = "Connected. Press A to disconnect.";
+				set_badge(item, &devices[i]);
+			}
+		}
+		for (i = 0; i < device_count; i++) {
+			if (devices[i].paired && !devices[i].connected) {
+				MenuItem* item = &items[count++];
+				item->name = devices[i].name[0] ? devices[i].name : devices[i].addr;
+				item->desc = "Paired. Press A to connect.";
+				set_badge(item, &devices[i]);
+			}
+		}
+		for (i = 0; i < device_count; i++) {
+			if (!devices[i].paired) {
+				MenuItem* item = &items[count++];
+				item->name = devices[i].name[0] ? devices[i].name : devices[i].addr;
+				item->desc = "Discovered. Press A to pair and connect.";
+				set_badge(item, &devices[i]);
+			}
+		}
+	}
+
+	items[count].name = NULL;
+	if (menu.items)
+		free(menu.items);
+	menu.items = items;
+	menu.max_width = 0;
+}
+
+static BtDevice* device_for_index(int i) {
+	int idx = i - 1;
+	if (idx < 0 || idx >= device_count)
+		return NULL;
+	return &devices[idx];
+}
+
+static int on_confirm(MenuList* list, int i) {
+	BtDevice* dev;
+
+	(void)list;
+
+	if (is_toggle_row(i)) {
+		int target = BT_enabled() ? 0 : 1;
+		if (BT_setEnabled(target) != 0) {
+			Menu_message(target ? "Enable failed" : "Disable failed", (char*[]){"B","BACK", NULL});
+		}
+		rebuild();
+		return MENU_CALLBACK_NOP;
+	}
+
+	dev = device_for_index(i);
+	if (!dev)
+		return MENU_CALLBACK_NOP;
+
+	if (BT_toggleDevice(dev->addr) != 0) {
+		Menu_message("Device action failed", (char*[]){"B","BACK", NULL});
+	}
+	rebuild();
+	return MENU_CALLBACK_NOP;
+}
+
+static int on_aux(MenuList* list, int i) {
+	BtDevice* dev;
+
+	(void)list;
+
+	dev = device_for_index(i);
+	if (!dev)
+		return MENU_CALLBACK_NOP;
+	if (dev->paired) {
+		BT_forgetDevice(dev->addr);
+		rebuild();
+	}
+	return MENU_CALLBACK_NOP;
+}
+
+int main(int argc, char* argv[]) {
+	SDL_Surface* screen;
+
+	(void)argc;
+	(void)argv;
+
+	PWR_setCPUSpeed(CPU_SPEED_MENU);
+	screen = GFX_init(MODE_MAIN);
+	PAD_init();
+	InitSettings();
+	PWR_init();
+
+	menu_screen = screen;
+	menu.type = MENU_LIST;
+	menu.desc = "Bluetooth";
+	menu.on_confirm = on_confirm;
+	menu.on_aux = on_aux; // X on a paired device forgets it
+	BT_init();
+	rebuild();
+
+	Menu_options(&menu);
+
+	if (menu.items)
+		free(menu.items);
+	BT_quit();
+	QuitSettings();
+	PWR_quit();
+	PAD_quit();
+	GFX_quit();
+	return 0;
+}

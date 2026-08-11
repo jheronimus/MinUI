@@ -18,6 +18,7 @@
 #include "api.h"
 #include "utils.h"
 #include "scaler.h"
+#include "menu.h"
 
 ///////////////////////////////////////
 
@@ -55,6 +56,30 @@ static int overclock = 1; // normal
 static int has_custom_controllers = 0;
 static int gamepad_type = 0; // index in gamepad_labels/gamepad_values
 static int downsample = 0; // set to 1 to convert from 8888 to 565
+
+// rewind
+static int rewind_pressed = 0;
+static int rewind_toggle = 0;
+static int last_rewind_pressed = 0;
+static int rewinding = 0;
+static enum retro_savestate_context rewind_savestate_context = RETRO_SAVESTATE_CONTEXT_NORMAL;
+static int rewind_cfg_enable = 0;
+static int rewind_cfg_buffer_mb = 64;
+static int rewind_cfg_granularity = 16;
+static int rewind_cfg_audio = 0;
+static int rewind_cfg_compress = 1;
+static int rewind_cfg_lz4_acceleration = 2;
+static int rewind_init_ready = 0;
+static int ff_toggled = 0;
+static int ff_hold_active = 0;
+static int ff_paused_by_rewind_hold = 0;
+
+// forward declarations (definitions live near run_frame)
+static void Rewind_init(size_t state_size);
+static void Rewind_sync_encode_state(void);
+static void Rewind_on_state_change(void);
+static void Rewind_quit(void);
+static void run_frame(void);
 
 // these are no longer constants as of the RG CubeXX (even though they look like it)
 static int DEVICE_WIDTH = 0; // FIXED_WIDTH;
@@ -102,6 +127,7 @@ static struct Core {
 	unsigned (*get_region)(void);
 	void *(*get_memory_data)(unsigned id);
 	size_t (*get_memory_size)(unsigned id);
+	uint64_t serialization_quirks;
 	
 	// retro_audio_buffer_status_callback_t audio_buffer_status;
 } core;
@@ -519,6 +545,7 @@ static void State_read(void) { // from picoarch
 		LOG_error("Error restoring save state: %s (%s)\n", filename, strerror(errno));
 		goto error;
 	}
+	Rewind_on_state_change();
 
 error:
 	if (state) free(state);
@@ -648,6 +675,22 @@ static char* max_ff_labels[] = {
 	"8x",
 	NULL,
 };
+static char* rewind_buffer_labels[] = {
+	"16", "32", "64", "96", "128", "192", "256", NULL,
+};
+static char* rewind_granularity_values[] = {
+	"16", "22", "25", "33", "50", "66", "100", "150", "200", NULL,
+};
+static char* rewind_granularity_labels[] = {
+	"16 ms (~60 fps)", "22 ms (~45 fps)", "25 ms (~40 fps)", "33 ms (~30 fps)", "50 ms (~20 fps)",
+	"66 ms (~15 fps)", "100 ms (~10 fps)", "150 ms (~7 fps)", "200 ms (~5 fps)", NULL,
+};
+static char* rewind_compression_accel_values[] = {
+	"1", "2", "4", "8", "12", NULL,
+};
+static char* rewind_compression_accel_labels[] = {
+	"1 (best ratio)", "2 (default)", "4 (fast)", "8 (faster)", "12 (fastest)", NULL,
+};
 
 ///////////////////////////////
 
@@ -660,6 +703,12 @@ enum {
 	FE_OPT_THREAD,
 	FE_OPT_DEBUG,
 	FE_OPT_MAXFF,
+	FE_OPT_REWIND_ENABLE,
+	FE_OPT_REWIND_BUFFER,
+	FE_OPT_REWIND_GRANULARITY,
+	FE_OPT_REWIND_AUDIO,
+	FE_OPT_REWIND_COMPRESSION,
+	FE_OPT_REWIND_COMPRESSION_ACCEL,
 	FE_OPT_COUNT,
 };
 
@@ -672,6 +721,8 @@ enum {
 	SHORTCUT_CYCLE_EFFECT,
 	SHORTCUT_TOGGLE_FF,
 	SHORTCUT_HOLD_FF,
+	SHORTCUT_TOGGLE_REWIND,
+	SHORTCUT_HOLD_REWIND,
 	SHORTCUT_COUNT,
 };
 
@@ -918,6 +969,66 @@ static struct Config {
 				.values = max_ff_labels,
 				.labels = max_ff_labels,
 			},
+			[FE_OPT_REWIND_ENABLE] = {
+				.key	= "minarch_rewind_enable",
+				.name	= "Rewind",
+				.desc	= "Enable in-memory rewind buffer.\nMust set a shortcut to access rewind\nduring gameplay. Uses extra CPU and memory.",
+				.default_value = 0,
+				.value = 0,
+				.count = 2,
+				.values = onoff_labels,
+				.labels = onoff_labels,
+			},
+			[FE_OPT_REWIND_BUFFER] = {
+				.key	= "minarch_rewind_buffer_mb",
+				.name	= "Rewind Buffer (MB)",
+				.desc	= "Memory reserved for rewind snapshots.\nIncrease for longer rewind times.",
+				.default_value = 2, // 64MB
+				.value = 2, // 64MB
+				.count = 7,
+				.values = rewind_buffer_labels,
+				.labels = rewind_buffer_labels,
+			},
+			[FE_OPT_REWIND_GRANULARITY] = {
+				.key	= "minarch_rewind_granularity",
+				.name	= "Rewind Interval",
+				.desc	= "Interval between rewind snapshots.\nShorter intervals improve smoothness during\nrewind, but increase CPU and memory usage.",
+				.default_value = 0, // 16ms
+				.value = 0, // 16ms
+				.count = 9,
+				.values = rewind_granularity_values,
+				.labels = rewind_granularity_labels,
+			},
+			[FE_OPT_REWIND_COMPRESSION] = {
+				.key	= "minarch_rewind_compression",
+				.name	= "Rewind Compression",
+				.desc	= "Compress rewind snapshots to save\nmemory at the cost of CPU.",
+				.default_value = 1,
+				.value = 1,
+				.count = 2,
+				.values = onoff_labels,
+				.labels = onoff_labels,
+			},
+			[FE_OPT_REWIND_COMPRESSION_ACCEL] = {
+				.key	= "minarch_rewind_compression_speed",
+				.name	= "Rewind Compression Speed",
+				.desc	= "LZ4 acceleration used for rewind\nsnapshots. Lower values compress more\nbut use more CPU.",
+				.default_value = 1, // value 2
+				.value = 1, // value 2
+				.count = 5,
+				.values = rewind_compression_accel_values,
+				.labels = rewind_compression_accel_labels,
+			},
+			[FE_OPT_REWIND_AUDIO] = {
+				.key	= "minarch_rewind_audio",
+				.name	= "Rewind Audio",
+				.desc	= "Play or mute audio when rewinding.",
+				.default_value = 0,
+				.value = 0,
+				.count = 2,
+				.values = onoff_labels,
+				.labels = onoff_labels,
+			},
 			[FE_OPT_COUNT] = {NULL}
 		}
 	},
@@ -937,6 +1048,8 @@ static struct Config {
 		[SHORTCUT_CYCLE_EFFECT]			= {"Cycle Effect",		-1, BTN_ID_NONE, 0},
 		[SHORTCUT_TOGGLE_FF]			= {"Toggle FF",			-1, BTN_ID_NONE, 0},
 		[SHORTCUT_HOLD_FF]				= {"Hold FF",			-1, BTN_ID_NONE, 0},
+		[SHORTCUT_TOGGLE_REWIND]		= {"Toggle Rewind",		-1, BTN_ID_NONE, 0},
+		[SHORTCUT_HOLD_REWIND]			= {"Hold Rewind",		-1, BTN_ID_NONE, 0},
 		{NULL}
 	},
 };
@@ -1016,9 +1129,44 @@ static void Config_syncFrontend(char* key, int value) {
 		max_ff_speed = value;
 		i = FE_OPT_MAXFF;
 	}
+	else if (exactMatch(key,config.frontend.options[FE_OPT_REWIND_ENABLE].key)) {
+		rewind_cfg_enable = value;
+		i = FE_OPT_REWIND_ENABLE;
+	}
+	else if (exactMatch(key,config.frontend.options[FE_OPT_REWIND_BUFFER].key)) {
+		rewind_cfg_buffer_mb = strtol(rewind_buffer_labels[value], NULL, 10);
+		i = FE_OPT_REWIND_BUFFER;
+	}
+	else if (exactMatch(key,config.frontend.options[FE_OPT_REWIND_GRANULARITY].key)) {
+		rewind_cfg_granularity = strtol(rewind_granularity_values[value], NULL, 10);
+		i = FE_OPT_REWIND_GRANULARITY;
+	}
+	else if (exactMatch(key,config.frontend.options[FE_OPT_REWIND_AUDIO].key)) {
+		rewind_cfg_audio = value;
+		i = FE_OPT_REWIND_AUDIO;
+	}
+	else if (exactMatch(key,config.frontend.options[FE_OPT_REWIND_COMPRESSION].key)) {
+		rewind_cfg_compress = value;
+		i = FE_OPT_REWIND_COMPRESSION;
+	}
+	else if (exactMatch(key,config.frontend.options[FE_OPT_REWIND_COMPRESSION_ACCEL].key)) {
+		rewind_cfg_lz4_acceleration = strtol(rewind_compression_accel_values[value], NULL, 10);
+		i = FE_OPT_REWIND_COMPRESSION_ACCEL;
+	}
 	if (i==-1) return;
 	Option* option = &config.frontend.options[i];
 	option->value = value;
+	// defer Rewind_init until after the explicit init in main(), otherwise cores crash
+	if (i>=FE_OPT_REWIND_ENABLE && i<=FE_OPT_REWIND_COMPRESSION_ACCEL && rewind_init_ready) {
+		Rewind_init(core.serialize_size ? core.serialize_size() : 0);
+		if (i==FE_OPT_REWIND_ENABLE) {
+			rewind_toggle = 0;
+			rewind_pressed = 0;
+			Rewind_sync_encode_state();
+			rewinding = 0;
+			ff_paused_by_rewind_hold = 0;
+		}
+	}
 }
 static void OptionList_setOptionValue(OptionList* list, const char* key, const char* value);
 enum {
@@ -1681,6 +1829,7 @@ static void input_poll_callback(void) {
 	}
 	
 	static int toggled_ff_on = 0; // this logic only works because TOGGLE_FF is before HOLD_FF in the menu...
+	rewind_pressed = 0;
 	for (int i=0; i<SHORTCUT_COUNT; i++) {
 		ButtonMapping* mapping = &config.shortcuts[i];
 		int btn = 1 << mapping->local;
@@ -1689,6 +1838,15 @@ static void input_poll_callback(void) {
 			if (i==SHORTCUT_TOGGLE_FF) {
 				if (PAD_justPressed(btn)) {
 					toggled_ff_on = setFastForward(!fast_forward);
+					ff_toggled = toggled_ff_on;
+					ff_hold_active = 0;
+					if (ff_toggled && rewind_toggle) {
+						// last toggle wins: disable rewind toggle when FF toggle is enabled
+						rewind_toggle = 0;
+						rewind_pressed = 0;
+						Rewind_sync_encode_state();
+						rewinding = 0;
+					}
 					if (mapping->mod) ignore_menu = 1;
 					break;
 				}
@@ -1701,15 +1859,52 @@ static void input_poll_callback(void) {
 				// don't allow turn off fast_forward with a release of the hold button 
 				// if it was initially turned on with the toggle button
 				if (PAD_justPressed(btn) || (!toggled_ff_on && PAD_justReleased(btn))) {
-					fast_forward = setFastForward(PAD_isPressed(btn));
+					int pressed = PAD_isPressed(btn);
+					fast_forward = setFastForward(pressed);
+					ff_hold_active = pressed ? 1 : 0;
 					if (mapping->mod) ignore_menu = 1; // very unlikely but just in case
+				}
+				if (PAD_justReleased(btn) && toggled_ff_on) {
+					ff_hold_active = 0;
+				}
+			}
+			else if (i==SHORTCUT_HOLD_REWIND) {
+				rewind_pressed = PAD_isPressed(btn) ? 1 : 0;
+				if (rewind_pressed != last_rewind_pressed) {
+					last_rewind_pressed = rewind_pressed;
+				}
+				if (rewind_pressed && ff_toggled && !ff_paused_by_rewind_hold) {
+					ff_paused_by_rewind_hold = 1;
+					fast_forward = setFastForward(0);
+				}
+				else if (!rewind_pressed && ff_paused_by_rewind_hold) {
+					ff_paused_by_rewind_hold = 0;
+					if (ff_toggled) fast_forward = setFastForward(1);
+				}
+				if (mapping->mod && rewind_pressed) ignore_menu = 1;
+			}
+			else if (i==SHORTCUT_TOGGLE_REWIND) {
+				if (PAD_justPressed(btn)) {
+					rewind_toggle = !rewind_toggle;
+					if (rewind_toggle && ff_toggled) {
+						// disable fast forward toggle when rewinding is toggled on
+						ff_toggled = 0;
+						fast_forward = setFastForward(0);
+						ff_paused_by_rewind_hold = 0;
+					}
+					if (mapping->mod) ignore_menu = 1;
+					break;
+				}
+				else if (PAD_justReleased(btn)) {
+					if (mapping->mod) ignore_menu = 1;
+					break;
 				}
 			}
 			else if (PAD_justPressed(btn)) {
 				switch (i) {
 					case SHORTCUT_SAVE_STATE: Menu_saveState(); break;
 					case SHORTCUT_LOAD_STATE: Menu_loadState(); break;
-					case SHORTCUT_RESET_GAME: core.reset(); break;
+					case SHORTCUT_RESET_GAME: core.reset(); Rewind_on_state_change(); break;
 					case SHORTCUT_SAVE_QUIT:
 						Menu_saveState();
 						quit = 1;
@@ -2024,6 +2219,18 @@ static bool environment_callback(unsigned cmd, void *data) { // copied from pico
 			out |= RETRO_AV_ENABLE_AUDIO;
 			*out_p = out;
 		}
+		break;
+	}
+	case RETRO_ENVIRONMENT_GET_SAVESTATE_CONTEXT: {
+		enum retro_savestate_context *out = (enum retro_savestate_context *)data;
+		if (out)
+			*out = rewind_savestate_context;
+		break;
+	}
+	case RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS: {
+		const uint64_t *quirks = (const uint64_t *)data;
+		if (quirks)
+			core.serialization_quirks = *quirks;
 		break;
 	}
 	
@@ -2873,10 +3080,10 @@ static void video_refresh_callback(const void *data, unsigned width, unsigned he
 
 // NOTE: sound must be disabled for fast forward to work...
 static void audio_sample_callback(int16_t left, int16_t right) {
-	if (!fast_forward) SND_batchSamples(&(const SND_Frame){left,right}, 1);
+	if (!fast_forward && (!rewinding || rewind_cfg_audio)) SND_batchSamples(&(const SND_Frame){left,right}, 1);
 }
 static size_t audio_sample_batch_callback(const int16_t *data, size_t frames) { 
-	if (!fast_forward) return SND_batchSamples((const SND_Frame*)data, frames);
+	if (!fast_forward && (!rewinding || rewind_cfg_audio)) return SND_batchSamples((const SND_Frame*)data, frames);
 	else return frames;
 	// return frames;
 };
@@ -2986,6 +3193,7 @@ void Core_load(void) {
 }
 void Core_reset(void) {
 	core.reset();
+	Rewind_on_state_change();
 }
 void Core_unload(void) {
 	SND_quit();
@@ -3123,68 +3331,7 @@ void Menu_afterSleep(void) {
 	setOverclock(overclock);
 }
 
-typedef struct MenuList MenuList;
-typedef struct MenuItem MenuItem;
-enum {
-	MENU_CALLBACK_NOP,
-	MENU_CALLBACK_EXIT,
-	MENU_CALLBACK_NEXT_ITEM,
-};
-typedef int (*MenuList_callback_t)(MenuList* list, int i);
-typedef struct MenuItem {
-	char* name;
-	char* desc;
-	char** values;
-	char* key; // optional, used by options
-	int id; // optional, used by bindings
-	int value;
-	MenuList* submenu;
-	MenuList_callback_t on_confirm;
-	MenuList_callback_t on_change;
-} MenuItem;
 
-enum {
-	MENU_LIST, // eg. save and main menu
-	MENU_VAR, // eg. frontend
-	MENU_FIXED, // eg. emulator
-	MENU_INPUT, // eg. renders like but MENU_VAR but handles input differently
-};
-typedef struct MenuList {
-	int type;
-	int max_width; // cached on first draw
-	char* desc;
-	MenuItem* items;
-	MenuList_callback_t on_confirm;
-	MenuList_callback_t on_change;
-} MenuList;
-
-static int Menu_message(char* message, char** pairs) {
-	GFX_setMode(MODE_MAIN);
-	int dirty = 1;
-	while (1) {
-		GFX_startFrame();
-		PAD_poll();
-
-		if (PAD_justPressed(BTN_A) || PAD_justPressed(BTN_B)) break;
-		
-		PWR_update(&dirty, NULL, Menu_beforeSleep, Menu_afterSleep);
-		
-		if (dirty) {
-			GFX_clear(screen);
-			GFX_blitMessage(font.medium, message, screen, &(SDL_Rect){0,SCALE1(PADDING),screen->w,screen->h-SCALE1(PILL_SIZE+PADDING)});
-			GFX_blitButtonGroup(pairs, 0, screen, 1);
-			GFX_flip(screen);
-			dirty = 0;
-		}
-		else GFX_sync();
-		
-		hdmimon();
-	}
-	GFX_setMode(MODE_MENU);
-	return MENU_CALLBACK_NOP; // TODO: this should probably be an arg
-}
-
-static int Menu_options(MenuList* list);
 
 static int MenuList_freeItems(MenuList* list, int i) {
 	// TODO: what calls this? do menu's register for needing it? then call it on quit for each?
@@ -3582,392 +3729,6 @@ static void OptionSaveChanges_updateDesc(void) {
 }
 
 #define OPTION_PADDING 8
-
-static int Menu_options(MenuList* list) {
-	MenuItem* items = list->items;
-	int type = list->type;
-
-	int dirty = 1;
-	int show_options = 1;
-	int show_settings = 0;
-	int await_input = 0;
-	
-	// dependent on option list offset top and bottom, eg. the gray triangles
-	int max_visible_options = (screen->h - ((SCALE1(PADDING + PILL_SIZE) * 2) + SCALE1(BUTTON_SIZE))) / SCALE1(BUTTON_SIZE); // 7 for 480, 10 for 720
-	
-	int count;
-	for (count=0; items[count].name; count++);
-	int selected = 0;
-	int start = 0;
-	int end = MIN(count,max_visible_options);
-	int visible_rows = end;
-	
-	OptionSaveChanges_updateDesc();
-	
-	int defer_menu = false;
-	while (show_options) {
-		if (await_input) {
-			defer_menu = true;
-			list->on_confirm(list, selected);
-			
-			selected += 1;
-			if (selected>=count) {
-				selected = 0;
-				start = 0;
-				end = visible_rows;
-			}
-			else if (selected>=end) {
-				start += 1;
-				end += 1;
-			}
-			dirty = 1;
-			await_input = false;
-		}
-		
-		GFX_startFrame();
-		PAD_poll();
-		
-		if (PAD_justRepeated(BTN_UP)) {
-			selected -= 1;
-			if (selected<0) {
-				selected = count - 1;
-				start = MAX(0,count - max_visible_options);
-				end = count;
-			}
-			else if (selected<start) {
-				start -= 1;
-				end -= 1;
-			}
-			dirty = 1;
-		}
-		else if (PAD_justRepeated(BTN_DOWN)) {
-			selected += 1;
-			if (selected>=count) {
-				selected = 0;
-				start = 0;
-				end = visible_rows;
-			}
-			else if (selected>=end) {
-				start += 1;
-				end += 1;
-			}
-			dirty = 1;
-		}
-		else {
-			MenuItem* item = &items[selected];
-			if (item->values && item->values!=button_labels) { // not an input binding
-				if (PAD_justRepeated(BTN_LEFT)) {
-					if (item->value>0) item->value -= 1;
-					else {
-						int j;
-						for (j=0; item->values[j]; j++);
-						item->value = j - 1;
-					}
-				
-					if (item->on_change) item->on_change(list, selected);
-					else if (list->on_change) list->on_change(list, selected);
-				
-					dirty = 1;
-				}
-				else if (PAD_justRepeated(BTN_RIGHT)) {
-					if (item->values[item->value+1]) item->value += 1;
-					else item->value = 0;
-				
-					if (item->on_change) item->on_change(list, selected);
-					else if (list->on_change) list->on_change(list, selected);
-				
-					dirty = 1;
-				}
-			}
-		}
-		
-		// uint32_t now = SDL_GetTicks();
-		if (PAD_justPressed(BTN_B)) { // || PAD_tappedMenu(now)
-			show_options = 0;
-		}
-		else if (PAD_justPressed(BTN_A)) {
-			MenuItem* item = &items[selected];
-			int result = MENU_CALLBACK_NOP;
-			if (item->on_confirm) result = item->on_confirm(list, selected); // item-specific action, eg. Save for all games
-			else if (item->submenu) result = Menu_options(item->submenu); // drill down, eg. main options menu
-			// TODO: is there a way to defer on_confirm for MENU_INPUT so we can clear the currently set value to indicate it is awaiting input? 
-			// eg. set a flag to call on_confirm at the beginning of the next frame?
-			else if (list->on_confirm) {
-				if (item->values==button_labels) await_input = 1; // button binding
-				else result = list->on_confirm(list, selected); // list-specific action, eg. show item detail view or input binding
-			}
-			if (result==MENU_CALLBACK_EXIT) show_options = 0;
-			else {
-				if (result==MENU_CALLBACK_NEXT_ITEM) {
-					// copied from PAD_justRepeated(BTN_DOWN) above
-					selected += 1;
-					if (selected>=count) {
-						selected = 0;
-						start = 0;
-						end = visible_rows;
-					}
-					else if (selected>=end) {
-						start += 1;
-						end += 1;
-					}
-				}
-				dirty = 1;
-			}
-		}
-		else if (type==MENU_INPUT) {
-			if (PAD_justPressed(BTN_X)) {
-				MenuItem* item = &items[selected];
-				item->value = 0;
-				
-				if (item->on_change) item->on_change(list, selected);
-				else if (list->on_change) list->on_change(list, selected);
-				
-				// copied from PAD_justRepeated(BTN_DOWN) above
-				selected += 1;
-				if (selected>=count) {
-					selected = 0;
-					start = 0;
-					end = visible_rows;
-				}
-				else if (selected>=end) {
-					start += 1;
-					end += 1;
-				}
-				dirty = 1;
-			}
-		}
-		
-		if (!defer_menu) PWR_update(&dirty, &show_settings, Menu_beforeSleep, Menu_afterSleep);
-		
-		if (defer_menu && PAD_justReleased(BTN_MENU)) defer_menu = false;
-		
-		if (dirty) {
-			GFX_clear(screen);
-			GFX_blitHardwareGroup(screen, show_settings);
-			
-			char* desc = NULL;
-			SDL_Surface* text;
-
-			if (type==MENU_LIST) {
-				int mw = list->max_width;
-				if (!mw) {
-					// get the width of the widest item
-					for (int i=0; i<count; i++) {
-						MenuItem* item = &items[i];
-						int w = 0;
-						TTF_SizeUTF8(font.small, item->name, &w, NULL);
-						w += SCALE1(OPTION_PADDING*2);
-						if (w>mw) mw = w;
-					}
-					// cache the result
-					list->max_width = mw = MIN(mw, screen->w - SCALE1(PADDING *2));
-				}
-				
-				int ox = (screen->w - mw) / 2;
-				int oy = SCALE1(PADDING + PILL_SIZE);
-				int selected_row = selected - start;
-				for (int i=start,j=0; i<end; i++,j++) {
-					MenuItem* item = &items[i];
-					SDL_Color text_color = COLOR_WHITE;
-
-					// int ox = (screen->w - w) / 2; // if we're centering these (but I don't think we should after seeing it)
-					if (j==selected_row) {
-						// move out of conditional if centering
-						int w = 0;
-						TTF_SizeUTF8(font.small, item->name, &w, NULL);
-						w += SCALE1(OPTION_PADDING*2);
-						
-						GFX_blitPill(ASSET_BUTTON, screen, &(SDL_Rect){
-							ox,
-							oy+SCALE1(j*BUTTON_SIZE),
-							w,
-							SCALE1(BUTTON_SIZE)
-						});
-						text_color = COLOR_BLACK;
-						
-						if (item->desc) desc = item->desc;
-					}
-					text = TTF_RenderUTF8_Blended(font.small, item->name, text_color);
-					SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){
-						ox+SCALE1(OPTION_PADDING),
-						oy+SCALE1((j*BUTTON_SIZE)+1)
-					});
-					SDL_FreeSurface(text);
-				}
-			}
-			else if (type==MENU_FIXED) {
-				// NOTE: no need to calculate max width
-				int mw = screen->w - SCALE1(PADDING*2);
-				// int lw,rw;
-				// lw = rw = mw / 2;
-				int ox,oy;
-				ox = oy = SCALE1(PADDING);
-				oy += SCALE1(PILL_SIZE);
-				
-				int selected_row = selected - start;
-				for (int i=start,j=0; i<end; i++,j++) {
-					MenuItem* item = &items[i];
-					SDL_Color text_color = COLOR_WHITE;
-
-					if (j==selected_row) {
-						// gray pill
-						GFX_blitPill(ASSET_OPTION, screen, &(SDL_Rect){
-							ox,
-							oy+SCALE1(j*BUTTON_SIZE),
-							mw,
-							SCALE1(BUTTON_SIZE)
-						});
-					}
-					
-					if (item->value>=0) {
-						text = TTF_RenderUTF8_Blended(font.tiny, item->values[item->value], COLOR_WHITE); // always white
-						SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){
-							ox + mw - text->w - SCALE1(OPTION_PADDING),
-							oy+SCALE1((j*BUTTON_SIZE)+3)
-						});
-						SDL_FreeSurface(text);
-					}
-					
-					// TODO: blit a black pill on unselected rows (to cover longer item->values?) or truncate longer item->values?
-					if (j==selected_row) {
-						// white pill
-						int w = 0;
-						TTF_SizeUTF8(font.small, item->name, &w, NULL);
-						w += SCALE1(OPTION_PADDING*2);
-						GFX_blitPill(ASSET_BUTTON, screen, &(SDL_Rect){
-							ox,
-							oy+SCALE1(j*BUTTON_SIZE),
-							w,
-							SCALE1(BUTTON_SIZE)
-						});
-						text_color = COLOR_BLACK;
-						
-						if (item->desc) desc = item->desc;
-					}
-					text = TTF_RenderUTF8_Blended(font.small, item->name, text_color);
-					SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){
-						ox+SCALE1(OPTION_PADDING),
-						oy+SCALE1((j*BUTTON_SIZE)+1)
-					});
-					SDL_FreeSurface(text);
-				}
-			}
-			else if (type==MENU_VAR || type==MENU_INPUT) {
-				int mw = list->max_width;
-				if (!mw) {
-					// get the width of the widest row
-					int mrw = 0;
-					for (int i=0; i<count; i++) {
-						MenuItem* item = &items[i];
-						int w = 0;
-						int lw = 0;
-						int rw = 0;
-						TTF_SizeUTF8(font.small, item->name, &lw, NULL);
-						
-						// every value list in an input table is the same
-						// so only calculate rw for the first item...
-						if (!mrw || type!=MENU_INPUT) {
-							for (int j=0; item->values[j]; j++) {
-								TTF_SizeUTF8(font.tiny, item->values[j], &rw, NULL);
-								if (lw+rw>w) w = lw+rw;
-								if (rw>mrw) mrw = rw;
-							}
-						}
-						else {
-							w = lw + mrw;
-						}
-						w += SCALE1(OPTION_PADDING*4);
-						if (w>mw) mw = w;
-					}
-					fflush(stdout);
-					// cache the result
-					list->max_width = mw = MIN(mw, screen->w - SCALE1(PADDING *2));
-				}
-				
-				int ox = (screen->w - mw) / 2;
-				int oy = SCALE1(PADDING + PILL_SIZE);
-				int selected_row = selected - start;
-				for (int i=start,j=0; i<end; i++,j++) {
-					MenuItem* item = &items[i];
-					SDL_Color text_color = COLOR_WHITE;
-
-					if (j==selected_row) {
-						// gray pill
-						GFX_blitPill(ASSET_OPTION, screen, &(SDL_Rect){
-							ox,
-							oy+SCALE1(j*BUTTON_SIZE),
-							mw,
-							SCALE1(BUTTON_SIZE)
-						});
-						
-						// white pill
-						int w = 0;
-						TTF_SizeUTF8(font.small, item->name, &w, NULL);
-						w += SCALE1(OPTION_PADDING*2);
-						GFX_blitPill(ASSET_BUTTON, screen, &(SDL_Rect){
-							ox,
-							oy+SCALE1(j*BUTTON_SIZE),
-							w,
-							SCALE1(BUTTON_SIZE)
-						});
-						text_color = COLOR_BLACK;
-						
-						if (item->desc) desc = item->desc;
-					}
-					text = TTF_RenderUTF8_Blended(font.small, item->name, text_color);
-					SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){
-						ox+SCALE1(OPTION_PADDING),
-						oy+SCALE1((j*BUTTON_SIZE)+1)
-					});
-					SDL_FreeSurface(text);
-					
-					if (await_input && j==selected_row) {
-						// buh
-					}
-					else if (item->value>=0) {
-						text = TTF_RenderUTF8_Blended(font.tiny, item->values[item->value], COLOR_WHITE); // always white
-						SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){
-							ox + mw - text->w - SCALE1(OPTION_PADDING),
-							oy+SCALE1((j*BUTTON_SIZE)+3)
-						});
-						SDL_FreeSurface(text);
-					}
-				}
-			}
-			
-			if (count>max_visible_options) {
-				#define SCROLL_WIDTH 24
-				#define SCROLL_HEIGHT 4
-				int ox = (screen->w - SCALE1(SCROLL_WIDTH))/2;
-				int oy = SCALE1((PILL_SIZE - SCROLL_HEIGHT) / 2);
-				if (start>0) GFX_blitAsset(ASSET_SCROLL_UP,   NULL, screen, &(SDL_Rect){ox, SCALE1(PADDING) + oy});
-				if (end<count) GFX_blitAsset(ASSET_SCROLL_DOWN, NULL, screen, &(SDL_Rect){ox, screen->h - SCALE1(PADDING + PILL_SIZE + BUTTON_SIZE) + oy});
-			}
-			
-			if (!desc && list->desc) desc = list->desc;
-			
-			if (desc) {
-				int w,h;
-				GFX_sizeText(font.tiny, desc, SCALE1(12), &w,&h);
-				GFX_blitText(font.tiny, desc, SCALE1(12), COLOR_WHITE, screen, &(SDL_Rect){
-					(screen->w - w) / 2,
-					screen->h - SCALE1(PADDING) - h,
-					w,h
-				});
-			}
-			
-			GFX_flip(screen);
-			dirty = 0;
-		}
-		else GFX_sync();
-		hdmimon();
-	}
-	
-	// GFX_clearAll();
-	// GFX_flip(screen);
-	
-	return 0;
-}
 
 static void Menu_scale(SDL_Surface* src, SDL_Surface* dst) {
 	// LOG_info("Menu_scale src: %ix%i dst: %ix%i\n", src->w,src->h,dst->w,dst->h);
@@ -4644,6 +4405,774 @@ static void limitFF(void) {
 	last_time = now;
 }
 
+///////////////////////////////////////
+// rewind
+
+#include <lz4.h>
+
+typedef struct {
+	size_t offset;
+	size_t size;
+	uint8_t is_keyframe; // 1 if this entry is a full state, 0 if delta-encoded
+} RewindEntry;
+
+typedef struct {
+	uint8_t *buffer;
+	size_t capacity;
+	size_t head;
+	size_t tail;
+
+	RewindEntry *entries;
+	int entry_capacity;
+	int entry_head;
+	int entry_tail;
+	int entry_count;
+
+	uint8_t *state_buf;
+	size_t state_size;
+	uint8_t *scratch;
+	size_t scratch_size;
+
+	uint8_t *prev_state_enc; // previous state for delta encoding (compression)
+	uint8_t *prev_state_dec; // previous state for delta decoding (decompression)
+	uint8_t *delta_buf;      // scratch buffer for XOR result
+	int has_prev_enc;        // 1 if prev_state_enc is valid
+	int has_prev_dec;        // 1 if prev_state_dec is valid
+
+	int interval_ms;
+	uint32_t last_push_ms;
+	uint32_t last_step_ms;
+	int playback_interval_ms;
+	int frame_counter;
+	unsigned int generation;
+	int enabled;
+	int audio;
+	int compress;
+	int lz4_acceleration;
+	int logged_first;
+
+	pthread_t worker;
+	pthread_mutex_t lock;
+	pthread_mutex_t queue_mx;
+	pthread_cond_t queue_cv;
+	int worker_stop;
+	int worker_running;
+	int locks_ready;
+
+	uint8_t **capture_pool;
+	unsigned int *capture_gen;
+	uint8_t *capture_busy;
+	int pool_size;
+	int free_count;
+	int *free_stack;
+
+	int queue_capacity;
+	int queue_head;
+	int queue_tail;
+	int queue_count;
+	int *queue;
+} RewindContext;
+
+enum {
+	REWIND_STEP_EMPTY   = 0, // buffer empty or disabled
+	REWIND_STEP_OK      = 1, // stepped back successfully
+	REWIND_STEP_CADENCE = 2, // waiting for playback cadence (don't run core)
+};
+
+#define REWIND_ENTRY_SIZE_HINT        4096
+#define REWIND_MIN_ENTRIES            8
+#define REWIND_POOL_SIZE_SMALL        3
+#define REWIND_POOL_SIZE_LARGE        4
+#define REWIND_LARGE_STATE_THRESHOLD  (2*1024*1024)
+#define REWIND_MAX_BUFFER_MB          256
+#define REWIND_MAX_LZ4_ACCELERATION   64
+
+static RewindContext rewind_ctx = {0};
+static int rewind_warn_empty = 0;
+
+static int Rewind_buffer_state_locked(void) {
+	if (rewind_ctx.entry_count == 0) return 0; // empty
+	if (rewind_ctx.head == rewind_ctx.tail) return 2; // full
+	return 1; // has data
+}
+
+static void* Rewind_worker_thread(void *arg);
+static int Rewind_write_entry_locked(const uint8_t *compressed, size_t dest_len, int is_keyframe);
+static int Rewind_compress_state(const uint8_t *src, size_t *dest_len, int *is_keyframe_out);
+static void Rewind_wait_for_worker_idle(void);
+
+static void Rewind_free(void) {
+	if (rewind_ctx.worker_running) {
+		pthread_mutex_lock(&rewind_ctx.queue_mx);
+		rewind_ctx.worker_stop = 1;
+		pthread_cond_signal(&rewind_ctx.queue_cv);
+		pthread_mutex_unlock(&rewind_ctx.queue_mx);
+		pthread_join(rewind_ctx.worker, NULL);
+		rewind_ctx.worker_running = 0;
+	}
+
+	if (rewind_ctx.capture_pool) {
+		for (int i = 0; i < rewind_ctx.pool_size; i++) {
+			if (rewind_ctx.capture_pool[i]) free(rewind_ctx.capture_pool[i]);
+		}
+		free(rewind_ctx.capture_pool);
+	}
+	if (rewind_ctx.capture_gen) free(rewind_ctx.capture_gen);
+	if (rewind_ctx.capture_busy) free(rewind_ctx.capture_busy);
+	if (rewind_ctx.free_stack) free(rewind_ctx.free_stack);
+	if (rewind_ctx.queue) free(rewind_ctx.queue);
+	if (rewind_ctx.buffer) free(rewind_ctx.buffer);
+	if (rewind_ctx.entries) free(rewind_ctx.entries);
+	if (rewind_ctx.state_buf) free(rewind_ctx.state_buf);
+	if (rewind_ctx.scratch) free(rewind_ctx.scratch);
+	if (rewind_ctx.prev_state_enc) free(rewind_ctx.prev_state_enc);
+	if (rewind_ctx.prev_state_dec) free(rewind_ctx.prev_state_dec);
+	if (rewind_ctx.delta_buf) free(rewind_ctx.delta_buf);
+	if (rewind_ctx.locks_ready) {
+		pthread_mutex_destroy(&rewind_ctx.lock);
+		pthread_mutex_destroy(&rewind_ctx.queue_mx);
+		pthread_cond_destroy(&rewind_ctx.queue_cv);
+	}
+	memset(&rewind_ctx, 0, sizeof(rewind_ctx));
+	rewinding = 0;
+}
+
+static void Rewind_reset(void) {
+	if (!rewind_ctx.enabled) return;
+	Rewind_wait_for_worker_idle();
+	pthread_mutex_lock(&rewind_ctx.lock);
+	rewind_ctx.head = rewind_ctx.tail = 0;
+	rewind_ctx.entry_head = rewind_ctx.entry_tail = rewind_ctx.entry_count = 0;
+	rewind_ctx.has_prev_enc = 0;
+	rewind_ctx.has_prev_dec = 0;
+	pthread_mutex_unlock(&rewind_ctx.lock);
+	rewind_ctx.frame_counter = 0;
+	rewind_ctx.last_push_ms = 0;
+	rewind_ctx.last_step_ms = 0;
+	rewind_ctx.generation += 1;
+	if (!rewind_ctx.generation) rewind_ctx.generation = 1;
+
+	rewind_ctx.worker_stop = 0;
+	if (rewind_ctx.pool_size) {
+		pthread_mutex_lock(&rewind_ctx.queue_mx);
+		while (rewind_ctx.queue_count > 0) {
+			int slot = rewind_ctx.queue[rewind_ctx.queue_head];
+			rewind_ctx.queue_head = (rewind_ctx.queue_head + 1) % rewind_ctx.queue_capacity;
+			rewind_ctx.queue_count -= 1;
+			rewind_ctx.capture_busy[slot] = 0;
+		}
+		rewind_ctx.queue_head = rewind_ctx.queue_tail = 0;
+		rewind_ctx.free_count = 0;
+		for (int i = 0; i < rewind_ctx.pool_size; i++) {
+			if (!rewind_ctx.capture_busy[i] && rewind_ctx.free_count < rewind_ctx.pool_size) {
+				rewind_ctx.free_stack[rewind_ctx.free_count++] = i;
+			}
+		}
+		pthread_mutex_unlock(&rewind_ctx.queue_mx);
+	}
+	rewinding = 0;
+	rewind_warn_empty = 0;
+}
+
+static size_t Rewind_free_space_locked(void) {
+	int state = Rewind_buffer_state_locked();
+	if (state == 2) return 0;
+	if (state == 0) return rewind_ctx.capacity;
+	if (rewind_ctx.head >= rewind_ctx.tail)
+		return rewind_ctx.capacity - (rewind_ctx.head - rewind_ctx.tail);
+	return rewind_ctx.tail - rewind_ctx.head;
+}
+
+static void Rewind_drop_oldest_locked(void) {
+	if (!rewind_ctx.entry_count) return;
+	RewindEntry *e = &rewind_ctx.entries[rewind_ctx.entry_tail];
+	rewind_ctx.tail = (e->offset + e->size) % rewind_ctx.capacity;
+	rewind_ctx.entry_tail = (rewind_ctx.entry_tail + 1) % rewind_ctx.entry_capacity;
+	rewind_ctx.entry_count -= 1;
+	if (rewind_ctx.entry_count == 0) {
+		rewind_ctx.head = rewind_ctx.tail = 0;
+	}
+}
+
+static void Rewind_wait_for_worker_idle(void) {
+	if (!rewind_ctx.worker_running || !rewind_ctx.pool_size) return;
+	pthread_mutex_lock(&rewind_ctx.queue_mx);
+	while (rewind_ctx.queue_count > 0 || rewind_ctx.free_count < rewind_ctx.pool_size) {
+		pthread_mutex_unlock(&rewind_ctx.queue_mx);
+		SDL_Delay(1);
+		pthread_mutex_lock(&rewind_ctx.queue_mx);
+	}
+	pthread_mutex_unlock(&rewind_ctx.queue_mx);
+}
+
+static int Rewind_entry_overlaps_range(int entry_idx, size_t range_start, size_t range_end) {
+	RewindEntry *e = &rewind_ctx.entries[entry_idx];
+	size_t e_start = e->offset;
+	size_t e_end = e->offset + e->size;
+	return (e_start < range_end) && (range_start < e_end);
+}
+
+static int Rewind_write_entry_locked(const uint8_t *compressed, size_t dest_len, int is_keyframe) {
+	if (dest_len >= rewind_ctx.capacity) {
+		LOG_error("Rewind: state does not fit in buffer\n");
+		return 0;
+	}
+
+	if (rewind_ctx.entry_count == rewind_ctx.entry_capacity) {
+		Rewind_drop_oldest_locked();
+	}
+
+	size_t write_offset = rewind_ctx.head;
+
+	if (write_offset + dest_len > rewind_ctx.capacity) {
+		write_offset = 0;
+		rewind_ctx.head = 0;
+		if (rewind_ctx.entry_count == 0) {
+			rewind_ctx.tail = 0;
+		}
+	}
+
+	while (rewind_ctx.entry_count > 0) {
+		int oldest_idx = rewind_ctx.entry_tail;
+		if (Rewind_entry_overlaps_range(oldest_idx, write_offset, write_offset + dest_len)) {
+			Rewind_drop_oldest_locked();
+		} else {
+			break;
+		}
+	}
+
+	while (rewind_ctx.entry_count > 0 && Rewind_free_space_locked() <= dest_len) {
+		Rewind_drop_oldest_locked();
+	}
+
+	if (rewind_ctx.entry_count > 0 && Rewind_free_space_locked() <= dest_len) {
+		LOG_error("Rewind: unable to make room for entry\n");
+		return 0;
+	}
+
+	memcpy(rewind_ctx.buffer + write_offset, compressed, dest_len);
+
+	RewindEntry *e = &rewind_ctx.entries[rewind_ctx.entry_head];
+	e->offset = write_offset;
+	e->size = dest_len;
+	e->is_keyframe = is_keyframe ? 1 : 0;
+
+	rewind_ctx.head = write_offset + dest_len;
+	if (rewind_ctx.head >= rewind_ctx.capacity) rewind_ctx.head = 0;
+
+	rewind_ctx.entry_head = (rewind_ctx.entry_head + 1) % rewind_ctx.entry_capacity;
+	if (rewind_ctx.entry_count < rewind_ctx.entry_capacity) {
+		rewind_ctx.entry_count += 1;
+	} else {
+		Rewind_drop_oldest_locked();
+	}
+	rewind_warn_empty = 0;
+	return 1;
+}
+
+static int Rewind_compress_state(const uint8_t *src, size_t *dest_len, int *is_keyframe_out) {
+	if (!rewind_ctx.scratch || !dest_len) return -1;
+	if (is_keyframe_out) *is_keyframe_out = 1;
+	if (!rewind_ctx.compress) {
+		*dest_len = rewind_ctx.state_size;
+		memcpy(rewind_ctx.scratch, src, rewind_ctx.state_size);
+		if (is_keyframe_out) *is_keyframe_out = 1;
+		if (!rewind_ctx.logged_first) {
+			rewind_ctx.logged_first = 1;
+			LOG_info("Rewind: compression disabled, storing %zu bytes per snapshot\n", rewind_ctx.state_size);
+		}
+		return 0;
+	}
+
+	const uint8_t *compress_src = src;
+	int used_delta = 0;
+	if (rewind_ctx.has_prev_enc && rewind_ctx.prev_state_enc && rewind_ctx.delta_buf) {
+		size_t state_size = rewind_ctx.state_size;
+		uint8_t *delta = rewind_ctx.delta_buf;
+		const uint8_t *prev = rewind_ctx.prev_state_enc;
+		for (size_t i = 0; i < state_size; i++) {
+			delta[i] = src[i] ^ prev[i];
+		}
+		compress_src = delta;
+		used_delta = 1;
+	}
+
+	int max_dst = (int)rewind_ctx.scratch_size;
+	int accel = rewind_ctx.lz4_acceleration > 0 ? rewind_ctx.lz4_acceleration : 2;
+	int res = LZ4_compress_fast((const char *)compress_src, (char *)rewind_ctx.scratch, (int)rewind_ctx.state_size,
+	                            max_dst, accel);
+	if (res <= 0) return -1;
+	*dest_len = (size_t)res;
+	if (is_keyframe_out) *is_keyframe_out = used_delta ? 0 : 1;
+
+	if (rewind_ctx.prev_state_enc) {
+		memcpy(rewind_ctx.prev_state_enc, src, rewind_ctx.state_size);
+		rewind_ctx.has_prev_enc = 1;
+	}
+	return 0;
+}
+
+static void Rewind_worker_thread_inner(int slot) {
+	size_t dest_len = rewind_ctx.scratch_size;
+	int is_keyframe = 1;
+
+	pthread_mutex_lock(&rewind_ctx.lock);
+	if (rewind_ctx.capture_gen[slot] == rewind_ctx.generation) {
+		int res = Rewind_compress_state(rewind_ctx.capture_pool[slot], &dest_len, &is_keyframe);
+		if (res == 0) {
+			Rewind_write_entry_locked(rewind_ctx.scratch, dest_len, is_keyframe);
+		} else {
+			LOG_error("Rewind: compression failed (%i)\n", res);
+		}
+	}
+	pthread_mutex_unlock(&rewind_ctx.lock);
+}
+
+static void* Rewind_worker_thread(void *arg) {
+	(void)arg;
+
+	while (1) {
+		pthread_mutex_lock(&rewind_ctx.queue_mx);
+		while (!rewind_ctx.worker_stop && rewind_ctx.queue_count == 0) {
+			pthread_cond_wait(&rewind_ctx.queue_cv, &rewind_ctx.queue_mx);
+		}
+		if (rewind_ctx.worker_stop && rewind_ctx.queue_count == 0) {
+			pthread_mutex_unlock(&rewind_ctx.queue_mx);
+			break;
+		}
+
+		int slot = rewind_ctx.queue[rewind_ctx.queue_head];
+		rewind_ctx.queue_head = (rewind_ctx.queue_head + 1) % rewind_ctx.queue_capacity;
+		rewind_ctx.queue_count -= 1;
+		unsigned int gen = rewind_ctx.capture_gen[slot];
+		pthread_mutex_unlock(&rewind_ctx.queue_mx);
+
+		if (gen != rewind_ctx.generation) {
+			pthread_mutex_lock(&rewind_ctx.queue_mx);
+			rewind_ctx.capture_busy[slot] = 0;
+			rewind_ctx.free_stack[rewind_ctx.free_count++] = slot;
+			pthread_mutex_unlock(&rewind_ctx.queue_mx);
+			continue;
+		}
+
+		Rewind_worker_thread_inner(slot);
+
+		pthread_mutex_lock(&rewind_ctx.queue_mx);
+		rewind_ctx.capture_busy[slot] = 0;
+		rewind_ctx.free_stack[rewind_ctx.free_count++] = slot;
+		pthread_mutex_unlock(&rewind_ctx.queue_mx);
+	}
+
+	return NULL;
+}
+
+static void Rewind_init(size_t state_size) {
+	Rewind_free();
+
+	int enable = rewind_cfg_enable;
+	int buf_mb = rewind_cfg_buffer_mb;
+	int gran = rewind_cfg_granularity;
+	int audio = rewind_cfg_audio;
+	int compress = rewind_cfg_compress;
+	if (!enable) return;
+	if (!state_size) {
+		LOG_info("Rewind: core reported zero serialize size, disabling\n");
+		return;
+	}
+
+	if (buf_mb < 1) buf_mb = 1;
+	if (buf_mb > REWIND_MAX_BUFFER_MB) buf_mb = REWIND_MAX_BUFFER_MB;
+	size_t buffer_mb = (size_t)buf_mb;
+
+	rewind_ctx.capacity = buffer_mb * 1024 * 1024;
+	rewind_ctx.compress = compress;
+	if (!rewind_ctx.compress && rewind_ctx.capacity <= state_size) {
+		LOG_warn("Rewind: raw snapshots (%zu bytes) do not fit in buffer; falling back to compression\n", state_size);
+		rewind_ctx.compress = 1;
+	}
+	int accel = rewind_cfg_lz4_acceleration;
+	if (accel < 1) accel = 1;
+	if (accel > REWIND_MAX_LZ4_ACCELERATION) accel = REWIND_MAX_LZ4_ACCELERATION;
+	rewind_ctx.lz4_acceleration = accel;
+	rewind_ctx.logged_first = 0;
+	LOG_info("Rewind: enable=%i bufferMB=%i interval=%ims audio=%i compression=%s (accel=%i)\n", enable, buf_mb, gran,
+	         audio, rewind_ctx.compress ? "lz4" : "raw", rewind_ctx.lz4_acceleration);
+
+	rewind_ctx.buffer = calloc(1, rewind_ctx.capacity);
+	if (!rewind_ctx.buffer) {
+		LOG_error("Rewind: failed to allocate buffer\n");
+		return;
+	}
+
+	rewind_ctx.state_size = state_size;
+	rewind_ctx.state_buf = calloc(1, state_size);
+	if (!rewind_ctx.state_buf) {
+		LOG_error("Rewind: failed to allocate state buffer\n");
+		Rewind_free();
+		return;
+	}
+
+	rewind_ctx.scratch_size = rewind_ctx.compress ? (size_t)LZ4_compressBound((int)state_size) : state_size;
+	rewind_ctx.scratch = calloc(1, rewind_ctx.scratch_size);
+	if (!rewind_ctx.scratch) {
+		LOG_error("Rewind: failed to allocate scratch buffer\n");
+		Rewind_free();
+		return;
+	}
+
+	rewind_ctx.prev_state_enc = calloc(1, state_size);
+	rewind_ctx.prev_state_dec = calloc(1, state_size);
+	rewind_ctx.delta_buf = calloc(1, state_size);
+	if (!rewind_ctx.prev_state_enc || !rewind_ctx.prev_state_dec || !rewind_ctx.delta_buf) {
+		LOG_error("Rewind: failed to allocate delta buffers\n");
+		Rewind_free();
+		return;
+	}
+	rewind_ctx.has_prev_enc = 0;
+	rewind_ctx.has_prev_dec = 0;
+
+	int entry_cap = (int)(rewind_ctx.capacity / REWIND_ENTRY_SIZE_HINT);
+	if (entry_cap < REWIND_MIN_ENTRIES) entry_cap = REWIND_MIN_ENTRIES;
+	rewind_ctx.entry_capacity = entry_cap;
+	rewind_ctx.entries = calloc(entry_cap, sizeof(RewindEntry));
+	if (!rewind_ctx.entries) {
+		LOG_error("Rewind: failed to allocate entry table\n");
+		Rewind_free();
+		return;
+	}
+
+	rewind_ctx.interval_ms = gran < 1 ? 1 : gran;
+	double fps = core.fps > 1.0 ? core.fps : 60.0;
+	int frame_ms = (int)(1000.0 / fps);
+	if (frame_ms < 1) frame_ms = 1;
+	int capture_ms = rewind_ctx.interval_ms;
+	if (capture_ms < frame_ms) capture_ms = frame_ms;
+	int playback_ms = capture_ms;
+	if (playback_ms < frame_ms) playback_ms = frame_ms;
+	rewind_ctx.playback_interval_ms = playback_ms;
+	LOG_info("Rewind: capture_ms=%d, playback_ms=%d (state=%zu bytes, buffer=%zu bytes, entries=%d)\n", capture_ms,
+	         playback_ms, state_size, rewind_ctx.capacity, rewind_ctx.entry_capacity);
+	rewind_ctx.audio = audio;
+	rewind_ctx.enabled = 1;
+	rewind_ctx.generation = 1;
+	rewind_ctx.worker_stop = 0;
+	rewind_ctx.queue_head = rewind_ctx.queue_tail = rewind_ctx.queue_count = 0;
+
+	pthread_mutex_init(&rewind_ctx.lock, NULL);
+	pthread_mutex_init(&rewind_ctx.queue_mx, NULL);
+	pthread_cond_init(&rewind_ctx.queue_cv, NULL);
+	rewind_ctx.locks_ready = 1;
+
+	rewind_ctx.pool_size = (state_size > REWIND_LARGE_STATE_THRESHOLD) ? REWIND_POOL_SIZE_LARGE
+	                                                                    : REWIND_POOL_SIZE_SMALL;
+	rewind_ctx.capture_pool = calloc(rewind_ctx.pool_size, sizeof(uint8_t *));
+	rewind_ctx.capture_gen = calloc(rewind_ctx.pool_size, sizeof(unsigned int));
+	rewind_ctx.capture_busy = calloc(rewind_ctx.pool_size, sizeof(uint8_t));
+	rewind_ctx.free_stack = calloc(rewind_ctx.pool_size, sizeof(int));
+	rewind_ctx.queue = calloc(rewind_ctx.pool_size, sizeof(int));
+	if (!rewind_ctx.capture_pool || !rewind_ctx.capture_gen || !rewind_ctx.capture_busy || !rewind_ctx.free_stack ||
+	    !rewind_ctx.queue) {
+		LOG_error("Rewind: failed to allocate async capture buffers\n");
+		Rewind_free();
+		return;
+	}
+	for (int i = 0; i < rewind_ctx.pool_size; i++) {
+		rewind_ctx.capture_pool[i] = calloc(1, state_size);
+		if (!rewind_ctx.capture_pool[i]) {
+			LOG_error("Rewind: failed to allocate capture slot %i\n", i);
+			Rewind_free();
+			return;
+		}
+		rewind_ctx.free_stack[i] = i;
+	}
+	rewind_ctx.queue_capacity = rewind_ctx.pool_size;
+	rewind_ctx.free_count = rewind_ctx.pool_size;
+
+	if (pthread_create(&rewind_ctx.worker, NULL, Rewind_worker_thread, NULL) != 0) {
+		LOG_error("Rewind: failed to start worker thread, falling back to synchronous capture\n");
+		rewind_ctx.pool_size = 0;
+		rewind_ctx.queue_capacity = 0;
+		rewind_ctx.free_count = 0;
+	} else {
+		rewind_ctx.worker_running = 1;
+	}
+
+	LOG_info("Rewind: enabled (%zu bytes buffer, cadence %i ms)\n", rewind_ctx.capacity, rewind_ctx.interval_ms);
+}
+
+static void Rewind_push(int force) {
+	if (!rewind_ctx.enabled) return;
+	if (!rewind_ctx.buffer || !rewind_ctx.state_buf) return;
+
+	uint32_t now_ms = SDL_GetTicks();
+	if (!force) {
+		if (rewind_ctx.last_push_ms && (int)(now_ms - rewind_ctx.last_push_ms) < rewind_ctx.interval_ms) return;
+		rewind_ctx.last_push_ms = now_ms;
+	} else {
+		rewind_ctx.last_push_ms = now_ms;
+	}
+
+	if (!core.serialize || !core.serialize_size) return;
+
+	if (rewind_ctx.worker_running && rewind_ctx.pool_size) {
+		int slot = -1;
+		while (1) {
+			pthread_mutex_lock(&rewind_ctx.queue_mx);
+			if (rewind_ctx.free_count && rewind_ctx.queue_count < rewind_ctx.queue_capacity) {
+				slot = rewind_ctx.free_stack[--rewind_ctx.free_count];
+				rewind_ctx.capture_busy[slot] = 1;
+				pthread_mutex_unlock(&rewind_ctx.queue_mx);
+				break;
+			}
+			if (rewind_ctx.queue_count > 0) {
+				int queued_slot = rewind_ctx.queue[rewind_ctx.queue_head];
+				unsigned int gen = rewind_ctx.capture_gen[queued_slot];
+				rewind_ctx.queue_head = (rewind_ctx.queue_head + 1) % rewind_ctx.queue_capacity;
+				rewind_ctx.queue_count -= 1;
+				pthread_mutex_unlock(&rewind_ctx.queue_mx);
+
+				if (gen == rewind_ctx.generation)
+					Rewind_worker_thread_inner(queued_slot);
+
+				pthread_mutex_lock(&rewind_ctx.queue_mx);
+				rewind_ctx.capture_busy[queued_slot] = 0;
+				rewind_ctx.free_stack[rewind_ctx.free_count++] = queued_slot;
+				pthread_mutex_unlock(&rewind_ctx.queue_mx);
+				continue;
+			}
+			pthread_mutex_unlock(&rewind_ctx.queue_mx);
+			break;
+		}
+
+		if (slot < 0) {
+			if (!core.serialize(rewind_ctx.state_buf, rewind_ctx.state_size)) return;
+			{
+				size_t dest_len = rewind_ctx.scratch_size;
+				int is_keyframe = 1;
+				pthread_mutex_lock(&rewind_ctx.lock);
+				int res = Rewind_compress_state(rewind_ctx.state_buf, &dest_len, &is_keyframe);
+				if (res != 0) {
+					pthread_mutex_unlock(&rewind_ctx.lock);
+					return;
+				}
+				Rewind_write_entry_locked(rewind_ctx.scratch, dest_len, is_keyframe);
+				pthread_mutex_unlock(&rewind_ctx.lock);
+			}
+			return;
+		}
+
+		uint8_t *buf = rewind_ctx.capture_pool[slot];
+		if (!core.serialize(buf, rewind_ctx.state_size)) {
+			pthread_mutex_lock(&rewind_ctx.queue_mx);
+			rewind_ctx.capture_busy[slot] = 0;
+			rewind_ctx.free_stack[rewind_ctx.free_count++] = slot;
+			pthread_mutex_unlock(&rewind_ctx.queue_mx);
+			return;
+		}
+
+		rewind_ctx.capture_gen[slot] = rewind_ctx.generation;
+		pthread_mutex_lock(&rewind_ctx.queue_mx);
+		rewind_ctx.queue[rewind_ctx.queue_tail] = slot;
+		rewind_ctx.queue_tail = (rewind_ctx.queue_tail + 1) % rewind_ctx.queue_capacity;
+		rewind_ctx.queue_count += 1;
+		pthread_cond_signal(&rewind_ctx.queue_cv);
+		pthread_mutex_unlock(&rewind_ctx.queue_mx);
+		return;
+	}
+
+	if (!core.serialize(rewind_ctx.state_buf, rewind_ctx.state_size)) return;
+	{
+		size_t dest_len = rewind_ctx.scratch_size;
+		int is_keyframe = 1;
+		pthread_mutex_lock(&rewind_ctx.lock);
+		int res = Rewind_compress_state(rewind_ctx.state_buf, &dest_len, &is_keyframe);
+		if (res != 0) {
+			pthread_mutex_unlock(&rewind_ctx.lock);
+			return;
+		}
+		Rewind_write_entry_locked(rewind_ctx.scratch, dest_len, is_keyframe);
+		pthread_mutex_unlock(&rewind_ctx.lock);
+	}
+}
+
+static int Rewind_step_back(void) {
+	if (!rewind_ctx.enabled) return REWIND_STEP_EMPTY;
+	uint32_t now_ms = SDL_GetTicks();
+	if (rewind_ctx.playback_interval_ms > 0 && rewind_ctx.last_step_ms &&
+	    (int)(now_ms - rewind_ctx.last_step_ms) < rewind_ctx.playback_interval_ms) {
+		return REWIND_STEP_CADENCE;
+	}
+
+	if (!rewinding && rewind_ctx.compress && rewind_ctx.prev_state_dec) {
+		Rewind_wait_for_worker_idle();
+		pthread_mutex_lock(&rewind_ctx.lock);
+		if (rewind_ctx.has_prev_enc && rewind_ctx.prev_state_enc) {
+			memcpy(rewind_ctx.prev_state_dec, rewind_ctx.prev_state_enc, rewind_ctx.state_size);
+			rewind_ctx.has_prev_dec = 1;
+		} else {
+			rewind_ctx.has_prev_dec = 0;
+		}
+		pthread_mutex_unlock(&rewind_ctx.lock);
+	}
+
+	pthread_mutex_lock(&rewind_ctx.lock);
+	int state = Rewind_buffer_state_locked();
+	if (state == 0) {
+		pthread_mutex_unlock(&rewind_ctx.lock);
+		if (!rewind_warn_empty) {
+			LOG_info("Rewind: no buffered states yet\n");
+			rewind_warn_empty = 1;
+		}
+		return REWIND_STEP_EMPTY;
+	}
+
+	int idx = rewind_ctx.entry_head - 1;
+	if (idx < 0) idx += rewind_ctx.entry_capacity;
+	RewindEntry *e = &rewind_ctx.entries[idx];
+
+	int decode_ok = 1;
+	if (rewind_ctx.compress) {
+		int res = LZ4_decompress_safe((const char *)rewind_ctx.buffer + e->offset, (char *)rewind_ctx.delta_buf,
+		                              (int)e->size, (int)rewind_ctx.state_size);
+		if (res < (int)rewind_ctx.state_size) {
+			LOG_error("Rewind: decompress failed (res=%i, want=%zu)\n", res, rewind_ctx.state_size);
+			decode_ok = 0;
+		} else if (e->is_keyframe) {
+			memcpy(rewind_ctx.state_buf, rewind_ctx.delta_buf, rewind_ctx.state_size);
+			if (rewind_ctx.prev_state_dec) {
+				memcpy(rewind_ctx.prev_state_dec, rewind_ctx.state_buf, rewind_ctx.state_size);
+				rewind_ctx.has_prev_dec = 1;
+			}
+		} else if (rewind_ctx.has_prev_dec && rewind_ctx.prev_state_dec) {
+			size_t state_size = rewind_ctx.state_size;
+			uint8_t *result = rewind_ctx.state_buf;
+			const uint8_t *delta = rewind_ctx.delta_buf;
+			const uint8_t *prev = rewind_ctx.prev_state_dec;
+			for (size_t i = 0; i < state_size; i++) {
+				result[i] = delta[i] ^ prev[i];
+			}
+			memcpy(rewind_ctx.prev_state_dec, result, state_size);
+		} else {
+			LOG_warn("Rewind: delta frame without previous state, results may be incorrect\n");
+			memcpy(rewind_ctx.state_buf, rewind_ctx.delta_buf, rewind_ctx.state_size);
+			if (rewind_ctx.prev_state_dec) {
+				memcpy(rewind_ctx.prev_state_dec, rewind_ctx.state_buf, rewind_ctx.state_size);
+				rewind_ctx.has_prev_dec = 1;
+			}
+		}
+	} else {
+		if (e->size != rewind_ctx.state_size) {
+			LOG_error("Rewind: raw snapshot size mismatch (got=%zu, want=%zu)\n", e->size, rewind_ctx.state_size);
+			decode_ok = 0;
+		} else {
+			memcpy(rewind_ctx.state_buf, rewind_ctx.buffer + e->offset, rewind_ctx.state_size);
+		}
+	}
+	if (!decode_ok) {
+		rewind_ctx.entry_head = idx;
+		rewind_ctx.entry_count -= 1;
+		if (rewind_ctx.entry_count == 0) {
+			rewind_ctx.head = rewind_ctx.tail = 0;
+		}
+		pthread_mutex_unlock(&rewind_ctx.lock);
+		return REWIND_STEP_EMPTY;
+	}
+
+	rewind_savestate_context = RETRO_SAVESTATE_CONTEXT_RUNAHEAD_SAME_INSTANCE;
+	if (!core.unserialize(rewind_ctx.state_buf, rewind_ctx.state_size)) {
+		rewind_savestate_context = RETRO_SAVESTATE_CONTEXT_NORMAL;
+		LOG_error("Rewind: unserialize failed\n");
+		Rewind_drop_oldest_locked();
+		pthread_mutex_unlock(&rewind_ctx.lock);
+		return REWIND_STEP_EMPTY;
+	}
+	rewind_savestate_context = RETRO_SAVESTATE_CONTEXT_NORMAL;
+
+	rewind_ctx.entry_head = idx;
+	rewind_ctx.entry_count -= 1;
+	if (rewind_ctx.entry_count == 0) {
+		rewind_ctx.head = rewind_ctx.tail = 0;
+	}
+	pthread_mutex_unlock(&rewind_ctx.lock);
+
+	rewinding = 1;
+	rewind_ctx.last_step_ms = now_ms;
+	return REWIND_STEP_OK;
+}
+
+static void Rewind_sync_encode_state(void) {
+	if (!rewind_ctx.enabled || !rewind_ctx.compress) return;
+	if (!rewinding) return;
+
+	pthread_mutex_lock(&rewind_ctx.lock);
+	if (rewind_ctx.has_prev_dec && rewind_ctx.prev_state_dec && rewind_ctx.prev_state_enc) {
+		memcpy(rewind_ctx.prev_state_enc, rewind_ctx.prev_state_dec, rewind_ctx.state_size);
+		rewind_ctx.has_prev_enc = 1;
+	} else {
+		rewind_ctx.has_prev_enc = 0;
+	}
+	pthread_mutex_unlock(&rewind_ctx.lock);
+}
+
+static void Rewind_on_state_change(void) {
+	Rewind_reset();
+	Rewind_push(1);
+	LOG_info("Rewind: state changed, buffer re-seeded\n");
+}
+
+static void Rewind_quit(void) {
+	Rewind_free();
+}
+
+static void run_frame(void) {
+	// if rewind is toggled, fast-forward toggle must stay off; fast-forward hold pauses rewind
+	int do_rewind = (rewind_pressed || rewind_toggle) && !(rewind_toggle && ff_hold_active);
+	if (do_rewind) {
+		int rewind_result = Rewind_step_back();
+		if (rewind_result == REWIND_STEP_OK) {
+			rewinding = 1;
+			fast_forward = 0;
+			core.run();
+		} else if (rewind_result == REWIND_STEP_CADENCE) {
+			rewinding = 1;
+			fast_forward = 0;
+			input_poll_callback();
+		} else {
+			int hold_empty = rewind_ctx.enabled && rewind_pressed && !rewind_toggle;
+			if (hold_empty) {
+				rewinding = 0;
+				input_poll_callback();
+			} else {
+				if (rewind_toggle) rewind_toggle = 0;
+				if (ff_paused_by_rewind_hold && ff_toggled) {
+					ff_paused_by_rewind_hold = 0;
+					fast_forward = setFastForward(1);
+				}
+				if (rewinding) {
+					rewinding = 1;
+					Rewind_sync_encode_state();
+				}
+				rewinding = 0;
+				core.run();
+				Rewind_push(0);
+			}
+		}
+	} else {
+		Rewind_sync_encode_state();
+		rewinding = 0;
+		if (ff_paused_by_rewind_hold && !rewind_pressed) {
+			if (ff_toggled) fast_forward = setFastForward(1);
+			ff_paused_by_rewind_hold = 0;
+		}
+
+		core.run();
+		Rewind_push(0);
+	}
+	limitFF();
+}
+
+///////////////////////////////////////
+
 static void* coreThread(void *arg) {
 	// force a vsync immediately before loop
 	// for better frame pacing?
@@ -4657,8 +5186,7 @@ static void* coreThread(void *arg) {
 		pthread_mutex_unlock(&core_mx);
 		
 		if (run) {
-			core.run();
-			limitFF();
+			run_frame();
 			trackFPS();
 		}
 	}
@@ -4689,6 +5217,13 @@ int main(int argc , char* argv[]) {
 	DEVICE_HEIGHT = screen->h;
 	DEVICE_PITCH = screen->pitch;
 	// LOG_info("DEVICE_SIZE: %ix%i (%i)\n", DEVICE_WIDTH,DEVICE_HEIGHT,DEVICE_PITCH);
+	
+	menu_screen = screen;
+	menu_before_sleep = Menu_beforeSleep;
+	menu_after_sleep = Menu_afterSleep;
+	menu_hdmi_monitor = hdmimon;
+	menu_button_labels = button_labels;
+	menu_update_desc = OptionSaveChanges_updateDesc;
 	
 	VIB_init();
 	PWR_init();
@@ -4728,6 +5263,9 @@ int main(int argc , char* argv[]) {
 	InitSettings(); // after we initialize audio
 	Menu_init();
 	State_resume();
+	rewind_init_ready = 1;
+	Rewind_init(core.serialize_size ? core.serialize_size() : 0);
+	if (rewind_ctx.enabled) Rewind_on_state_change();
 	Menu_initState(); // make ready for state shortcuts
 	
 	if (thread_video) {
@@ -4751,8 +5289,7 @@ int main(int argc , char* argv[]) {
 		GFX_startFrame();
 		
 		if (!thread_video) {
-			core.run();
-			limitFF();
+			run_frame();
 			trackFPS();
 		}
 
@@ -4804,6 +5341,7 @@ int main(int argc , char* argv[]) {
 	
 	Menu_quit();
 	QuitSettings();
+	Rewind_quit();
 	
 finish:
 

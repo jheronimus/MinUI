@@ -294,6 +294,30 @@ int PWR_preventAutosleep(void);
 int PWR_isCharging(void);
 int PWR_getBattery(void);
 
+// power policy (sleep/auto-shutdown/lid/power button behavior)
+enum {
+	PWR_TIMEOUT_OFF = 0,
+	PWR_TIMEOUT_1_MIN = 60 * 1000,
+	PWR_TIMEOUT_5_MIN = 5 * 60 * 1000,
+	PWR_TIMEOUT_15_MIN = 15 * 60 * 1000,
+	PWR_TIMEOUT_30_MIN = 30 * 60 * 1000,
+	PWR_TIMEOUT_1_HOUR = 60 * 60 * 1000,
+};
+enum {
+	PWR_BEHAVIOR_SLEEP_ONLY = 0,
+	PWR_BEHAVIOR_AUTO_SHUTDOWN,
+	PWR_BEHAVIOR_SHUT_DOWN_NOW,
+};
+int PWR_getSleepTimeoutMs(void);
+int PWR_getAutoShutdownTimeoutMs(void);
+int PWR_getLidBehavior(void);
+int PWR_getPowerButtonBehavior(void);
+int PWR_setSleepTimeoutMs(int timeout_ms);
+int PWR_setAutoShutdownTimeoutMs(int timeout_ms);
+int PWR_setLidBehavior(int behavior);
+int PWR_setPowerButtonBehavior(int behavior);
+void PWR_requestLidAction(void);
+
 enum {
 	CPU_SPEED_MENU,
 	CPU_SPEED_POWERSAVE,

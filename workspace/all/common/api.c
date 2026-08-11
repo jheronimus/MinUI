@@ -77,6 +77,11 @@ static struct PWR_Context {
 	int can_autosleep;
 	int requested_sleep;
 	int requested_wake;
+	int requested_lid_action;
+	int sleep_timeout_ms;
+	int auto_shutdown_timeout_ms;
+	int lid_behavior;
+	int power_button_behavior;
 	
 	pthread_t battery_pt;
 	int is_charging;
@@ -85,6 +90,126 @@ static struct PWR_Context {
 
 	SDL_Surface* overlay;
 } pwr = {0};
+
+#define POWER_POLICY_PATH USERDATA_PATH "/power.conf"
+#define PWR_DEFAULT_SLEEP_TIMEOUT_MS PWR_TIMEOUT_5_MIN
+#define PWR_DEFAULT_AUTO_SHUTDOWN_TIMEOUT_MS PWR_TIMEOUT_15_MIN
+
+static int PWR_isValidTimeoutMs(int timeout_ms) {
+	switch (timeout_ms) {
+	case PWR_TIMEOUT_OFF:
+	case PWR_TIMEOUT_1_MIN:
+	case PWR_TIMEOUT_5_MIN:
+	case PWR_TIMEOUT_15_MIN:
+	case PWR_TIMEOUT_30_MIN:
+	case PWR_TIMEOUT_1_HOUR:
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+static int PWR_isValidBehavior(int behavior) {
+	return behavior >= PWR_BEHAVIOR_SLEEP_ONLY && behavior <= PWR_BEHAVIOR_SHUT_DOWN_NOW;
+}
+
+static int PWR_sanitizeBehavior(int behavior, int timeout_ms) {
+	if (!PWR_isValidBehavior(behavior))
+		return PWR_BEHAVIOR_SLEEP_ONLY;
+	if (behavior == PWR_BEHAVIOR_AUTO_SHUTDOWN && timeout_ms == PWR_TIMEOUT_OFF)
+		return PWR_BEHAVIOR_SLEEP_ONLY;
+	return behavior;
+}
+
+static void PWR_applyDefaultPolicy(void) {
+	pwr.sleep_timeout_ms = PWR_DEFAULT_SLEEP_TIMEOUT_MS;
+	pwr.auto_shutdown_timeout_ms = PWR_DEFAULT_AUTO_SHUTDOWN_TIMEOUT_MS;
+	pwr.lid_behavior = PWR_BEHAVIOR_SLEEP_ONLY;
+	pwr.power_button_behavior = PWR_BEHAVIOR_SLEEP_ONLY;
+}
+
+static void PWR_normalizePolicy(void) {
+	if (!PWR_isValidTimeoutMs(pwr.sleep_timeout_ms))
+		pwr.sleep_timeout_ms = PWR_DEFAULT_SLEEP_TIMEOUT_MS;
+	if (!PWR_isValidTimeoutMs(pwr.auto_shutdown_timeout_ms))
+		pwr.auto_shutdown_timeout_ms = PWR_DEFAULT_AUTO_SHUTDOWN_TIMEOUT_MS;
+	pwr.lid_behavior = PWR_sanitizeBehavior(pwr.lid_behavior, pwr.auto_shutdown_timeout_ms);
+	pwr.power_button_behavior = PWR_sanitizeBehavior(pwr.power_button_behavior, pwr.auto_shutdown_timeout_ms);
+}
+
+static int PWR_parseIntValue(const char *line, const char *key, int *value) {
+	char *end;
+	long parsed;
+	size_t key_len;
+
+	if (!line || !key || !value)
+		return 0;
+
+	key_len = strlen(key);
+	if (strncmp(line, key, key_len) != 0 || line[key_len] != '=')
+		return 0;
+
+	parsed = strtol(line + key_len + 1, &end, 10);
+	if (end == line + key_len + 1)
+		return 0;
+	while (*end == ' ' || *end == '\t')
+		end++;
+	if (*end != '\0')
+		return 0;
+
+	*value = (int)parsed;
+	return 1;
+}
+
+static void PWR_loadPolicy(void) {
+	char buffer[256];
+	char *line;
+	char *saveptr = NULL;
+	int value;
+
+	PWR_applyDefaultPolicy();
+
+	buffer[0] = '\0';
+	getFile((char *)POWER_POLICY_PATH, buffer, sizeof(buffer));
+	if (!buffer[0]) {
+		PWR_normalizePolicy();
+		return;
+	}
+
+	line = strtok_r(buffer, "\n", &saveptr);
+	while (line) {
+		char *start = line;
+		while (*start == ' ' || *start == '\t' || *start == '\n' || *start == '\r')
+			start++;
+		if (start != line)
+			memmove(line, start, strlen(start) + 1);
+		{
+			size_t len = strlen(line);
+			while (len > 0 &&
+			       (line[len - 1] == ' ' || line[len - 1] == '\t' || line[len - 1] == '\n' || line[len - 1] == '\r')) {
+				line[len - 1] = '\0';
+				len--;
+			}
+		}
+		if (line[0] == '\0' || line[0] == '#') {
+			line = strtok_r(NULL, "\n", &saveptr);
+			continue;
+		}
+
+		if (PWR_parseIntValue(line, "sleep_timeout_ms", &value))
+			pwr.sleep_timeout_ms = value;
+		else if (PWR_parseIntValue(line, "auto_shutdown_timeout_ms", &value))
+			pwr.auto_shutdown_timeout_ms = value;
+		else if (PWR_parseIntValue(line, "lid_behavior", &value))
+			pwr.lid_behavior = value;
+		else if (PWR_parseIntValue(line, "power_button_behavior", &value))
+			pwr.power_button_behavior = value;
+
+		line = strtok_r(NULL, "\n", &saveptr);
+	}
+
+	PWR_normalizePolicy();
+}
 
 ///////////////////////////////
 
@@ -1489,6 +1614,8 @@ void PWR_init(void) {
 	
 	pwr.requested_sleep = 0;
 	pwr.requested_wake = 0;
+	pwr.requested_lid_action = 0;
+	PWR_loadPolicy();
 	
 	pwr.should_warn = 0;
 	pwr.charge = PWR_LOW_CHARGE;
@@ -1515,6 +1642,52 @@ void PWR_warn(int enable) {
 
 int PWR_ignoreSettingInput(int btn, int show_setting) {
 	return show_setting && (btn==BTN_MOD_PLUS || btn==BTN_MOD_MINUS);
+}
+
+int PWR_getSleepTimeoutMs(void) {
+	return pwr.sleep_timeout_ms;
+}
+int PWR_getAutoShutdownTimeoutMs(void) {
+	return pwr.auto_shutdown_timeout_ms;
+}
+int PWR_getLidBehavior(void) {
+	return pwr.lid_behavior;
+}
+int PWR_getPowerButtonBehavior(void) {
+	return pwr.power_button_behavior;
+}
+int PWR_setSleepTimeoutMs(int timeout_ms) {
+	if (!PWR_isValidTimeoutMs(timeout_ms))
+		return -1;
+	pwr.sleep_timeout_ms = timeout_ms;
+	return 0;
+}
+int PWR_setAutoShutdownTimeoutMs(int timeout_ms) {
+	if (!PWR_isValidTimeoutMs(timeout_ms))
+		return -1;
+	pwr.auto_shutdown_timeout_ms = timeout_ms;
+	pwr.lid_behavior = PWR_sanitizeBehavior(pwr.lid_behavior, pwr.auto_shutdown_timeout_ms);
+	pwr.power_button_behavior = PWR_sanitizeBehavior(pwr.power_button_behavior, pwr.auto_shutdown_timeout_ms);
+	return 0;
+}
+int PWR_setLidBehavior(int behavior) {
+	if (!PWR_isValidBehavior(behavior))
+		return -1;
+	if (behavior == PWR_BEHAVIOR_AUTO_SHUTDOWN && pwr.auto_shutdown_timeout_ms == PWR_TIMEOUT_OFF)
+		return -1;
+	pwr.lid_behavior = behavior;
+	return 0;
+}
+int PWR_setPowerButtonBehavior(int behavior) {
+	if (!PWR_isValidBehavior(behavior))
+		return -1;
+	if (behavior == PWR_BEHAVIOR_AUTO_SHUTDOWN && pwr.auto_shutdown_timeout_ms == PWR_TIMEOUT_OFF)
+		return -1;
+	pwr.power_button_behavior = behavior;
+	return 0;
+}
+void PWR_requestLidAction(void) {
+	pwr.requested_lid_action = 1;
 }
 
 void PWR_update(int* _dirty, int* _show_setting, PWR_callback_t before_sleep, PWR_callback_t after_sleep) {
@@ -1545,7 +1718,8 @@ void PWR_update(int* _dirty, int* _show_setting, PWR_callback_t before_sleep, PW
 		checked_charge_at = now;
 	}
 	
-	if (PAD_justReleased(BTN_POWEROFF) || (power_pressed_at && now-power_pressed_at>=1000)) {
+	if (PAD_justReleased(BTN_POWEROFF) || (power_pressed_at && PAD_isPressed(BTN_POWER) && now-power_pressed_at>=1000)) {
+		power_pressed_at = 0;
 		if (before_sleep) before_sleep();
 		PWR_powerOff();
 	}
@@ -1553,13 +1727,34 @@ void PWR_update(int* _dirty, int* _show_setting, PWR_callback_t before_sleep, PW
 	if (PAD_justPressed(BTN_POWER)) {
 		power_pressed_at = now;
 	}
+	else if (power_pressed_at && PAD_justReleased(BTN_POWER)) {
+		// short power press: apply configured power button behavior
+		if (now - power_pressed_at < 1000) {
+			switch (pwr.power_button_behavior) {
+			case PWR_BEHAVIOR_SHUT_DOWN_NOW:
+				if (before_sleep) before_sleep();
+				PWR_powerOff();
+				break;
+			default: // sleep only / auto shutdown
+				if (pwr.can_sleep) {
+					if (before_sleep) before_sleep();
+					PWR_fauxSleep();
+					if (after_sleep) after_sleep();
+					last_input_at = now = SDL_GetTicks();
+					dirty = 1;
+				}
+				break;
+			}
+		}
+		power_pressed_at = 0;
+	}
 	
-	#define SLEEP_DELAY 30000 // 30 seconds
-	if (now-last_input_at>=SLEEP_DELAY && PWR_preventAutosleep()) last_input_at = now;
+	#define SLEEP_DELAY pwr.sleep_timeout_ms // from power policy (may be 0 = off)
+	if (SLEEP_DELAY && now-last_input_at>=SLEEP_DELAY && PWR_preventAutosleep()) last_input_at = now;
 	
 	if (
 		pwr.requested_sleep || // hardware requested sleep
-		now-last_input_at>=SLEEP_DELAY || // autosleep
+		(SLEEP_DELAY && now-last_input_at>=SLEEP_DELAY) || // autosleep
 		(pwr.can_sleep && PAD_justReleased(BTN_SLEEP)) // manual sleep
 	) {
 		pwr.requested_sleep = 0;
@@ -1570,6 +1765,27 @@ void PWR_update(int* _dirty, int* _show_setting, PWR_callback_t before_sleep, PW
 		last_input_at = now = SDL_GetTicks();
 		power_pressed_at = 0;
 		dirty = 1;
+	}
+	
+	if (pwr.requested_lid_action) {
+		pwr.requested_lid_action = 0;
+		switch (pwr.lid_behavior) {
+		case PWR_BEHAVIOR_SHUT_DOWN_NOW:
+			if (before_sleep) before_sleep();
+			PWR_powerOff();
+			break;
+		case PWR_BEHAVIOR_AUTO_SHUTDOWN:
+		default:
+			if (pwr.can_sleep) {
+				if (before_sleep) before_sleep();
+				PWR_fauxSleep();
+				if (after_sleep) after_sleep();
+				last_input_at = now = SDL_GetTicks();
+				power_pressed_at = 0;
+				dirty = 1;
+			}
+			break;
+		}
 	}
 	
 	int was_dirty = dirty; // dirty list (not including settings/battery)

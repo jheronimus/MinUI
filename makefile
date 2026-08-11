@@ -48,6 +48,9 @@ system:
 	cp ./workspace/all/say/build/$(PLATFORM)/say.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/clock/build/$(PLATFORM)/clock.elf ./build/EXTRAS/Tools/$(PLATFORM)/Clock.pak/
 	cp ./workspace/all/minput/build/$(PLATFORM)/minput.elf ./build/EXTRAS/Tools/$(PLATFORM)/Input.pak/
+	cp ./workspace/all/settings/build/$(PLATFORM)/wifi.elf ./build/BASE/Tools/$(PLATFORM)/Wi-Fi.pak/
+	cp ./workspace/all/settings/build/$(PLATFORM)/bt.elf ./build/BASE/Tools/$(PLATFORM)/Bluetooth.pak/
+	cp ./workspace/all/settings/build/$(PLATFORM)/power.elf ./build/BASE/Tools/$(PLATFORM)/Power.pak/
 
 cores:
 	@test -n "$(CORES_DIR)" || (echo "CORES_DIR not set — run the shared build-cores step first" && exit 1)

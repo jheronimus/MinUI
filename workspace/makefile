@@ -24,6 +24,7 @@ all:
 	cd ./all/minput/ && make
 	cd ./all/syncsettings/ && make
 	cd ./all/say/ && make
+	cd ./all/settings/ && make
 	cd ./$(PLATFORM) && make
 
 clean:
@@ -35,4 +36,5 @@ clean:
 	cd ./all/minput/ && make clean
 	cd ./all/syncsettings/ && make clean
 	cd ./all/say/ && make clean
+	cd ./all/settings/ && make clean
 	cd ./$(PLATFORM) && make clean
