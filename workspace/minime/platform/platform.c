@@ -130,12 +130,13 @@ static void load_traits(void) {
 #define RAW_HATY 17
 #define RAW_HATX 16
 
-#define INPUT_COUNT 3
+#define INPUT_COUNT 4
 static int inputs[INPUT_COUNT];
 static uint32_t local_pad_pressed = 0;
 
 #define kRawIndex 1
 #define kVolumeIndex 2
+#define kMenuIndex 3
 static void drainInputFd(int input);
 static void drainAllInputs(void);
 
@@ -213,6 +214,10 @@ void PLAT_initInput(void) {
     inputs[0] = MINIME_inputOpenByName(traits->input_power);
     inputs[kRawIndex] = MINIME_inputOpenByName(traits->input_gamepad);
     inputs[kVolumeIndex] = MINIME_inputOpenByName(traits->input_volume);
+    // Some devices (e.g. RG Arc) put the menu button on a separate adc-keys
+    // device; opening it lets the launcher see the menu (in-game menu, the
+    // version OSD, and the brightness OSD for the menu+volume shortcut).
+    inputs[kMenuIndex] = MINIME_inputOpenByName(traits->input_menu);
     local_pad_pressed = 0;
     drainAllInputs();
 }
