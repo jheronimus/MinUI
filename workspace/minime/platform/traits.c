@@ -83,6 +83,7 @@ static const TraitField TRAIT_FIELDS[] = {
     KEYED_STR("input_gamepad_device_name", input_gamepad),
     KEYED_STR("input_power_device_name", input_power),
     KEYED_STR("input_volume_device_name", input_volume),
+    KEYED_STR("input_menu_device_name", input_menu),
     KEYED_STR("input_lid_device_name", input_lid),
     STR_FIELD(input_rumble_device_name),
     INT_FIELD(input_touch),
@@ -424,7 +425,7 @@ int MINIME_inputOpenByName(const char *expected) {
 
 int MINIME_inputOpenShortcutDevices(int *fds, size_t max_fds) {
     const MinimeTraits *traits = MINIME_traits();
-    const char *names[3];
+    const char *names[4];
     int count = 0;
 
     if (!traits || !fds)
@@ -432,7 +433,11 @@ int MINIME_inputOpenShortcutDevices(int *fds, size_t max_fds) {
     names[0] = traits->input_gamepad;
     names[1] = traits->input_power;
     names[2] = traits->input_volume;
-    for (size_t i = 0; i < 3 && (size_t)count < max_fds; i++) {
+    // Some devices (e.g. RG Arc) put the menu button on a separate evdev
+    // device (adc-keys); keymon must open it to see the brightness/volume
+    // shortcut modifier. Empty/unset falls through (skipped).
+    names[3] = traits->input_menu;
+    for (size_t i = 0; i < 4 && (size_t)count < max_fds; i++) {
         int fd = MINIME_inputOpenByName(names[i]);
 
         if (fd >= 0)

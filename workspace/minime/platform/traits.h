@@ -71,6 +71,7 @@ typedef struct MinimeTraits {
     char input_gamepad[MINIME_TRAIT_NAME_MAX];
     char input_power[MINIME_TRAIT_NAME_MAX];
     char input_volume[MINIME_TRAIT_NAME_MAX];
+    char input_menu[MINIME_TRAIT_NAME_MAX];
     char input_lid[MINIME_TRAIT_NAME_MAX];
     // evdev device name of the rumble motor, exposed as an input device with
     // FF_RUMBLE force feedback (e.g. "pwm-vibrator"). "na" when no rumble.
