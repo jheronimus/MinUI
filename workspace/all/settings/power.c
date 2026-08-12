@@ -24,27 +24,6 @@ static const int power_timeout_values[] = {
 	PWR_TIMEOUT_OFF, PWR_TIMEOUT_1_MIN, PWR_TIMEOUT_5_MIN, PWR_TIMEOUT_15_MIN, PWR_TIMEOUT_30_MIN, PWR_TIMEOUT_1_HOUR,
 };
 
-static char* power_timeout_label(int value) {
-	switch (value) {
-	case PWR_TIMEOUT_OFF: return "Off";
-	case PWR_TIMEOUT_1_MIN: return "1 min";
-	case PWR_TIMEOUT_5_MIN: return "5 min";
-	case PWR_TIMEOUT_15_MIN: return "15 min";
-	case PWR_TIMEOUT_30_MIN: return "30 min";
-	case PWR_TIMEOUT_1_HOUR: return "1 hr";
-	default: return "Unknown";
-	}
-}
-
-static char* power_behavior_label(int value) {
-	switch (value) {
-	case PWR_BEHAVIOR_SLEEP_ONLY: return "Sleep Only";
-	case PWR_BEHAVIOR_AUTO_SHUTDOWN: return "Auto Shutdown";
-	case PWR_BEHAVIOR_SHUT_DOWN_NOW: return "Shut Down Now";
-	default: return "Unknown";
-	}
-}
-
 static int next_enum_index(const int* values, int count, int current, int direction) {
 	int i;
 
@@ -143,15 +122,6 @@ static int next_undervolt_level(int current, int direction) {
 	return levels[next_enum_index(levels, 4, current, direction)];
 }
 
-static char* undervolt_label(int level) {
-	switch (level) {
-	case 1: return "L1";
-	case 2: return "L2";
-	case 3: return "L3";
-	default: return "Off";
-	}
-}
-
 static void set_undervolt(int level) {
 	const char* name = "off";
 	char cmd[128];
@@ -175,6 +145,16 @@ enum {
 	POWER_ITEM_UNDERVOLT,
 };
 
+static const char* power_timeout_labels[] = {
+	"Off", "1 min", "5 min", "15 min", "30 min", "1 hr", NULL,
+};
+static const char* power_behavior_labels[] = {
+	"Sleep Only", "Auto Shutdown", "Shut Down Now", NULL,
+};
+static const char* undervolt_labels[] = {
+	"Off", "L1", "L2", "L3", NULL,
+};
+
 static void rebuild(MenuList* list) {
 	int count = 0;
 	MenuItem* items = list->items;
@@ -183,44 +163,33 @@ static void rebuild(MenuList* list) {
 
 	items[count].name = "Sleep Timeout";
 	items[count].value = next_enum_index(power_timeout_values, 6, PWR_getSleepTimeoutMs(), 0);
-	items[count].values = (char*[]){power_timeout_label(PWR_TIMEOUT_OFF), power_timeout_label(PWR_TIMEOUT_1_MIN),
-	                                power_timeout_label(PWR_TIMEOUT_5_MIN), power_timeout_label(PWR_TIMEOUT_15_MIN),
-	                                power_timeout_label(PWR_TIMEOUT_30_MIN), power_timeout_label(PWR_TIMEOUT_1_HOUR),
-	                                NULL};
+	items[count].values = (char**)power_timeout_labels;
 	count++;
 
 	items[count].name = "Auto Shutdown Timeout";
 	items[count].value = next_enum_index(power_timeout_values, 6, PWR_getAutoShutdownTimeoutMs(), 0);
-	items[count].values = (char*[]){power_timeout_label(PWR_TIMEOUT_OFF), power_timeout_label(PWR_TIMEOUT_1_MIN),
-	                                power_timeout_label(PWR_TIMEOUT_5_MIN), power_timeout_label(PWR_TIMEOUT_15_MIN),
-	                                power_timeout_label(PWR_TIMEOUT_30_MIN), power_timeout_label(PWR_TIMEOUT_1_HOUR),
-	                                NULL};
+	items[count].values = (char**)power_timeout_labels;
 	count++;
 
 	items[count].name = "Lid Behavior";
 	items[count].value = next_enum_index((int[]){PWR_BEHAVIOR_SLEEP_ONLY, PWR_BEHAVIOR_AUTO_SHUTDOWN,
 	                                             PWR_BEHAVIOR_SHUT_DOWN_NOW},
 	                                     3, PWR_getLidBehavior(), 0);
-	items[count].values = (char*[]){power_behavior_label(PWR_BEHAVIOR_SLEEP_ONLY),
-	                                power_behavior_label(PWR_BEHAVIOR_AUTO_SHUTDOWN),
-	                                power_behavior_label(PWR_BEHAVIOR_SHUT_DOWN_NOW), NULL};
+	items[count].values = (char**)power_behavior_labels;
 	count++;
 
 	items[count].name = "Power Button Behavior";
 	items[count].value = next_enum_index((int[]){PWR_BEHAVIOR_SLEEP_ONLY, PWR_BEHAVIOR_AUTO_SHUTDOWN,
 	                                             PWR_BEHAVIOR_SHUT_DOWN_NOW},
 	                                     3, PWR_getPowerButtonBehavior(), 0);
-	items[count].values = (char*[]){power_behavior_label(PWR_BEHAVIOR_SLEEP_ONLY),
-	                                power_behavior_label(PWR_BEHAVIOR_AUTO_SHUTDOWN),
-	                                power_behavior_label(PWR_BEHAVIOR_SHUT_DOWN_NOW), NULL};
+	items[count].values = (char**)power_behavior_labels;
 	count++;
 
 	if (undervolt_supported()) {
 		items[count].name = "CPU Undervolt";
 		items[count].desc = "Applies on next boot";
 		items[count].value = undervolt_level();
-		items[count].values = (char*[]){undervolt_label(0), undervolt_label(1), undervolt_label(2), undervolt_label(3),
-		                                NULL};
+		items[count].values = (char**)undervolt_labels;
 		count++;
 	}
 
