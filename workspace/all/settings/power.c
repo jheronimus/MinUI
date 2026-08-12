@@ -88,6 +88,14 @@ static int undervolt_supported(void) {
 	return traits && traits->cpu_undervolt_supported > 0;
 }
 
+// lid (clamshell only): the trait holds the evdev name of the lid switch
+// device, e.g. "gpio-keys-lid". Devices without a clamshell (e.g. RG Arc)
+// leave it "na" and must not offer a Lid Behavior setting.
+static int lid_supported(void) {
+	const MinimeTraits* traits = MINIME_traits();
+	return traits && MINIME_traitAvailable(traits->input_lid);
+}
+
 static int undervolt_level(void) {
 	char buf[64];
 	char cmd[128];
@@ -162,23 +170,29 @@ static void rebuild(MenuList* list) {
 	memset(items, 0, sizeof(MenuItem) * 6);
 
 	items[count].name = "Sleep Timeout";
+	items[count].id = POWER_ITEM_SLEEP_TIMEOUT;
 	items[count].value = next_enum_index(power_timeout_values, 6, PWR_getSleepTimeoutMs(), 0);
 	items[count].values = (char**)power_timeout_labels;
 	count++;
 
 	items[count].name = "Auto Shutdown Timeout";
+	items[count].id = POWER_ITEM_AUTO_SHUTDOWN_TIMEOUT;
 	items[count].value = next_enum_index(power_timeout_values, 6, PWR_getAutoShutdownTimeoutMs(), 0);
 	items[count].values = (char**)power_timeout_labels;
 	count++;
 
-	items[count].name = "Lid Behavior";
-	items[count].value = next_enum_index((int[]){PWR_BEHAVIOR_SLEEP_ONLY, PWR_BEHAVIOR_AUTO_SHUTDOWN,
-	                                             PWR_BEHAVIOR_SHUT_DOWN_NOW},
-	                                     3, PWR_getLidBehavior(), 0);
-	items[count].values = (char**)power_behavior_labels;
-	count++;
+	if (lid_supported()) {
+		items[count].name = "Lid Behavior";
+		items[count].id = POWER_ITEM_LID_BEHAVIOR;
+		items[count].value = next_enum_index((int[]){PWR_BEHAVIOR_SLEEP_ONLY, PWR_BEHAVIOR_AUTO_SHUTDOWN,
+		                                             PWR_BEHAVIOR_SHUT_DOWN_NOW},
+		                                     3, PWR_getLidBehavior(), 0);
+		items[count].values = (char**)power_behavior_labels;
+		count++;
+	}
 
 	items[count].name = "Power Button Behavior";
+	items[count].id = POWER_ITEM_POWER_BUTTON_BEHAVIOR;
 	items[count].value = next_enum_index((int[]){PWR_BEHAVIOR_SLEEP_ONLY, PWR_BEHAVIOR_AUTO_SHUTDOWN,
 	                                             PWR_BEHAVIOR_SHUT_DOWN_NOW},
 	                                     3, PWR_getPowerButtonBehavior(), 0);
@@ -187,6 +201,7 @@ static void rebuild(MenuList* list) {
 
 	if (undervolt_supported()) {
 		items[count].name = "CPU Undervolt";
+		items[count].id = POWER_ITEM_UNDERVOLT;
 		items[count].desc = "Applies on next boot";
 		items[count].value = undervolt_level();
 		items[count].values = (char**)undervolt_labels;
@@ -202,7 +217,7 @@ static int on_change(MenuList* list, int i) {
 	int behavior;
 	int allow_auto = PWR_getAutoShutdownTimeoutMs() != PWR_TIMEOUT_OFF;
 
-	switch (i) {
+	switch (list->items[i].id) {
 	case POWER_ITEM_SLEEP_TIMEOUT:
 		PWR_setSleepTimeoutMs(power_timeout_values[value]);
 		break;
