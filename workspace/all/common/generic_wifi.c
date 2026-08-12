@@ -191,46 +191,10 @@ static void strip_ansi(char *s) {
 	*dst = '\0';
 }
 
-// signal column is asterisk bars ("****" = 100%, "*" = ~20%) or a number
-static int parse_signal(const char *s, int *signal_out) {
-	const char *p = s;
-	int bars = 0;
-
-	if (!s || !signal_out)
-		return 0;
-	while (*p == ' ')
-		p++;
-
-	if (*p == '*') {
-		while (*p == '*') {
-			bars++;
-			p++;
-		}
-		// strip trailing whitespace (bars are right-padded)
-		while (*p == ' ')
-			p++;
-		if (*p != '\0')
-			return 0;
-		*signal_out = bars >= 5 ? 100 : bars * 20;
-		return 1;
-	}
-
-	if (*p >= '0' && *p <= '9') {
-		*signal_out = (int)strtol(p, (char **)&p, 10);
-		while (*p == ' ')
-			p++;
-		if (*p != '\0')
-			return 0;
-		return 1;
-	}
-
-	return 0;
-}
-
 // Parse `iwctl station <if> get-networks` output. Rows are:
 //   [>] <name...> <security> <signal>
-// The name may contain spaces, so parse from the right: the signal is the
-// last whitespace-delimited token and security the second-to-last; everything
+// The name may contain spaces, so parse from the right: the last token is the
+// (unused) signal bars column, security is the second-to-last, everything
 // before security is the SSID. The selected row may have a leading ">" and
 // ANSI colors. Works on the raw line without destructive in-place edits.
 static void parse_scan_results(void) {
@@ -251,7 +215,6 @@ static void parse_scan_results(void) {
 		char *name_start;
 		char *end;
 		char *p;
-		int signal;
 		size_t len;
 		WifiNetwork *net;
 
@@ -266,21 +229,19 @@ static void parse_scan_results(void) {
 		if (!len)
 			continue;
 
-		// signal = last token
+		// skip the trailing signal column (bars, not meaningful in this iwd)
 		end = line + len;
 		sig = end;
 		while (sig > line && sig[-1] != ' ' && sig[-1] != '\t')
 			sig--;
 		if (sig == end)
 			continue;
-		if (!parse_signal(sig, &signal))
-			continue;
-		// strip trailing whitespace between security and signal
+
+		// security = second-to-last token
 		sec = sig - 1;
 		while (sec >= line && (*sec == ' ' || *sec == '\t'))
 			sec--;
 		sec++;
-		// security = second-to-last token
 		p = sec;
 		while (p > line && p[-1] != ' ' && p[-1] != '\t')
 			p--;
@@ -306,11 +267,6 @@ static void parse_scan_results(void) {
 		memcpy(net->ssid, name_start, len);
 		net->ssid[len] = '\0';
 
-		if (signal > 100)
-			signal = 100;
-		if (signal < 0)
-			signal = 0;
-		net->signal = signal;
 		net->security = (strstr(sec, "open") || !strcasecmp(sec, "open")) ? WIFI_SECURITY_OPEN
 		                                                                  : WIFI_SECURITY_WPA;
 		net->known = is_ssid_known(net->ssid);

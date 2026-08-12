@@ -21,7 +21,6 @@ typedef enum {
 typedef struct {
 	char ssid[WIFI_MAX_SSID];
 	WifiSecurity security;
-	int signal; // 0-100
 	int connected;
 	int known;
 } WifiNetwork;

@@ -33,14 +33,9 @@ static int is_toggle_row(int i) {
 
 static void set_badge(MenuItem* item, const WifiNetwork* net) {
 	char state[16];
-	char buf[40];
 
 	strcpy(state, net->connected ? "Connected" : (net->known ? "Known" : (net->security == WIFI_SECURITY_OPEN ? "Open" : "Secure")));
-	if (net->signal > 0 && !net->connected)
-		snprintf(buf, sizeof(buf), "%s | %d%%", state, net->signal);
-	else
-		snprintf(buf, sizeof(buf), "%s", state);
-	snprintf(item->badge, sizeof(item->badge), "%s", buf);
+	snprintf(item->badge, sizeof(item->badge), "%s", state);
 }
 
 static void rebuild(void) {
@@ -136,7 +131,7 @@ static void wifi_update(MenuList* list) {
 		for (i = 0; i < fresh_count; i++) {
 			if (strcmp(fresh[i].ssid, networks[i].ssid) != 0 ||
 			    fresh[i].connected != networks[i].connected ||
-			    fresh[i].known != networks[i].known || fresh[i].signal != networks[i].signal) {
+			    fresh[i].known != networks[i].known) {
 				changed = 1;
 				break;
 			}
