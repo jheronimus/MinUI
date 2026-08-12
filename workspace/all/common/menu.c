@@ -324,7 +324,10 @@ int Menu_options(MenuList* list) {
 				// lw = rw = mw / 2;
 				int ox,oy;
 				ox = oy = SCALE1(PADDING);
-				oy += SCALE1(PILL_SIZE);
+				// Clear the top-right hardware group (battery/wifi pill, which
+				// occupies SCALE1(PADDING)..SCALE1(PADDING)+SCALE1(PILL_SIZE))
+				// so the first row no longer abuts it.
+				oy += SCALE1(PILL_SIZE) + SCALE1(4);
 				
 				int selected_row = selected - start;
 				for (int i=start,j=0; i<end; i++,j++) {
@@ -349,7 +352,7 @@ int Menu_options(MenuList* list) {
 						});
 						SDL_FreeSurface(text);
 					}
-					else if (item->value>=0) {
+					else if (item->value>=0 && item->values) {
 						text = TTF_RenderUTF8_Blended(font.tiny, item->values[item->value], COLOR_WHITE); // always white
 						SDL_BlitSurface(text, NULL, menu_screen, &(SDL_Rect){
 							ox + mw - text->w - SCALE1(OPTION_PADDING),
@@ -461,7 +464,7 @@ int Menu_options(MenuList* list) {
 						});
 						SDL_FreeSurface(text);
 					}
-					else if (item->value>=0) {
+					else if (item->value>=0 && item->values) {
 						text = TTF_RenderUTF8_Blended(font.tiny, item->values[item->value], COLOR_WHITE); // always white
 						SDL_BlitSurface(text, NULL, menu_screen, &(SDL_Rect){
 							ox + mw - text->w - SCALE1(OPTION_PADDING),
