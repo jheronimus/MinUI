@@ -92,11 +92,15 @@ static void rebuild(void) {
 	menu.max_width = 0;
 }
 
-// iwd scans are asynchronous: results appear a few seconds after `iwctl
-// station scan`. Re-scan periodically while the menu is open and rebuild the
-// list when the result set changes (or the first results arrive).
+// iwd scans are asynchronous: `iwctl station scan` returns immediately and
+// results populate over the next ~1-2s. Refresh cycle driven from the menu
+// loop's on_update (never blocks the menu):
+//   - every WIFI_RESCAN_MS: fire a fresh scan
+//   - WIFI_SETTLE_MS after a scan: read results, rebuild the list if changed
 #define WIFI_RESCAN_MS 4000
+#define WIFI_SETTLE_MS 1500
 static uint32_t last_scan_at = 0;
+static uint32_t scan_due_at = 0;
 
 static void wifi_update(MenuList* list) {
 	uint32_t now;
@@ -110,11 +114,20 @@ static void wifi_update(MenuList* list) {
 		return;
 
 	now = SDL_GetTicks();
-	if (last_scan_at && (int)(now - last_scan_at) < WIFI_RESCAN_MS)
-		return;
-	last_scan_at = now;
 
-	WIFI_scan();
+	// fire a scan if one isn't in flight and the interval elapsed
+	if (!last_scan_at || (int)(now - last_scan_at) >= WIFI_RESCAN_MS) {
+		WIFI_scan();
+		last_scan_at = now;
+		scan_due_at = now + WIFI_SETTLE_MS;
+		return;
+	}
+
+	// wait for the settle delay before reading results
+	if (!scan_due_at || (int)(now - scan_due_at) < 0)
+		return;
+	scan_due_at = 0;
+
 	fresh_count = WIFI_getNetworks(fresh, WIFI_MAX_NETWORKS);
 
 	changed = fresh_count != network_count;
@@ -163,7 +176,8 @@ static int on_confirm(MenuList* list, int i) {
 		if (WIFI_setEnabled(target) != 0) {
 			Menu_message(target ? "Enable failed" : "Disable failed", (char*[]){"B","BACK", NULL});
 		}
-		last_scan_at = 0; // re-scan immediately on next frame
+		last_scan_at = 0; // re-scan on next frame
+		scan_due_at = 0;
 		rebuild();
 		return MENU_CALLBACK_NOP;
 	}
@@ -277,14 +291,15 @@ int main(int argc, char* argv[]) {
 	PWR_init();
 
 	menu_screen = screen;
-	menu.type = MENU_LIST;
+	menu.type = MENU_FIXED;
 	menu.desc = "Wi-Fi";
 	menu.on_confirm = on_confirm;
 	menu.on_aux = on_aux; // X on a known network forgets it
 	menu.on_update = wifi_update;
 	WIFI_init();
 	last_scan_at = 0;
-	wifi_update(&menu); // initial scan + list
+	scan_due_at = 0;
+	wifi_update(&menu); // fire initial scan (non-blocking)
 	rebuild();
 
 	Menu_options(&menu);

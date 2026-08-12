@@ -379,42 +379,17 @@ int WIFI_setEnabled(int enabled) {
 }
 
 // iwd scans are asynchronous: `iwctl station scan` returns immediately and
-// results populate over the next second or two. Block (bounded) until the
-// scan completes so get-networks() always reads fresh signal data instead of
-// stale, uniform bars.
+// results populate over the next second or two. Fire the scan and return;
+// WIFI_getNetworks() reads results on a later poll. Never block here — the
+// caller runs inside the menu loop.
 int WIFI_scan(void) {
 	char cmd[256];
-	int i;
 
 	if (!WIFI_enabled())
 		return -1;
 	scanning = 1;
 	snprintf(cmd, sizeof(cmd), WIFI_SCAN_CMD, wifi_interface());
 	(void)system(cmd);
-
-	for (i = 0; i < 20; i++) {
-		FILE *f;
-		int done = 1;
-
-		snprintf(cmd, sizeof(cmd), WIFI_STATION_SHOW_CMD, wifi_interface());
-		f = wifi_popen(cmd);
-		if (f) {
-			char line[128];
-			while (fgets(line, sizeof(line), f)) {
-				if (strstr(line, "Scanning")) {
-					// iwctl prints "Scanning  yes" (or "no")
-					if (strstr(line, "yes"))
-						done = 0;
-					break;
-				}
-			}
-			pclose(f);
-		}
-		if (done)
-			break;
-		usleep(250000);
-	}
-
 	scanning = 0;
 	return 0;
 }

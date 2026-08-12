@@ -157,7 +157,7 @@ int main(int argc, char* argv[]) {
 	PWR_init();
 
 	menu_screen = screen;
-	menu.type = MENU_LIST;
+	menu.type = MENU_FIXED;
 	menu.desc = "Bluetooth";
 	menu.on_confirm = on_confirm;
 	menu.on_aux = on_aux; // X on a paired device forgets it
