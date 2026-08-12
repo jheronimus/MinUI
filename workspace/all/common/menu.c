@@ -256,12 +256,17 @@ int Menu_options(MenuList* list) {
 			if (type==MENU_LIST) {
 				int mw = list->max_width;
 				if (!mw) {
-					// get the width of the widest item
+					// get the width of the widest item, including its badge
+					// (right-aligned text) so names and badges never collide
 					for (int i=0; i<count; i++) {
 						MenuItem* item = &items[i];
 						int w = 0;
+						int bw = 0;
 						TTF_SizeUTF8(font.small, item->name, &w, NULL);
+						if (item->badge[0])
+							TTF_SizeUTF8(font.tiny, item->badge, &bw, NULL);
 						w += SCALE1(OPTION_PADDING*2);
+						if (bw) w += bw + SCALE1(OPTION_PADDING);
 						if (w>mw) mw = w;
 					}
 					// cache the result
@@ -279,6 +284,11 @@ int Menu_options(MenuList* list) {
 						int w = 0;
 						TTF_SizeUTF8(font.small, item->name, &w, NULL);
 						w += SCALE1(OPTION_PADDING*2);
+						if (item->badge[0]) {
+							int bw = 0;
+							TTF_SizeUTF8(font.tiny, item->badge, &bw, NULL);
+							w += bw + SCALE1(OPTION_PADDING);
+						}
 						
 						GFX_blitPill(ASSET_BUTTON, menu_screen, &(SDL_Rect){
 							ox,

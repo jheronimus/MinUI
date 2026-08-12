@@ -234,12 +234,10 @@ int BT_enabled(void) {
 }
 
 int BT_setEnabled(int enabled) {
-	int rc;
+	FILE *f;
+	char cmd[256];
 
 	if (enabled) {
-		FILE *f;
-		char cmd[256];
-
 		snprintf(cmd, sizeof(cmd), "mkdir -p /mnt/sdcard/.minime/config/bluetooth");
 		(void)system(cmd);
 		f = fopen(BT_ENABLE_FILE, "w");
@@ -247,20 +245,17 @@ int BT_setEnabled(int enabled) {
 			fputs("1\n", f);
 			fclose(f);
 		}
-		rc = system(BT_SERVICE " start");
-		// give the daemon a moment to come up, then verify it is usable
-		sleep(2);
-		if (!is_bt_service_up()) {
-			(void)system(BT_SERVICE " stop");
-			bt_enabled = 0;
-			return -1;
-		}
+		// force a real restart: OpenRC skips `start` when the service is
+		// already marked started (even if bluetoothd is actually dead), so
+		// use `restart` to guarantee start() runs with the gate present.
+		// Run detached so the menu never blocks on daemon bring-up.
+		snprintf(cmd, sizeof(cmd), BT_SERVICE " restart >/dev/null 2>&1 &");
+		(void)system(cmd);
 		bt_enabled = 1;
 	} else {
 		unlink(BT_ENABLE_FILE);
-		rc = system(BT_SERVICE " stop");
-		if (rc != 0)
-			return -1;
+		snprintf(cmd, sizeof(cmd), BT_SERVICE " stop >/dev/null 2>&1 &");
+		(void)system(cmd);
 		bt_enabled = 0;
 	}
 	return 0;
