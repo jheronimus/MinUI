@@ -1,7 +1,6 @@
 #!/bin/sh
 
 EMU_EXE=pokemini
-CORES_PATH=$(dirname "$0")
 
 ###############################
 

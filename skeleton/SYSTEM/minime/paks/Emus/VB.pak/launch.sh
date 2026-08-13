@@ -1,7 +1,6 @@
 #!/bin/sh
 
 EMU_EXE=mednafen_vb
-CORES_PATH=$(dirname "$0")
 
 ###############################
 
