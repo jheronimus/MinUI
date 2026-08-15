@@ -48,6 +48,7 @@ static const TraitField TRAIT_FIELDS[] = {
     INT_FIELD(screen_width),
     INT_FIELD(screen_height),
     INT_FIELD(screen_rotation),
+    INT_FIELD(screen_rotation_kernel),
     ASPECT_FIELD(screen_aspect),
     INT_FIELD(screen_refresh_rate),
     STR_FIELD(screen_backlight_path),

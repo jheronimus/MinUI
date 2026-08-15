@@ -23,6 +23,7 @@ typedef struct MinimeTraits {
     int screen_width;
     int screen_height;
     int screen_rotation;
+    int screen_rotation_kernel;
     MinimeScreenAspect screen_aspect;
     int screen_refresh_rate;
     char screen_backlight_path[MINIME_TRAIT_PATH_MAX];
