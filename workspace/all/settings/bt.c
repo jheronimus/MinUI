@@ -60,9 +60,6 @@ static void rebuild(void) {
 	count++;
 
 	if (BT_enabled()) {
-		BT_scan();
-		device_count = BT_getDevices(devices, BT_MAX_DEVICES);
-
 		// connected first, then paired, then new
 		for (i = 0; i < device_count; i++) {
 			if (devices[i].connected) {
@@ -97,6 +94,60 @@ static void rebuild(void) {
 	menu.max_width = 0;
 }
 
+#define BT_RESCAN_MS 5000
+#define BT_SETTLE_MS 1500
+static uint32_t last_scan_at = 0;
+static uint32_t scan_due_at = 0;
+
+static void bt_update(MenuList* list) {
+	uint32_t now;
+	BtDevice fresh[BT_MAX_DEVICES];
+	int fresh_count;
+	int changed;
+
+	(void)list;
+
+	if (!BT_enabled())
+		return;
+
+	now = SDL_GetTicks();
+
+	// fire a scan if one isn't in flight and the interval elapsed
+	if (!last_scan_at || (int)(now - last_scan_at) >= BT_RESCAN_MS) {
+		BT_scan();
+		last_scan_at = now;
+		scan_due_at = now + BT_SETTLE_MS;
+		return;
+	}
+
+	// wait for the settle delay before reading results
+	if (!scan_due_at || (int)(now - scan_due_at) < 0)
+		return;
+	scan_due_at = 0;
+
+	fresh_count = BT_getDevices(fresh, BT_MAX_DEVICES);
+
+	changed = fresh_count != device_count;
+	if (!changed) {
+		int i;
+		for (i = 0; i < fresh_count; i++) {
+			if (strcmp(fresh[i].addr, devices[i].addr) != 0 ||
+			    strcmp(fresh[i].name, devices[i].name) != 0 ||
+			    fresh[i].connected != devices[i].connected ||
+			    fresh[i].paired != devices[i].paired) {
+				changed = 1;
+				break;
+			}
+		}
+	}
+
+	if (changed) {
+		device_count = fresh_count;
+		memcpy(devices, fresh, sizeof(BtDevice) * fresh_count);
+		rebuild();
+	}
+}
+
 static BtDevice* device_for_index(int i) {
 	int idx = i - 1;
 	if (idx < 0 || idx >= device_count)
@@ -114,6 +165,9 @@ static int on_confirm(MenuList* list, int i) {
 		if (BT_setEnabled(target) != 0) {
 			Menu_message(target ? "Enable failed" : "Disable failed", (char*[]){"B","BACK", NULL});
 		}
+		last_scan_at = 0;
+		scan_due_at = 0;
+		device_count = 0;
 		rebuild();
 		return MENU_CALLBACK_NOP;
 	}
@@ -125,6 +179,8 @@ static int on_confirm(MenuList* list, int i) {
 	if (BT_toggleDevice(dev->addr) != 0) {
 		Menu_message("Device action failed", (char*[]){"B","BACK", NULL});
 	}
+	last_scan_at = 0;
+	scan_due_at = 0;
 	rebuild();
 	return MENU_CALLBACK_NOP;
 }
@@ -139,6 +195,8 @@ static int on_aux(MenuList* list, int i) {
 		return MENU_CALLBACK_NOP;
 	if (dev->paired) {
 		BT_forgetDevice(dev->addr);
+		last_scan_at = 0;
+		scan_due_at = 0;
 		rebuild();
 	}
 	return MENU_CALLBACK_NOP;
@@ -161,7 +219,11 @@ int main(int argc, char* argv[]) {
 	menu.desc = "Bluetooth";
 	menu.on_confirm = on_confirm;
 	menu.on_aux = on_aux; // X on a paired device forgets it
+	menu.on_update = bt_update;
 	BT_init();
+	last_scan_at = 0;
+	scan_due_at = 0;
+	bt_update(&menu);
 	rebuild();
 
 	Menu_options(&menu);

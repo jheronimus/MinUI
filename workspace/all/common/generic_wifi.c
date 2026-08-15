@@ -133,19 +133,28 @@ static int is_ssid_known(const char *ssid) {
 	char line[128];
 	int known = 0;
 
-	if (!f)
+	if (!f || !ssid)
 		return 0;
 	while (fgets(line, sizeof(line), f)) {
 		char *val;
+		char *start = line;
 
-		if (strncmp(line, "SSID=", 5) != 0)
+		while (*start == ' ' || *start == '\t')
+			start++;
+		if (strncmp(start, "SSID=", 5) != 0)
 			continue;
-		val = line + 5;
+		val = start + 5;
+		while (*val == ' ' || *val == '\t')
+			val++;
 		{
 			size_t len = strlen(val);
-			while (len > 0 && (val[len - 1] == '\n' || val[len - 1] == '\r')) {
+			while (len > 0 && (val[len - 1] == '\n' || val[len - 1] == '\r' || val[len - 1] == ' ' || val[len - 1] == '\t')) {
 				val[len - 1] = '\0';
 				len--;
+			}
+			if (len >= 2 && val[0] == '"' && val[len - 1] == '"') {
+				val[len - 1] = '\0';
+				val++;
 			}
 		}
 		if (strcmp(val, ssid) == 0) {

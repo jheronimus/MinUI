@@ -90,6 +90,7 @@ enum {
 	ASSET_SCROLL_DOWN,
 	
 	ASSET_WIFI,
+	ASSET_BLUETOOTH,
 	
 	ASSET_COUNT,
 };
@@ -365,6 +366,7 @@ int PLAT_pickSampleRate(int requested, int max);
 
 char* PLAT_getModel(void);
 int PLAT_isOnline(void);
+int PLAT_isBluetoothUp(void);
 int PLAT_setDateTime(int y, int m, int d, int h, int i, int s);
 
 #endif

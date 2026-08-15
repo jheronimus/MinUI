@@ -269,6 +269,7 @@ SDL_Surface* GFX_init(int mode) {
 	asset_rects[ASSET_SCROLL_UP]		= (SDL_Rect){SCALE4(97,23,24, 6)};
 	asset_rects[ASSET_SCROLL_DOWN]		= (SDL_Rect){SCALE4(97,31,24, 6)};
 	asset_rects[ASSET_WIFI]				= (SDL_Rect){SCALE4(95,39,14,10)};
+	asset_rects[ASSET_BLUETOOTH]		= (SDL_Rect){SCALE4(111,38, 8,12)};
 	asset_rects[ASSET_HOLE]				= (SDL_Rect){SCALE4( 1,63,20,20)};
 	
 	char asset_path[MAX_PATH];
@@ -870,12 +871,14 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, int show_setting) {
 		}
 	}
 	else {
-		// TODO: handle wifi
-		int show_wifi = PLAT_isOnline(); // NOOOOO! not every frame!
+		int show_wifi = PLAT_isOnline();
+		int show_bt = PLAT_isBluetoothUp();
 
 		int ww = SCALE1(PILL_SIZE-3);
+		int bw = SCALE1(PILL_SIZE-6);
 		ow = SCALE1(PILL_SIZE);
 		if (show_wifi) ow += ww;
+		if (show_bt) ow += bw;
 
 		ox = dst->w - SCALE1(PADDING) - ow;
 		oy = SCALE1(PADDING);
@@ -885,6 +888,16 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, int show_setting) {
 			ow,
 			SCALE1(PILL_SIZE)
 		});
+		if (show_bt) {
+			SDL_Rect rect = asset_rects[ASSET_BLUETOOTH];
+			int x = ox;
+			int y = oy;
+			x += (bw - rect.w) / 2 + SCALE1(1);
+			y += (SCALE1(PILL_SIZE) - rect.h) / 2;
+
+			GFX_blitAsset(ASSET_BLUETOOTH, NULL, dst, &(SDL_Rect){x,y});
+			ox += bw;
+		}
 		if (show_wifi) {
 			SDL_Rect rect = asset_rects[ASSET_WIFI];
 			int x = ox;

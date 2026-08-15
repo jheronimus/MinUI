@@ -928,6 +928,7 @@ void PLAT_enableOverlay(int enable) {
 ///////////////////////////////
 
 static int online = 0;
+static int bt_up = 0;
 void PLAT_getBatteryStatus(int *is_charging, int *charge) {
     int i = -1;
 
@@ -962,6 +963,15 @@ void PLAT_getBatteryStatus(int *is_charging, int *charge) {
         online = prefixMatch("up", status);
     } else {
         online = 0;
+    }
+
+    // bluetooth status
+    if (MINIME_traitAvailable(traits->bluetooth_interface)) {
+        char path[256];
+        snprintf(path, sizeof(path), "/sys/class/bluetooth/%s", traits->bluetooth_interface);
+        bt_up = (access(path, F_OK) == 0 && access("/run/bluetoothd.pid", F_OK) == 0);
+    } else {
+        bt_up = 0;
     }
 }
 
@@ -1014,6 +1024,10 @@ char *PLAT_getModel(void) {
 
 int PLAT_isOnline(void) {
     return online;
+}
+
+int PLAT_isBluetoothUp(void) {
+    return bt_up;
 }
 
 const char *PLAT_getDeviceId(void) {
