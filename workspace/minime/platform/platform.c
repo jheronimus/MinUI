@@ -1021,5 +1021,5 @@ int PLAT_isOnline(void) {
 }
 
 int PLAT_isBluetoothUp(void) {
-	return bt_up;
+    return bt_up;
 }

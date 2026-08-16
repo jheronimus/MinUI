@@ -12,8 +12,8 @@
 #include <unistd.h>
 
 #include "msettings.h"
-#include "traits.h"
 #include "settings.h"
+#include "traits.h"
 
 typedef struct {
     int brightness;

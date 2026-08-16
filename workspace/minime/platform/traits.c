@@ -341,8 +341,7 @@ void MINIME_audioSetRawVolume(int value) {
     if (strcmp(traits->audio_card, "default") != 0) {
         snprintf(card_flag, sizeof(card_flag), "-c '%s' ", traits->audio_card);
     }
-    snprintf(command, sizeof(command),
-             "amixer -q %ssset '%s' %d%% unmute >/dev/null 2>&1",
+    snprintf(command, sizeof(command), "amixer -q %ssset '%s' %d%% unmute >/dev/null 2>&1",
              card_flag, traits->audio_mixer, value);
     (void)system(command);
 }

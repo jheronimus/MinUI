@@ -9,8 +9,8 @@
 
 #include <msettings.h>
 
-#include "traits.h"
 #include "settings.h"
+#include "traits.h"
 
 //	for ev.value
 #define RELEASED 0
