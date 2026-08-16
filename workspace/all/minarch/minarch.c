@@ -765,8 +765,10 @@ static ButtonMapping button_label_mapping[] = { // used to lookup the retro_id a
 	{"RIGHT",	RETRO_DEVICE_ID_JOYPAD_RIGHT,	BTN_ID_DPAD_RIGHT},
 	{"A",		RETRO_DEVICE_ID_JOYPAD_A,		BTN_ID_A},
 	{"B",		RETRO_DEVICE_ID_JOYPAD_B,		BTN_ID_B},
+	{"C",		RETRO_DEVICE_ID_JOYPAD_X,		BTN_ID_C},
 	{"X",		RETRO_DEVICE_ID_JOYPAD_X,		BTN_ID_X},
 	{"Y",		RETRO_DEVICE_ID_JOYPAD_Y,		BTN_ID_Y},
+	{"Z",		RETRO_DEVICE_ID_JOYPAD_Y,		BTN_ID_Z},
 	{"START",	RETRO_DEVICE_ID_JOYPAD_START,	BTN_ID_START},
 	{"SELECT",	RETRO_DEVICE_ID_JOYPAD_SELECT,	BTN_ID_SELECT},
 	{"L1",		RETRO_DEVICE_ID_JOYPAD_L,		BTN_ID_L1},
@@ -788,6 +790,8 @@ static const char* device_button_names[LOCAL_BUTTON_COUNT] = {
 	[BTN_ID_START]		= "START",
 	[BTN_ID_Y]			= "Y",
 	[BTN_ID_X]			= "X",
+	[BTN_ID_C]			= "C",
+	[BTN_ID_Z]			= "Z",
 	[BTN_ID_B]			= "B",
 	[BTN_ID_A]			= "A",
 	[BTN_ID_L1]			= "L1",
@@ -800,6 +804,7 @@ static const char* device_button_names[LOCAL_BUTTON_COUNT] = {
 
 
 // NOTE: these must be in BTN_ID_ order also off by 1 because of NONE (which is -1 in BTN_ID_ land)
+// plain section indexes BTN_ID 0..LOCAL_BUTTON_COUNT-1, mod section (MENU+*) starts at LOCAL_BUTTON_COUNT
 static char* button_labels[] = {
 	"NONE", // displayed by default
 	"UP",
@@ -808,8 +813,10 @@ static char* button_labels[] = {
 	"RIGHT",
 	"A",
 	"B",
+	"C",
 	"X",
 	"Y",
+	"Z",
 	"START",
 	"SELECT",
 	"L1",
@@ -824,8 +831,10 @@ static char* button_labels[] = {
 	"MENU+RIGHT",
 	"MENU+A",
 	"MENU+B",
+	"MENU+C",
 	"MENU+X",
 	"MENU+Y",
+	"MENU+Z",
 	"MENU+START",
 	"MENU+SELECT",
 	"MENU+L1",
