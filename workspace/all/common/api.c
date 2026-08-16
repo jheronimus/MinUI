@@ -178,31 +178,19 @@ static void PWR_loadPolicy(void) {
 
 	line = strtok_r(buffer, "\n", &saveptr);
 	while (line) {
-		char *start = line;
-		while (*start == ' ' || *start == '\t' || *start == '\n' || *start == '\r')
-			start++;
-		if (start != line)
-			memmove(line, start, strlen(start) + 1);
-		{
-			size_t len = strlen(line);
-			while (len > 0 &&
-			       (line[len - 1] == ' ' || line[len - 1] == '\t' || line[len - 1] == '\n' || line[len - 1] == '\r')) {
-				line[len - 1] = '\0';
-				len--;
-			}
-		}
-		if (line[0] == '\0' || line[0] == '#') {
+		char *clean = trimWhitespace(line);
+		if (clean[0] == '\0' || clean[0] == '#') {
 			line = strtok_r(NULL, "\n", &saveptr);
 			continue;
 		}
 
-		if (PWR_parseIntValue(line, "sleep_timeout_ms", &value))
+		if (PWR_parseIntValue(clean, "sleep_timeout_ms", &value))
 			pwr.sleep_timeout_ms = value;
-		else if (PWR_parseIntValue(line, "auto_shutdown_timeout_ms", &value))
+		else if (PWR_parseIntValue(clean, "auto_shutdown_timeout_ms", &value))
 			pwr.auto_shutdown_timeout_ms = value;
-		else if (PWR_parseIntValue(line, "lid_behavior", &value))
+		else if (PWR_parseIntValue(clean, "lid_behavior", &value))
 			pwr.lid_behavior = value;
-		else if (PWR_parseIntValue(line, "power_button_behavior", &value))
+		else if (PWR_parseIntValue(clean, "power_button_behavior", &value))
 			pwr.power_button_behavior = value;
 
 		line = strtok_r(NULL, "\n", &saveptr);
@@ -212,8 +200,6 @@ static void PWR_loadPolicy(void) {
 }
 
 ///////////////////////////////
-
-static int _;
 
 SDL_Surface* GFX_init(int mode) {
 	// TODO: this doesn't really belong here...
@@ -274,7 +260,7 @@ SDL_Surface* GFX_init(int mode) {
 	
 	char asset_path[MAX_PATH];
 	sprintf(asset_path, RES_PATH "/assets@%ix.png", FIXED_SCALE);
-	if (!exists(asset_path)) LOG_info("missing assets, you're about to segfault dummy!\n");
+	if (!exists(asset_path)) LOG_info("missing assets: %s\n", asset_path);
 	gfx.assets = IMG_Load(asset_path);
 	
 	TTF_Init();
@@ -307,9 +293,6 @@ void GFX_quit(void) {
 
 void GFX_setMode(int mode) {
 	gfx.mode = mode;
-}
-int GFX_getVsync(void) {
-	return gfx.vsync;
 }
 void GFX_setVsync(int vsync) {
 	PLAT_setVsync(vsync);
@@ -1189,9 +1172,11 @@ size_t SND_batchSamples(const SND_Frame* frames, size_t frame_count) { // plat_s
 		}
 
 		if (snd.frame_in == snd.frame_filled) {
-			// Audio callback is not consuming samples (buffer full), so the
-			// core would stall forever waiting for audio space. Drop the
-			// backlog so the emulator can keep producing frames.
+			// Divergence from upstream (shauninman/MinUI): on ALSA the
+			// callback does not drain fast enough, so backpressure stalls
+			// every emulator on a static first frame. Deliberate fix from
+			// 1b210f59 (verified on-device) — do not revert with the
+			// upstream code. Drop the backlog so the core keeps rendering.
 			snd.frame_in = 0;
 			snd.frame_out = 0;
 			snd.frame_filled = snd.frame_count - 1;
@@ -1900,7 +1885,7 @@ static void PWR_enterSleep(void) {
 static void PWR_exitSleep(void) {
 	system("killall -CONT keymon.elf");
 	if (GetHDMI()) {
-		// buh
+		// nothing to restore on HDMI
 	}
 	else {
 		PLAT_enableBacklight(1);
@@ -1913,18 +1898,21 @@ static void PWR_exitSleep(void) {
 
 static void PWR_waitForWake(void) {
 	uint32_t sleep_ticks = SDL_GetTicks();
+	int auto_shutdown_ms = pwr.auto_shutdown_timeout_ms; // from power.conf (0 = never)
+
 	while (!PAD_wake()) {
 		if (pwr.requested_wake) {
 			pwr.requested_wake = 0;
 			break;
 		}
 		SDL_Delay(200);
-		if (pwr.can_poweroff && SDL_GetTicks()-sleep_ticks>=120000) { // increased to two minutes
+		if (pwr.can_poweroff && auto_shutdown_ms != PWR_TIMEOUT_OFF &&
+		    (int)(SDL_GetTicks() - sleep_ticks) >= auto_shutdown_ms) {
 			if (pwr.is_charging) sleep_ticks += 60000; // check again in a minute
 			else PWR_powerOff();
 		}
 	}
-	
+
 	return;
 }
 void PWR_fauxSleep(void) {
@@ -1946,12 +1934,24 @@ int PWR_preventAutosleep(void) {
 	return pwr.is_charging || !pwr.can_autosleep || GetHDMI();
 }
 
-// updated by PWR_updateBatteryStatus()
-int PWR_isCharging(void) {
-	return pwr.is_charging;
-}
-int PWR_getBattery(void) { // 10-100 in 10-20% fragments
-	return pwr.charge;
+///////////////////////////////
+
+// iwd/bluetoothctl scans are asynchronous: the scan command returns
+// immediately and results populate over the next ~1-2s. Shared refresh cycle
+// driven from the settings menu loop's on_update (never blocks the menu):
+// fire a scan every `rescan_ms`, read results `settle_ms` later.
+int SCAN_cycle(uint32_t *last_scan_at, uint32_t *scan_due_at, uint32_t rescan_ms, uint32_t settle_ms,
+               int (*fire)(void), uint32_t now) {
+	if (!*last_scan_at || (int)(now - *last_scan_at) >= (int)rescan_ms) {
+		fire();
+		*last_scan_at = now;
+		*scan_due_at = now + settle_ms;
+		return SCAN_CYCLE_STARTED;
+	}
+	if (!*scan_due_at || (int)(now - *scan_due_at) < 0)
+		return SCAN_CYCLE_IDLE;
+	*scan_due_at = 0;
+	return SCAN_CYCLE_RESULTS;
 }
 
 ///////////////////////////////

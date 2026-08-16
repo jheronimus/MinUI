@@ -120,6 +120,19 @@ void trimTrailingNewlines(char* line) {
 		len -= 1;
 	}
 }
+char* trimWhitespace(char* s) {
+	char* end;
+	while (*s && isspace((unsigned char)*s))
+		s++;
+	end = s + strlen(s);
+	while (end > s && isspace((unsigned char)end[-1]))
+		end--;
+	*end = '\0';
+	return s;
+}
+FILE* cmdOutput(const char* cmd) {
+	return popen(cmd, "r");
+}
 void trimSortingMeta(char** str) { // eg. `001) `
 	// TODO: this code is suss
 	char* safe = *str;

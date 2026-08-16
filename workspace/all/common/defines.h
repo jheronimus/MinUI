@@ -2,11 +2,7 @@
 #define __DEFINES_H__
 
 #include "platform.h"
-
-#define VOLUME_MIN 		0
-#define VOLUME_MAX 		20
-#define BRIGHTNESS_MIN 	0
-#define BRIGHTNESS_MAX 	10
+#include "settings.h"
 
 #define MAX_PATH 512
 

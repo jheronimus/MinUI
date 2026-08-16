@@ -102,19 +102,12 @@ static int undervolt_level(void) {
 	FILE* f;
 
 	snprintf(cmd, sizeof(cmd), DEVICE_SH " get undervolt 2>/dev/null");
-	f = popen(cmd, "r");
+	f = cmdOutput(cmd);
 	if (!f)
 		return 0;
 	buf[0] = '\0';
-	if (fgets(buf, sizeof(buf), f)) {
-		{
-			size_t len = strlen(buf);
-			while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r')) {
-				buf[len - 1] = '\0';
-				len--;
-			}
-		}
-	}
+	if (fgets(buf, sizeof(buf), f))
+		trimWhitespace(buf);
 	pclose(f);
 	if (!strcmp(buf, "l1"))
 		return 1;

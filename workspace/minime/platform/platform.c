@@ -52,8 +52,6 @@ int plat_main_row_count = 6;
 int plat_padding = 10;
 int plat_screen_rotation = -1;
 int on_hdmi = 0;
-int is_cubexx = 0;
-int is_rg34xx = 0;
 static int rotate = 0;
 static const MinimeTraits *traits;
 
@@ -121,8 +119,6 @@ static void load_traits(void) {
     // Device identity comes from the screen aspect ratio, not resolution:
     // a 720x480 display is only an RG34XX if the aspect says 3:2 (an
     // RG351P/M at 480x320 is also 3:2 but a different device shape).
-    is_cubexx = (traits->screen_aspect == MINIME_ASPECT_1x1);
-    is_rg34xx = (traits->screen_aspect == MINIME_ASPECT_3x2) && plat_fixed_width == 720;
 }
 
 ///////////////////////////////
@@ -449,7 +445,7 @@ int PLAT_shouldWake(void) {
 
 ///////////////////////////////
 
-// based on rgb30 + tg5040 + m17
+// KMS/GLES video backend
 static struct VID_Context {
     SDL_Window *window;
     SDL_Renderer *renderer;
@@ -817,7 +813,7 @@ void PLAT_flip(SDL_Surface *IGNORED, int ignored) {
     on_hdmi = GetHDMI(); // use settings instead of getInt(HDMI_STATE_PATH)
 
     if (!vid.blit) {
-        resizeVideo(device_width, device_height, FIXED_PITCH); // !!!???
+        resizeVideo(device_width, device_height, FIXED_PITCH);
         SDL_UpdateTexture(vid.texture, NULL, vid.screen->pixels, vid.screen->pitch);
         if (rotate && !on_hdmi) {
             int dx = 0;
@@ -841,7 +837,6 @@ void PLAT_flip(SDL_Surface *IGNORED, int ignored) {
         return;
     }
 
-    // uint32_t then = SDL_GetTicks();
     SDL_UpdateTexture(vid.texture, NULL, vid.blit->src, vid.blit->src_p);
 
     SDL_Texture *target = vid.texture;
@@ -890,13 +885,12 @@ void PLAT_flip(SDL_Surface *IGNORED, int ignored) {
                            dst_rect);
     }
 
-    // uint32_t then = SDL_GetTicks();
     SDL_RenderPresent(vid.renderer);
     vid.blit = NULL;
 }
 
 int PLAT_supportsOverscan(void) {
-    return is_cubexx;
+    return traits && traits->screen_aspect == MINIME_ASPECT_1x1;
 }
 
 ///////////////////////////////
@@ -1027,13 +1021,5 @@ int PLAT_isOnline(void) {
 }
 
 int PLAT_isBluetoothUp(void) {
-    return bt_up;
-}
-
-const char *PLAT_getDeviceId(void) {
-    return traits ? traits->device_id : NULL;
-}
-
-int PLAT_hasButtonCZ(void) {
-    return MINIME_inputHasCZ();
+	return bt_up;
 }

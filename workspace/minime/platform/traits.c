@@ -142,17 +142,6 @@ static MinimeTraits traits;
 static int initialized;
 static int valid;
 
-static char *trim(char *text) {
-    char *end;
-    while (*text && isspace((unsigned char)*text))
-        text++;
-    end = text + strlen(text);
-    while (end > text && isspace((unsigned char)end[-1]))
-        end--;
-    *end = '\0';
-    return text;
-}
-
 static void copyText(char *dst, size_t size, const char *src) {
     if (!dst || !size)
         return;
@@ -295,14 +284,14 @@ int MINIME_traitsInit(void) {
         char *key;
         char *value;
 
-        key = trim(line);
+        key = trimWhitespace(line);
         if (!key[0] || key[0] == '#' || key[0] == '[')
             continue;
         value = strchr(key, '=');
         if (!value)
             continue;
         *value++ = '\0';
-        if (setValue(trim(key), trim(value)) != 0) {
+        if (setValue(trimWhitespace(key), trimWhitespace(value)) != 0) {
             fclose(file);
             return -1;
         }
@@ -333,12 +322,6 @@ const MinimeTraits *MINIME_traits(void) {
     return MINIME_traitsInit() == 0 ? &traits : NULL;
 }
 
-int MINIME_hasSecondScreen(void) {
-    const MinimeTraits *traits = MINIME_traits();
-
-    return traits && traits->screen2_width > 0 && traits->screen2_height > 0;
-}
-
 int MINIME_audioJackConnected(void) {
     const MinimeTraits *traits = MINIME_traits();
 
@@ -352,18 +335,15 @@ void MINIME_audioSetRawVolume(int value) {
 
     if (!traits)
         return;
-    // audio_mixer is the ALSA simple-mixer control (e.g. "Line Out"). Some
-    // codecs (sun4i/H616) keep a separate "DAC" pswitch that must be unmuted
-    // for sound to pass; sset with "unmute" handles both volume and switch.
-    // The H700 codec also exposes a raw numid control ("Line Out Playback
-    // Volume", numid=2) that is NOT a simple control — never use it here.
+    // audio_mixer is the ALSA simple-mixer control (e.g. "Line Out").
+    // Codec init quirks (DAC pswitch unmute, Playback Mux / jack routing)
+    // are owned by the firmware ui init.d, not the UI.
     if (strcmp(traits->audio_card, "default") != 0) {
         snprintf(card_flag, sizeof(card_flag), "-c '%s' ", traits->audio_card);
     }
     snprintf(command, sizeof(command),
-             "amixer -q %ssset '%s' %d%% unmute >/dev/null 2>&1; "
-             "amixer -q %ssset 'DAC' unmute >/dev/null 2>&1",
-             card_flag, traits->audio_mixer, value, card_flag);
+             "amixer -q %ssset '%s' %d%% unmute >/dev/null 2>&1",
+             card_flag, traits->audio_mixer, value);
     (void)system(command);
 }
 
@@ -445,12 +425,6 @@ int MINIME_inputOpenShortcutDevices(int *fds, size_t max_fds) {
             fds[count++] = fd;
     }
     return count;
-}
-
-int MINIME_inputHasCZ(void) {
-    const MinimeTraits *traits = MINIME_traits();
-
-    return traits && traits->key_c >= 0 && traits->key_z >= 0;
 }
 
 int MINIME_inputNormalizeAxis(int value, int invert) {

@@ -14,8 +14,6 @@ extern int plat_main_row_count;
 extern int plat_padding;
 extern int plat_screen_rotation;
 extern int on_hdmi;
-const char *PLAT_getDeviceId(void);
-int PLAT_hasButtonCZ(void);
 
 ///////////////////////////////
 

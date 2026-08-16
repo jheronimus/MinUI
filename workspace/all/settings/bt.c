@@ -94,6 +94,8 @@ static void rebuild(void) {
 	menu.max_width = 0;
 }
 
+// bluetoothctl scans are asynchronous. The menu loop's on_update drives the
+// shared SCAN_cycle state machine (never blocks the menu).
 #define BT_RESCAN_MS 5000
 #define BT_SETTLE_MS 1500
 static uint32_t last_scan_at = 0;
@@ -111,19 +113,8 @@ static void bt_update(MenuList* list) {
 		return;
 
 	now = SDL_GetTicks();
-
-	// fire a scan if one isn't in flight and the interval elapsed
-	if (!last_scan_at || (int)(now - last_scan_at) >= BT_RESCAN_MS) {
-		BT_scan();
-		last_scan_at = now;
-		scan_due_at = now + BT_SETTLE_MS;
+	if (SCAN_cycle(&last_scan_at, &scan_due_at, BT_RESCAN_MS, BT_SETTLE_MS, BT_scan, now) != SCAN_CYCLE_RESULTS)
 		return;
-	}
-
-	// wait for the settle delay before reading results
-	if (!scan_due_at || (int)(now - scan_due_at) < 0)
-		return;
-	scan_due_at = 0;
 
 	fresh_count = BT_getDevices(fresh, BT_MAX_DEVICES);
 

@@ -5,7 +5,5 @@
 all:
 	cd ./show && make
 
-early:
-
 clean:
 	cd ./show && make clean

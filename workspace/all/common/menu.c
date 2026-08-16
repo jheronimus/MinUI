@@ -184,7 +184,6 @@ int Menu_options(MenuList* list) {
 			}
 		}
 		
-		// uint32_t now = SDL_GetTicks();
 		if (PAD_justPressed(BTN_B)) { // || PAD_tappedMenu(now)
 			show_options = 0;
 		}
@@ -411,7 +410,6 @@ int Menu_options(MenuList* list) {
 						w += SCALE1(OPTION_PADDING*4);
 						if (w>mw) mw = w;
 					}
-					fflush(stdout);
 					// cache the result
 					list->max_width = mw = MIN(mw, menu_screen->w - SCALE1(PADDING *2));
 				}

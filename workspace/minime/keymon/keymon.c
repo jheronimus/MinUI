@@ -10,11 +10,7 @@
 #include <msettings.h>
 
 #include "traits.h"
-
-#define VOLUME_MIN 0
-#define VOLUME_MAX 20
-#define BRIGHTNESS_MIN 0
-#define BRIGHTNESS_MAX 10
+#include "settings.h"
 
 //	for ev.value
 #define RELEASED 0

@@ -171,7 +171,6 @@ enum {
 	VSYNC_STRICT,
 };
 
-int GFX_getVsync(void);
 void GFX_setVsync(int vsync);
 
 int GFX_truncateText(TTF_Font* font, const char* in_name, char* out_name, int max_width, int padding); // returns final width
@@ -292,9 +291,6 @@ void PWR_disableAutosleep(void);
 void PWR_enableAutosleep(void);
 int PWR_preventAutosleep(void);
 
-int PWR_isCharging(void);
-int PWR_getBattery(void);
-
 // power policy (sleep/auto-shutdown/lid/power button behavior)
 enum {
 	PWR_TIMEOUT_OFF = 0,
@@ -326,6 +322,19 @@ enum {
 	CPU_SPEED_PERFORMANCE,
 };
 #define PWR_setCPUSpeed PLAT_setCPUSpeed
+
+// ///////////////////////////////
+
+// Scan/refresh cycle shared by the wifi/bt settings tools. Call every tick
+// with `now` (SDL_GetTicks). Returns SCAN_CYCLE_RESULTS once per cycle when
+// the settle delay has elapsed and results are ready to read.
+enum {
+	SCAN_CYCLE_IDLE,     // interval not elapsed, scan in flight, or still settling
+	SCAN_CYCLE_STARTED,  // fired a fresh scan this tick
+	SCAN_CYCLE_RESULTS,  // settle elapsed; read results now
+};
+int SCAN_cycle(uint32_t* last_scan_at, uint32_t* scan_due_at, uint32_t rescan_ms, uint32_t settle_ms,
+               int (*fire)(void), uint32_t now);
 
 ///////////////////////////////
 

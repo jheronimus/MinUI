@@ -68,8 +68,6 @@ int main(int argc , char* argv[]) {
 	SDL_Event event;
 	int quit = 0;
 	int dirty = 1;
-	// int show_setting = 0;
-	// int was_online = PLAT_isOnline();
 	while(!quit) {
 		uint32_t frame_start = SDL_GetTicks();
 		
@@ -78,16 +76,8 @@ int main(int argc , char* argv[]) {
 		if (PAD_anyPressed() || PAD_anyJustReleased()) dirty = 1;
 		if (PAD_isPressed(BTN_SELECT) && PAD_isPressed(BTN_START)) quit = 1;
 		
-		// PWR_update(&dirty, NULL, NULL,NULL);
-		
-		// int is_online = PLAT_isOnline();
-		// if (was_online!=is_online) dirty = 1;
-		// was_online = is_online;
-		
 		if (dirty) {
 			GFX_clear(screen);
-			
-			// GFX_blitHardwareGroup(screen, show_setting);
 			
 			// L group
 			{

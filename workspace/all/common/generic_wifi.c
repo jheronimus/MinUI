@@ -12,6 +12,7 @@
 
 #include "traits.h"
 #include "wireless.h"
+#include "utils.h"
 
 #define WIFI_CONFIG_PATH "/mnt/sdcard/.minime/config/wifi.cfg"
 #define WIFI_ENABLE_FILE "/mnt/sdcard/.minime/config/wifi/enabled"
@@ -26,7 +27,6 @@
 static int wifi_enabled = 0;
 static WifiNetwork networks[WIFI_MAX_NETWORKS];
 static int network_count = 0;
-static int scanning = 0;
 
 static const char *wifi_interface(void) {
 	const MinimeTraits *traits = MINIME_traits();
@@ -36,7 +36,7 @@ static const char *wifi_interface(void) {
 	           : "wlan0";
 }
 
-int WIFI_hasWifi(void) {
+static int WIFI_hasWifi(void) {
 	const MinimeTraits *traits = MINIME_traits();
 
 	return traits && traits->wifi_interface[0] && strcmp(traits->wifi_interface, "na");
@@ -87,15 +87,7 @@ static int is_wifi_connected(void) {
 	return strncmp(carrier, "1", 1) == 0;
 }
 
-static FILE *wifi_popen(const char *cmd) {
-	char shell[256];
-
-	snprintf(shell, sizeof(shell), "%s", cmd);
-	return popen(shell, "r");
-}
-
 static void strip_ansi(char *s);
-static void trim(char *s);
 
 static void get_connected_ssid(char *ssid_out, size_t max_len) {
 	char cmd[256];
@@ -104,22 +96,14 @@ static void get_connected_ssid(char *ssid_out, size_t max_len) {
 
 	ssid_out[0] = '\0';
 	snprintf(cmd, sizeof(cmd), WIFI_STATION_SHOW_CMD, wifi_interface());
-	f = wifi_popen(cmd);
+	f = cmdOutput(cmd);
 	if (!f)
 		return;
 	while (fgets(line, sizeof(line), f)) {
 		strip_ansi(line);
 		if (strstr(line, "Connected network")) {
-			char *value = strstr(line, "Connected network") + strlen("Connected network");
-			size_t len;
+			char *value = trimWhitespace(strstr(line, "Connected network") + strlen("Connected network"));
 
-			while (*value == ' ' || *value == '\t')
-				value++;
-			len = strlen(value);
-			while (len > 0 && (value[len - 1] == '\n' || value[len - 1] == '\r' || value[len - 1] == ' ')) {
-				value[len - 1] = '\0';
-				len--;
-			}
 			if (strcmp(value, "--") != 0)
 				strncpy(ssid_out, value, max_len);
 			break;
@@ -137,23 +121,15 @@ static int is_ssid_known(const char *ssid) {
 		return 0;
 	while (fgets(line, sizeof(line), f)) {
 		char *val;
-		char *start = line;
+		char *start = trimWhitespace(line);
 
-		while (*start == ' ' || *start == '\t')
-			start++;
 		if (strncmp(start, "SSID=", 5) != 0)
 			continue;
-		val = start + 5;
-		while (*val == ' ' || *val == '\t')
-			val++;
-		{
-			size_t len = strlen(val);
-			while (len > 0 && (val[len - 1] == '\n' || val[len - 1] == '\r' || val[len - 1] == ' ' || val[len - 1] == '\t')) {
-				val[len - 1] = '\0';
-				len--;
-			}
-			if (len >= 2 && val[0] == '"' && val[len - 1] == '"') {
-				val[len - 1] = '\0';
+		val = trimWhitespace(start + 5);
+		if (val[0] == '"') {
+			size_t n = strlen(val);
+			if (n >= 2 && val[n - 1] == '"') {
+				val[n - 1] = '\0';
 				val++;
 			}
 		}
@@ -164,17 +140,6 @@ static int is_ssid_known(const char *ssid) {
 	}
 	fclose(f);
 	return known;
-}
-
-static void trim(char *s) {
-	size_t len = strlen(s);
-
-	while (len > 0 && (s[len - 1] == '\n' || s[len - 1] == '\r' || s[len - 1] == ' ')) {
-		s[len - 1] = '\0';
-		len--;
-	}
-	while (*s == ' ')
-		s++;
 }
 
 // Strip ANSI escape sequences (iwctl colors the selected row and signal bars).
@@ -213,7 +178,7 @@ static void parse_scan_results(void) {
 
 	network_count = 0;
 	snprintf(cmd, sizeof(cmd), WIFI_GET_NETWORKS_CMD, wifi_interface());
-	f = wifi_popen(cmd);
+	f = cmdOutput(cmd);
 	if (!f)
 		return;
 
@@ -306,7 +271,6 @@ static void parse_scan_results(void) {
 int WIFI_init(void) {
 	wifi_enabled = is_wifi_admin_up() || is_wifi_connected();
 	network_count = 0;
-	scanning = 0;
 	return 0;
 }
 
@@ -352,10 +316,8 @@ int WIFI_scan(void) {
 
 	if (!WIFI_enabled())
 		return -1;
-	scanning = 1;
 	snprintf(cmd, sizeof(cmd), WIFI_SCAN_CMD, wifi_interface());
 	(void)system(cmd);
-	scanning = 0;
 	return 0;
 }
 
@@ -368,10 +330,6 @@ int WIFI_getNetworks(WifiNetwork *out, int max) {
 	for (i = 0; i < network_count && i < max; i++)
 		out[i] = networks[i];
 	return network_count < max ? network_count : max;
-}
-
-int WIFI_connected(void) {
-	return is_wifi_connected();
 }
 
 int WIFI_connect(const char *ssid, const char *passphrase) {
@@ -473,12 +431,4 @@ int WIFI_forget(const char *ssid) {
 	snprintf(cmd, sizeof(cmd), "rc-service wifi reload >/dev/null 2>&1");
 	(void)system(cmd);
 	return 0;
-}
-
-int WIFI_isKnown(const char *ssid) {
-	return is_ssid_known(ssid);
-}
-
-int WIFI_isBusy(void) {
-	return scanning;
 }

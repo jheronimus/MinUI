@@ -1,6 +1,7 @@
 #ifndef UTILS_H
 #define UTILS_H
 
+#include <stdio.h>
 #include <stdint.h>
 
 int prefixMatch(char* pre, char* str);
@@ -16,6 +17,13 @@ void getEmuPath(char* emu_name, char* pak_path);
 void normalizeNewline(char* line);
 void trimTrailingNewlines(char* line);
 void trimSortingMeta(char** str);
+
+// Strip leading/trailing whitespace (incl. \r\n) in place; returns the
+// trimmed start (may point past the original start).
+char* trimWhitespace(char* s);
+
+// Read a command's combined output (popen "r").
+FILE* cmdOutput(const char* cmd);
 
 int exists(char* path);
 void touch(char* path);

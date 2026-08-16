@@ -10,10 +10,11 @@
 
 #include "traits.h"
 #include "wireless.h"
+#include "utils.h"
 
 #define BT_ENABLE_FILE "/mnt/sdcard/.minime/config/bluetooth/enabled"
 #define BT_SERVICE "/etc/init.d/bluetooth"
-#define ASOUNDRC_PATH "/mnt/sdcard/.asoundrc"
+#define AUDIO_HELPER "/usr/share/minime/scripts/audio.sh"
 
 static int bt_enabled = 0;
 static BtDevice devices[BT_MAX_DEVICES];
@@ -32,59 +33,20 @@ static int scanning = 0;
 #define BT_CMD_TRUST BT_TIMEOUT "bluetoothctl trust %s >/dev/null 2>&1"
 #define BT_CMD_REMOVE BT_TIMEOUT "bluetoothctl remove %s >/dev/null 2>&1"
 
-static FILE *bt_popen(const char *cmd) {
-	return popen(cmd, "r");
-}
+
 
 static void bt_restore_alsa(void) {
-	const MinimeTraits *traits = MINIME_traits();
-	FILE *f;
-
-	if (traits && traits->audio_card[0] && strcmp(traits->audio_card, "default") != 0 &&
-	    strcmp(traits->audio_card, "na") != 0) {
-		f = fopen(ASOUNDRC_PATH, "w");
-		if (f) {
-			fprintf(f,
-			        "pcm.!default {\n"
-			        "    type hw\n"
-			        "    card %s\n"
-			        "}\n"
-			        "ctl.!default {\n"
-			        "    type hw\n"
-			        "    card %s\n"
-			        "}\n",
-			        traits->audio_card, traits->audio_card);
-			fclose(f);
-		}
-	} else {
-		unlink(ASOUNDRC_PATH);
-	}
+	// Firmware owns ALSA routing (see boards/common/scripts/audio.sh).
+	(void)system(AUDIO_HELPER " bt-off >/dev/null 2>&1");
 }
 
 static void bt_route_audio_alsa(const char *addr) {
-	FILE *f;
+	char cmd[256];
 
 	if (!addr || !addr[0])
 		return;
-	f = fopen(ASOUNDRC_PATH, "w");
-	if (!f)
-		return;
-	fprintf(f,
-	        "defaults.bluealsa.device \"%s\"\n"
-	        "defaults.bluealsa.profile \"a2dp\"\n"
-	        "pcm.!default {\n"
-	        "    type plug\n"
-	        "    slave.pcm {\n"
-	        "        type bluealsa\n"
-	        "        device \"%s\"\n"
-	        "        profile \"a2dp\"\n"
-	        "    }\n"
-	        "}\n"
-	        "ctl.!default {\n"
-	        "    type bluealsa\n"
-	        "}\n",
-	        addr, addr);
-	fclose(f);
+	snprintf(cmd, sizeof(cmd), AUDIO_HELPER " bt-on %s >/dev/null 2>&1", addr);
+	(void)system(cmd);
 }
 
 static int is_bt_interface_present(void) {
@@ -97,19 +59,13 @@ static int is_bt_interface_present(void) {
 	return access(path, F_OK) == 0;
 }
 
-int BT_hasBluetooth(void) {
-	const MinimeTraits *traits = MINIME_traits();
-
-	return traits && traits->bluetooth_interface[0] && strcmp(traits->bluetooth_interface, "na") != 0;
-}
-
 static int is_bt_service_up(void) {
 	char line[32];
 	FILE *f;
 
 	if (!is_bt_interface_present())
 		return 0;
-	f = bt_popen(BT_TIMEOUT "pgrep bluetoothd 2>/dev/null");
+	f = cmdOutput(BT_TIMEOUT "pgrep bluetoothd 2>/dev/null");
 	if (!f)
 		return 0;
 	if (!fgets(line, sizeof(line), f)) {
@@ -132,7 +88,7 @@ static int parse_device_info(const char *addr, char *name_out, size_t name_max, 
 	char name[BT_MAX_NAME] = "";
 
 	snprintf(cmd, sizeof(cmd), BT_CMD_INFO, addr);
-	f = bt_popen(cmd);
+	f = cmdOutput(cmd);
 	if (!f)
 		return 0;
 
@@ -205,7 +161,7 @@ static void bt_refresh_devices(void) {
 	int i;
 
 	snprintf(cmd, sizeof(cmd), BT_CMD_DEVICES);
-	f = bt_popen(cmd);
+	f = cmdOutput(cmd);
 	if (!f)
 		return;
 
@@ -341,7 +297,7 @@ int BT_toggleDevice(const char *addr) {
 		int is_connected = 0;
 
 		snprintf(info_cmd, sizeof(info_cmd), BT_CMD_INFO, addr);
-		f = bt_popen(info_cmd);
+		f = cmdOutput(info_cmd);
 		if (f) {
 			while (fgets(info_line, sizeof(info_line), f)) {
 				if (strstr(info_line, "Connected: yes")) {

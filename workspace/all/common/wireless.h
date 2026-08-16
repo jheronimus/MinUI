@@ -43,22 +43,17 @@ typedef struct {
 
 // Wi-Fi (iwd backend)
 int WIFI_init(void);
-int WIFI_hasWifi(void);
 int WIFI_enabled(void);
 int WIFI_setEnabled(int enabled);
 int WIFI_scan(void); // triggers a scan
 int WIFI_getNetworks(WifiNetwork* networks, int max); // last scan results
-int WIFI_connected(void); // 1 if connected, 0 otherwise
 int WIFI_connect(const char* ssid, const char* passphrase);
 int WIFI_disconnect(void);
 int WIFI_forget(const char* ssid);
-int WIFI_isKnown(const char* ssid);
-int WIFI_isBusy(void);
 
 // Bluetooth (bluetoothctl backend)
 int BT_init(void);
 int BT_quit(void);
-int BT_hasBluetooth(void);
 int BT_enabled(void);
 int BT_setEnabled(int enabled);
 int BT_scan(void); // triggers discovery

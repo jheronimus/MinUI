@@ -1,7 +1,7 @@
 /*
  * Minime libmsettings.
  * Shared-memory settings bridge (same contract as upstream).
- * Hardware access is traits-driven and lives in minime.c.
+ * Hardware access is traits-driven and lives in platform.c/traits.c.
  */
 #include <fcntl.h>
 #include <stdio.h>
@@ -13,6 +13,7 @@
 
 #include "msettings.h"
 #include "traits.h"
+#include "settings.h"
 
 typedef struct {
     int brightness;
@@ -81,15 +82,15 @@ int GetMute(void) {
 void SetBrightness(int value) {
     if (!shared)
         return;
-    if (value < 0)
-        value = 0;
-    if (value > 10)
-        value = 10;
+    if (value < BRIGHTNESS_MIN)
+        value = BRIGHTNESS_MIN;
+    if (value > BRIGHTNESS_MAX)
+        value = BRIGHTNESS_MAX;
     shared->brightness = value;
 
     const MinimeTraits *traits = MINIME_traits();
     int max = (traits && traits->screen_backlight_max > 0) ? traits->screen_backlight_max : 255;
-    int raw = (value * max) / 10;
+    int raw = (value * max) / BRIGHTNESS_MAX;
     if (value > 0 && raw == 0)
         raw = 1;
     MINIME_videoSetBacklight(raw);
@@ -102,13 +103,13 @@ void SetRawBrightness(int value) {
 void SetVolume(int value) {
     if (!shared)
         return;
-    if (value < 0)
-        value = 0;
-    if (value > 20)
-        value = 20;
+    if (value < VOLUME_MIN)
+        value = VOLUME_MIN;
+    if (value > VOLUME_MAX)
+        value = VOLUME_MAX;
     shared->volume = value;
 
-    MINIME_audioSetRawVolume((value * 100) / 20);
+    MINIME_audioSetRawVolume((value * 100) / VOLUME_MAX);
 }
 
 void SetRawVolume(int value) {

@@ -137,7 +137,6 @@ typedef struct MinimeTraits {
 int MINIME_traitsInit(void);
 const MinimeTraits *MINIME_traits(void);
 int MINIME_traitAvailable(const char *value);
-int MINIME_hasSecondScreen(void);
 
 ///////////////////////////////
 // traits-driven hardware HAL
@@ -151,7 +150,6 @@ void MINIME_videoBlank(int blank);
 
 int MINIME_inputOpenByName(const char *expected);
 int MINIME_inputOpenShortcutDevices(int *fds, size_t max_fds);
-int MINIME_inputHasCZ(void);
 int MINIME_inputNormalizeAxis(int value, int invert);
 
 int MINIME_powerGetBattery(int *charging, int *capacity);
