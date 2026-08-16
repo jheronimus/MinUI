@@ -60,7 +60,6 @@ static int downsample = 0; // set to 1 to convert from 8888 to 565
 // rewind
 static int rewind_pressed = 0;
 static int rewind_toggle = 0;
-static int last_rewind_pressed = 0;
 static int rewinding = 0;
 static enum retro_savestate_context rewind_savestate_context = RETRO_SAVESTATE_CONTEXT_NORMAL;
 static int rewind_cfg_enable = 0;
@@ -127,7 +126,6 @@ static struct Core {
 	unsigned (*get_region)(void);
 	void *(*get_memory_data)(unsigned id);
 	size_t (*get_memory_size)(unsigned id);
-	uint64_t serialization_quirks;
 	
 	// retro_audio_buffer_status_callback_t audio_buffer_status;
 } core;
@@ -1521,8 +1519,12 @@ static void Config_restore(void) {
 }
 
 ///////////////////////////////
+// private libretro env command shared with the gambatte core patch
+// (minime/build/cores/patches/gambatte-export-dmg-grid.patch)
+#define RETRO_ENVIRONMENT_SET_DMG_GRID_COLOR 0x8000000
 static struct Special {
 	int palette_updated;
+	int grid_color;
 } special;
 static void Special_updatedDMGPalette(int frames) {
 	// LOG_info("Special_updatedDMGPalette(%i)\n", frames);
@@ -1531,22 +1533,14 @@ static void Special_updatedDMGPalette(int frames) {
 static void Special_refreshDMGPalette(void) {
 	special.palette_updated -= 1;
 	if (special.palette_updated>0) return;
-	
-	int rgb = getInt("/tmp/dmg_grid_color");
-	GFX_setEffectColor(rgb);
+
+	GFX_setEffectColor(special.grid_color);
 }
 static void Special_init(void) {
 	if (special.palette_updated>1) special.palette_updated = 1;
-	// else if (exactMatch((char*)core.tag, "GBC"))  {
-	// 	putInt("/tmp/dmg_grid_color",0xF79E);
-	// 	special.palette_updated = 1;
-	// }
 }
 static void Special_render(void) {
 	if (special.palette_updated) Special_refreshDMGPalette();
-}
-static void Special_quit(void) {
-	system("rm -f /tmp/dmg_grid_color");
 }
 ///////////////////////////////
 
@@ -1879,9 +1873,6 @@ static void input_poll_callback(void) {
 			}
 			else if (i==SHORTCUT_HOLD_REWIND) {
 				rewind_pressed = PAD_isPressed(btn) ? 1 : 0;
-				if (rewind_pressed != last_rewind_pressed) {
-					last_rewind_pressed = rewind_pressed;
-				}
 				if (rewind_pressed && ff_toggled && !ff_paused_by_rewind_hold) {
 					ff_paused_by_rewind_hold = 1;
 					fast_forward = setFastForward(0);
@@ -2236,10 +2227,13 @@ static bool environment_callback(unsigned cmd, void *data) { // copied from pico
 			*out = rewind_savestate_context;
 		break;
 	}
-	case RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS: {
-		const uint64_t *quirks = (const uint64_t *)data;
-		if (quirks)
-			core.serialization_quirks = *quirks;
+	case RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS: { /* consumed; not used by rewind buffer */
+		break;
+	}
+	case RETRO_ENVIRONMENT_SET_DMG_GRID_COLOR: { /* private, from the gambatte core patch */
+		const unsigned *color = (const unsigned *)data;
+		if (color)
+			special.grid_color = *color;
 		break;
 	}
 	
@@ -5158,7 +5152,6 @@ static void run_frame(void) {
 					fast_forward = setFastForward(1);
 				}
 				if (rewinding) {
-					rewinding = 1;
 					Rewind_sync_encode_state();
 				}
 				rewinding = 0;
@@ -5362,8 +5355,6 @@ finish:
 	
 	Config_quit();
 	
-	Special_quit();
-
 	MSG_quit();
 	PWR_quit();
 	VIB_quit();
