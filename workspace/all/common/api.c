@@ -875,7 +875,7 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, int show_setting) {
 		int show_bt = PLAT_isBluetoothUp();
 
 		int ww = SCALE1(PILL_SIZE-3);
-		int bw = SCALE1(PILL_SIZE-6);
+		int bw = SCALE1(PILL_SIZE-8);
 		ow = SCALE1(PILL_SIZE);
 		if (show_wifi) ow += ww;
 		if (show_bt) ow += bw;
@@ -892,7 +892,7 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, int show_setting) {
 			SDL_Rect rect = asset_rects[ASSET_BLUETOOTH];
 			int x = ox;
 			int y = oy;
-			x += (bw - rect.w) / 2 + SCALE1(1);
+			x += (SCALE1(PILL_SIZE) - rect.w) / 2;
 			y += (SCALE1(PILL_SIZE) - rect.h) / 2;
 
 			GFX_blitAsset(ASSET_BLUETOOTH, NULL, dst, &(SDL_Rect){x,y});
