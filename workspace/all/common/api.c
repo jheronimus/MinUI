@@ -871,6 +871,16 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, int show_setting) {
 			ow,
 			SCALE1(PILL_SIZE)
 		});
+		if (show_wifi) {
+			SDL_Rect rect = asset_rects[ASSET_WIFI];
+			int x = ox;
+			int y = oy;
+			x += (SCALE1(PILL_SIZE) - rect.w) / 2;
+			y += (SCALE1(PILL_SIZE) - rect.h) / 2;
+
+			GFX_blitAsset(ASSET_WIFI, NULL, dst, &(SDL_Rect){x,y});
+			ox += ww;
+		}
 		if (show_bt) {
 			SDL_Rect rect = asset_rects[ASSET_BLUETOOTH];
 			int x = ox;
@@ -880,16 +890,6 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, int show_setting) {
 
 			GFX_blitAsset(ASSET_BLUETOOTH, NULL, dst, &(SDL_Rect){x,y});
 			ox += bw;
-		}
-		if (show_wifi) {
-			SDL_Rect rect = asset_rects[ASSET_WIFI];
-			int x = ox;
-			int y = oy;
-			x += (SCALE1(PILL_SIZE) - rect.w) / 2;
-			y += (SCALE1(PILL_SIZE) - rect.h) / 2;
-			
-			GFX_blitAsset(ASSET_WIFI, NULL, dst, &(SDL_Rect){x,y});
-			ox += ww;
 		}
 		GFX_blitBattery(dst, &(SDL_Rect){ox,oy});
 	}

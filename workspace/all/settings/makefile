@@ -30,8 +30,8 @@ PRODUCTS = build/$(PLATFORM)/wifi.elf build/$(PLATFORM)/bt.elf build/$(PLATFORM)
 
 all: $(PREFIX)/include/msettings.h
 	mkdir -p build/$(PLATFORM)
-	$(CC) wifi.c $(COMMON) ../common/generic_wifi.c -o build/$(PLATFORM)/wifi.elf $(CFLAGS) $(LDFLAGS)
-	$(CC) bt.c $(COMMON) ../common/generic_bt.c -o build/$(PLATFORM)/bt.elf $(CFLAGS) $(LDFLAGS)
+	$(CC) wifi.c $(COMMON) ../common/wifi.c -o build/$(PLATFORM)/wifi.elf $(CFLAGS) $(LDFLAGS)
+	$(CC) bt.c $(COMMON) ../common/bt.c -o build/$(PLATFORM)/bt.elf $(CFLAGS) $(LDFLAGS)
 	$(CC) power.c $(COMMON) -o build/$(PLATFORM)/power.elf $(CFLAGS) $(LDFLAGS)
 
 clean:

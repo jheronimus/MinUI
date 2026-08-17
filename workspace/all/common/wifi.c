@@ -1,5 +1,5 @@
-// Generic Wi-Fi backend for Minime (iwd/iwctl).
-// Tool dependencies: iwctl (from iwd), iproute2.
+// MinUI Wi-Fi backend for Minime (iwd).
+// Tool dependencies: iwctl / iwd D-Bus.
 // Config: /mnt/sdcard/.minime/config/wifi.cfg (SSID=/Passphrase=), seeded
 // into iwd profiles by the firmware `wifi` service (see boards/common).
 // Enabled gate: /mnt/sdcard/.minime/config/wifi/enabled.
@@ -18,11 +18,10 @@
 #define WIFI_ENABLE_FILE "/mnt/sdcard/.minime/config/wifi/enabled"
 #define WIFI_SERVICE "/etc/init.d/wifi"
 
-#define WIFI_SCAN_CMD "iwctl station %s scan >/dev/null 2>&1"
+#define WIFI_SCAN_CMD "iwctl station %s scan >/dev/null 2>&1 &"
 #define WIFI_GET_NETWORKS_CMD "iwctl station %s get-networks 2>/dev/null"
-#define WIFI_STATION_SHOW_CMD "iwctl station %s show 2>/dev/null"
-#define WIFI_CONNECT_CMD "iwctl station %s connect \"%s\" >/dev/null 2>&1"
-#define WIFI_DISCONNECT_CMD "iwctl station %s disconnect >/dev/null 2>&1"
+#define WIFI_CONNECT_CMD "iwctl station %s connect \"%s\" >/dev/null 2>&1 &"
+#define WIFI_DISCONNECT_CMD "iwctl station %s disconnect >/dev/null 2>&1 &"
 
 static int wifi_enabled = 0;
 static WifiNetwork networks[WIFI_MAX_NETWORKS];
@@ -87,69 +86,12 @@ static int is_wifi_connected(void) {
 	return strncmp(carrier, "1", 1) == 0;
 }
 
-static void strip_ansi(char *s);
-
-static void get_connected_ssid(char *ssid_out, size_t max_len) {
-	char cmd[256];
-	char line[256];
-	FILE *f;
-
-	ssid_out[0] = '\0';
-	snprintf(cmd, sizeof(cmd), WIFI_STATION_SHOW_CMD, wifi_interface());
-	f = cmdOutput(cmd);
-	if (!f)
-		return;
-	while (fgets(line, sizeof(line), f)) {
-		strip_ansi(line);
-		if (strstr(line, "Connected network")) {
-			char *value = trimWhitespace(strstr(line, "Connected network") + strlen("Connected network"));
-
-			if (strcmp(value, "--") != 0)
-				strncpy(ssid_out, value, max_len);
-			break;
-		}
-	}
-	pclose(f);
-}
-
-static int is_ssid_known(const char *ssid) {
-	FILE *f = fopen(WIFI_CONFIG_PATH, "r");
-	char line[128];
-	int known = 0;
-
-	if (!f || !ssid)
-		return 0;
-	while (fgets(line, sizeof(line), f)) {
-		char *val;
-		char *start = trimWhitespace(line);
-
-		if (strncmp(start, "SSID=", 5) != 0)
-			continue;
-		val = trimWhitespace(start + 5);
-		if (val[0] == '"') {
-			size_t n = strlen(val);
-			if (n >= 2 && val[n - 1] == '"') {
-				val[n - 1] = '\0';
-				val++;
-			}
-		}
-		if (strcmp(val, ssid) == 0) {
-			known = 1;
-			break;
-		}
-	}
-	fclose(f);
-	return known;
-}
-
-// Strip ANSI escape sequences (iwctl colors the selected row and signal bars).
 static void strip_ansi(char *s) {
 	char *src = s;
 	char *dst = s;
 
 	while (*src) {
 		if (*src == 0x1b) {
-			// skip ESC [ ... letter
 			src++;
 			if (*src == '[') {
 				src++;
@@ -165,18 +107,63 @@ static void strip_ansi(char *s) {
 	*dst = '\0';
 }
 
-// Parse `iwctl station <if> get-networks` output. Rows are:
-//   [>] <name...> <security> <signal>
-// The name may contain spaces, so parse from the right: the last token is the
-// (unused) signal bars column, security is the second-to-last, everything
-// before security is the SSID. The selected row may have a leading ">" and
-// ANSI colors. Works on the raw line without destructive in-place edits.
+// Load all known SSIDs from wifi.cfg into a flat memory buffer in a single pass.
+#define MAX_KNOWN_SSIDS 32
+static char known_ssids[MAX_KNOWN_SSIDS][WIFI_MAX_SSID];
+static int known_count = 0;
+
+static void load_known_ssids(void) {
+	FILE *f = fopen(WIFI_CONFIG_PATH, "r");
+	char line[128];
+
+	known_count = 0;
+	if (!f)
+		return;
+
+	while (fgets(line, sizeof(line), f) && known_count < MAX_KNOWN_SSIDS) {
+		char *start = trimWhitespace(line);
+		char *val;
+
+		if (strncmp(start, "SSID=", 5) != 0)
+			continue;
+		val = trimWhitespace(start + 5);
+		if (val[0] == '"') {
+			size_t n = strlen(val);
+			if (n >= 2 && val[n - 1] == '"') {
+				val[n - 1] = '\0';
+				val++;
+			}
+		}
+		if (val[0]) {
+			strncpy(known_ssids[known_count], val, sizeof(known_ssids[known_count]) - 1);
+			known_ssids[known_count][sizeof(known_ssids[known_count]) - 1] = '\0';
+			known_count++;
+		}
+	}
+	fclose(f);
+}
+
+static int is_ssid_known_cached(const char *ssid) {
+	int i;
+	if (!ssid || !ssid[0])
+		return 0;
+	for (i = 0; i < known_count; i++) {
+		if (strcmp(known_ssids[i], ssid) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+// Parse `iwctl station <if> get-networks` output in a single pass.
 static void parse_scan_results(void) {
 	char cmd[256];
 	char line[256];
 	FILE *f;
+	int connected_link = is_wifi_connected();
 
 	network_count = 0;
+	load_known_ssids();
+
 	snprintf(cmd, sizeof(cmd), WIFI_GET_NETWORKS_CMD, wifi_interface());
 	f = cmdOutput(cmd);
 	if (!f)
@@ -190,6 +177,7 @@ static void parse_scan_results(void) {
 		char *end;
 		char *p;
 		size_t len;
+		int is_active = 0;
 		WifiNetwork *net;
 
 		strip_ansi(line);
@@ -203,7 +191,11 @@ static void parse_scan_results(void) {
 		if (!len)
 			continue;
 
-		// skip the trailing signal column (bars, not meaningful in this iwd)
+		// Check for active/connected marker (leading ">" or "*")
+		if (line[0] == '>' || line[0] == '*')
+			is_active = 1;
+
+		// skip the trailing signal column
 		end = line + len;
 		sig = end;
 		while (sig > line && sig[-1] != ' ' && sig[-1] != '\t')
@@ -222,12 +214,13 @@ static void parse_scan_results(void) {
 		if (p == sec)
 			continue;
 		sec = p;
+
 		// name = everything before security, trimmed and without ">"
 		name_end = sec;
 		while (name_end > line && (name_end[-1] == ' ' || name_end[-1] == '\t'))
 			name_end--;
 		name_start = line;
-		while (*name_start == ' ' || *name_start == '\t' || *name_start == '>')
+		while (*name_start == ' ' || *name_start == '\t' || *name_start == '>' || *name_start == '*')
 			name_start++;
 
 		if (name_end <= name_start)
@@ -243,27 +236,11 @@ static void parse_scan_results(void) {
 
 		net->security = (strstr(sec, "open") || !strcasecmp(sec, "open")) ? WIFI_SECURITY_OPEN
 		                                                                  : WIFI_SECURITY_WPA;
-		net->known = is_ssid_known(net->ssid);
-		net->connected = 0;
+		net->known = is_ssid_known_cached(net->ssid);
+		net->connected = is_active && connected_link;
 		network_count++;
 	}
 	pclose(f);
-
-	// mark the connected network
-	{
-		char connected[WIFI_MAX_SSID];
-		int i;
-
-		get_connected_ssid(connected, sizeof(connected));
-		if (connected[0]) {
-			for (i = 0; i < network_count; i++) {
-				if (strcmp(networks[i].ssid, connected) == 0) {
-					networks[i].connected = 1;
-					break;
-				}
-			}
-		}
-	}
 }
 
 ///////////////////////////////////////
@@ -275,8 +252,6 @@ int WIFI_init(void) {
 }
 
 int WIFI_enabled(void) {
-	// always re-check live state: iwd may bring the interface up/down
-	// independently of this process (eg. auto-connect at boot, another UI)
 	return is_wifi_admin_up() || is_wifi_connected();
 }
 
@@ -285,7 +260,6 @@ int WIFI_setEnabled(int enabled) {
 	char cmd[256];
 
 	if (enabled) {
-		// touch the gate so wifi persists across reboots
 		snprintf(cmd, sizeof(cmd), "mkdir -p /mnt/sdcard/.minime/config/wifi");
 		(void)system(cmd);
 		f = fopen(WIFI_ENABLE_FILE, "w");
@@ -293,8 +267,6 @@ int WIFI_setEnabled(int enabled) {
 			fputs("1\n", f);
 			fclose(f);
 		}
-		// start the service detached so the menu never blocks on the (up to
-		// 40s) connection wait; success is a running iwd, not instant connect
 		snprintf(cmd, sizeof(cmd), WIFI_SERVICE " start >/dev/null 2>&1 &");
 		(void)system(cmd);
 		wifi_enabled = 1;
@@ -307,10 +279,6 @@ int WIFI_setEnabled(int enabled) {
 	return 0;
 }
 
-// iwd scans are asynchronous: `iwctl station scan` returns immediately and
-// results populate over the next second or two. Fire the scan and return;
-// WIFI_getNetworks() reads results on a later poll. Never block here — the
-// caller runs inside the menu loop.
 int WIFI_scan(void) {
 	char cmd[256];
 
@@ -339,17 +307,16 @@ int WIFI_connect(const char *ssid, const char *passphrase) {
 	if (!ssid)
 		return -1;
 
-	// persist to wifi.cfg so the network is known across reboots (the wifi
-	// service seeds iwd profiles from this file)
-	f = fopen(WIFI_CONFIG_PATH, "a");
-	if (f) {
-		// avoid duplicates
-		if (!is_ssid_known(ssid)) {
+	// persist to wifi.cfg
+	load_known_ssids();
+	if (!is_ssid_known_cached(ssid)) {
+		f = fopen(WIFI_CONFIG_PATH, "a");
+		if (f) {
 			fprintf(f, "\nSSID=%s\nPassphrase=%s\n", ssid, passphrase ? passphrase : "");
+			fclose(f);
 		}
-		fclose(f);
 	}
-	snprintf(cmd, sizeof(cmd), "rc-service wifi reload >/dev/null 2>&1");
+	snprintf(cmd, sizeof(cmd), "rc-service wifi reload >/dev/null 2>&1 &");
 	(void)system(cmd);
 
 	snprintf(cmd, sizeof(cmd), WIFI_CONNECT_CMD, wifi_interface(), ssid);
@@ -426,9 +393,9 @@ int WIFI_forget(const char *ssid) {
 		rename(WIFI_CONFIG_PATH ".tmp", WIFI_CONFIG_PATH);
 	}
 
-	snprintf(cmd, sizeof(cmd), "iwctl known-networks forget \"%s\" >/dev/null 2>&1", ssid);
+	snprintf(cmd, sizeof(cmd), "iwctl known-networks forget \"%s\" >/dev/null 2>&1 &", ssid);
 	(void)system(cmd);
-	snprintf(cmd, sizeof(cmd), "rc-service wifi reload >/dev/null 2>&1");
+	snprintf(cmd, sizeof(cmd), "rc-service wifi reload >/dev/null 2>&1 &");
 	(void)system(cmd);
 	return 0;
 }

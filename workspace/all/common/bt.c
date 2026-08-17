@@ -1,0 +1,342 @@
+// MinUI Bluetooth backend for Minime (bluez/D-Bus).
+// Tool dependencies: dbus-send / bluetoothctl (from bluez).
+// Service: /etc/init.d/bluetooth, gated by
+// /mnt/sdcard/.minime/config/bluetooth/enabled (see boards/common).
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "traits.h"
+#include "wireless.h"
+#include "utils.h"
+
+#define BT_ENABLE_FILE "/mnt/sdcard/.minime/config/bluetooth/enabled"
+#define BT_SERVICE "/etc/init.d/bluetooth"
+#define AUDIO_HELPER "/usr/share/minime/scripts/audio.sh"
+
+static int bt_enabled = 0;
+static BtDevice devices[BT_MAX_DEVICES];
+static int device_count = 0;
+static int scanning = 0;
+
+#define BT_TIMEOUT "timeout 3 "
+#define BT_CMD_DBUS_OBJECTS "dbus-send --system --dest=org.bluez --print-reply / org.freedesktop.DBus.ObjectManager.GetManagedObjects 2>/dev/null"
+#define BT_CMD_POWER BT_TIMEOUT "bluetoothctl power %s >/dev/null 2>&1 &"
+#define BT_CMD_SCAN_ON BT_TIMEOUT "bluetoothctl scan on >/dev/null 2>&1 &"
+#define BT_CMD_PAIRABLE BT_TIMEOUT "bluetoothctl pairable on >/dev/null 2>&1 &"
+#define BT_CMD_CONNECT BT_TIMEOUT "bluetoothctl connect %s >/dev/null 2>&1 &"
+#define BT_CMD_DISCONNECT BT_TIMEOUT "bluetoothctl disconnect %s >/dev/null 2>&1 &"
+#define BT_CMD_PAIR BT_TIMEOUT "bluetoothctl pair %s >/dev/null 2>&1 &"
+#define BT_CMD_TRUST BT_TIMEOUT "bluetoothctl trust %s >/dev/null 2>&1 &"
+#define BT_CMD_REMOVE BT_TIMEOUT "bluetoothctl remove %s >/dev/null 2>&1 &"
+
+static void bt_restore_alsa(void) {
+	(void)system(AUDIO_HELPER " bt-off >/dev/null 2>&1 &");
+}
+
+static void bt_route_audio_alsa(const char *addr) {
+	char cmd[256];
+
+	if (!addr || !addr[0])
+		return;
+	snprintf(cmd, sizeof(cmd), AUDIO_HELPER " bt-on %s >/dev/null 2>&1 &", addr);
+	(void)system(cmd);
+}
+
+static int is_bt_interface_present(void) {
+	const MinimeTraits *traits = MINIME_traits();
+	char path[256];
+
+	if (!traits || !traits->bluetooth_interface[0] || strcmp(traits->bluetooth_interface, "na") == 0)
+		return 0;
+	snprintf(path, sizeof(path), "/sys/class/bluetooth/%s", traits->bluetooth_interface);
+	return access(path, F_OK) == 0;
+}
+
+static int is_bt_service_up(void) {
+	char line[32];
+	FILE *f;
+
+	if (!is_bt_interface_present())
+		return 0;
+	f = cmdOutput(BT_TIMEOUT "pgrep bluetoothd 2>/dev/null");
+	if (!f)
+		return 0;
+	if (!fgets(line, sizeof(line), f)) {
+		pclose(f);
+		return 0;
+	}
+	pclose(f);
+	return 1;
+}
+
+// Single-pass device parser using D-Bus ObjectManager output (zero per-device subprocesses).
+static void bt_refresh_devices(void) {
+	char line[256];
+	FILE *f;
+	BtDevice raw[BT_MAX_DEVICES];
+	int raw_count = 0;
+	int i;
+
+	char current_addr[BT_MAX_ADDR] = "";
+	char current_name[BT_MAX_NAME] = "";
+	char current_alias[BT_MAX_NAME] = "";
+	int current_paired = 0;
+	int current_connected = 0;
+	BtDeviceKind current_kind = BT_DEVICE_UNKNOWN;
+	int in_device = 0;
+
+	f = cmdOutput(BT_CMD_DBUS_OBJECTS);
+	if (!f)
+		return;
+
+	while (fgets(line, sizeof(line), f)) {
+		char *p;
+
+		if (strstr(line, "object path \"/org/bluez/hci0/dev_")) {
+			// Save previous device
+			if (in_device && current_addr[0] && raw_count < BT_MAX_DEVICES) {
+				memset(&raw[raw_count], 0, sizeof(BtDevice));
+				strncpy(raw[raw_count].addr, current_addr, sizeof(raw[raw_count].addr) - 1);
+				if (current_alias[0])
+					strncpy(raw[raw_count].name, current_alias, sizeof(raw[raw_count].name) - 1);
+				else if (current_name[0])
+					strncpy(raw[raw_count].name, current_name, sizeof(raw[raw_count].name) - 1);
+				else
+					strncpy(raw[raw_count].name, current_addr, sizeof(raw[raw_count].name) - 1);
+				raw[raw_count].paired = current_paired;
+				raw[raw_count].connected = current_connected;
+				raw[raw_count].kind = (current_kind != BT_DEVICE_UNKNOWN) ? current_kind : BT_DEVICE_AUDIO;
+				raw_count++;
+			}
+
+			// Start new device
+			in_device = 1;
+			current_addr[0] = '\0';
+			current_name[0] = '\0';
+			current_alias[0] = '\0';
+			current_paired = 0;
+			current_connected = 0;
+			current_kind = BT_DEVICE_UNKNOWN;
+			continue;
+		}
+
+		if (!in_device)
+			continue;
+
+		if ((p = strstr(line, "string \"Address\""))) {
+			if (fgets(line, sizeof(line), f)) {
+				char *val = strstr(line, "string \"");
+				if (val) {
+					val += 8;
+					char *end = strchr(val, '"');
+					if (end)
+						*end = '\0';
+					strncpy(current_addr, val, sizeof(current_addr) - 1);
+				}
+			}
+		} else if ((p = strstr(line, "string \"Alias\""))) {
+			if (fgets(line, sizeof(line), f)) {
+				char *val = strstr(line, "string \"");
+				if (val) {
+					val += 8;
+					char *end = strchr(val, '"');
+					if (end)
+						*end = '\0';
+					strncpy(current_alias, val, sizeof(current_alias) - 1);
+				}
+			}
+		} else if ((p = strstr(line, "string \"Name\""))) {
+			if (fgets(line, sizeof(line), f)) {
+				char *val = strstr(line, "string \"");
+				if (val) {
+					val += 8;
+					char *end = strchr(val, '"');
+					if (end)
+						*end = '\0';
+					strncpy(current_name, val, sizeof(current_name) - 1);
+				}
+			}
+		} else if ((p = strstr(line, "string \"Icon\""))) {
+			if (fgets(line, sizeof(line), f)) {
+				if (strstr(line, "audio") || strstr(line, "headphone") || strstr(line, "headset"))
+					current_kind = BT_DEVICE_AUDIO;
+				else if (strstr(line, "game") || strstr(line, "input"))
+					current_kind = BT_DEVICE_GAMEPAD;
+			}
+		} else if ((p = strstr(line, "string \"Class\""))) {
+			if (fgets(line, sizeof(line), f) && current_kind == BT_DEVICE_UNKNOWN) {
+				if (strstr(line, "Audio") || strstr(line, "Headphone") || strstr(line, "Headset"))
+					current_kind = BT_DEVICE_AUDIO;
+				else if (strstr(line, "Peripheral") || strstr(line, "Gamepad") || strstr(line, "Joystick"))
+					current_kind = BT_DEVICE_GAMEPAD;
+			}
+		} else if ((p = strstr(line, "string \"Paired\""))) {
+			if (fgets(line, sizeof(line), f)) {
+				if (strstr(line, "boolean true"))
+					current_paired = 1;
+			}
+		} else if ((p = strstr(line, "string \"Connected\""))) {
+			if (fgets(line, sizeof(line), f)) {
+				if (strstr(line, "boolean true"))
+					current_connected = 1;
+			}
+		}
+	}
+
+	// Flush trailing device
+	if (in_device && current_addr[0] && raw_count < BT_MAX_DEVICES) {
+		memset(&raw[raw_count], 0, sizeof(BtDevice));
+		strncpy(raw[raw_count].addr, current_addr, sizeof(raw[raw_count].addr) - 1);
+		if (current_alias[0])
+			strncpy(raw[raw_count].name, current_alias, sizeof(raw[raw_count].name) - 1);
+		else if (current_name[0])
+			strncpy(raw[raw_count].name, current_name, sizeof(raw[raw_count].name) - 1);
+		else
+			strncpy(raw[raw_count].name, current_addr, sizeof(raw[raw_count].name) - 1);
+		raw[raw_count].paired = current_paired;
+		raw[raw_count].connected = current_connected;
+		raw[raw_count].kind = (current_kind != BT_DEVICE_UNKNOWN) ? current_kind : BT_DEVICE_AUDIO;
+		raw_count++;
+	}
+
+	pclose(f);
+
+	// Sort: connected first, then paired, then discovered
+	device_count = 0;
+	for (i = 0; i < raw_count && device_count < BT_MAX_DEVICES; i++) {
+		if (raw[i].connected)
+			devices[device_count++] = raw[i];
+	}
+	for (i = 0; i < raw_count && device_count < BT_MAX_DEVICES; i++) {
+		if (raw[i].paired && !raw[i].connected)
+			devices[device_count++] = raw[i];
+	}
+	for (i = 0; i < raw_count && device_count < BT_MAX_DEVICES; i++) {
+		if (!raw[i].paired)
+			devices[device_count++] = raw[i];
+	}
+}
+
+///////////////////////////////////////
+
+int BT_init(void) {
+	bt_enabled = is_bt_service_up();
+	device_count = 0;
+	scanning = 0;
+	return 0;
+}
+
+int BT_quit(void) {
+	device_count = 0;
+	return 0;
+}
+
+int BT_enabled(void) {
+	return is_bt_service_up();
+}
+
+int BT_setEnabled(int enabled) {
+	FILE *f;
+	char cmd[256];
+
+	if (enabled) {
+		snprintf(cmd, sizeof(cmd), "mkdir -p /mnt/sdcard/.minime/config/bluetooth");
+		(void)system(cmd);
+		f = fopen(BT_ENABLE_FILE, "w");
+		if (f) {
+			fputs("1\n", f);
+			fclose(f);
+		}
+		snprintf(cmd, sizeof(cmd), BT_SERVICE " restart >/dev/null 2>&1 &");
+		(void)system(cmd);
+		bt_enabled = 1;
+	} else {
+		unlink(BT_ENABLE_FILE);
+		snprintf(cmd, sizeof(cmd), BT_SERVICE " stop >/dev/null 2>&1 &");
+		(void)system(cmd);
+		bt_restore_alsa();
+		bt_enabled = 0;
+	}
+	return 0;
+}
+
+int BT_scan(void) {
+	if (!BT_enabled())
+		return -1;
+	scanning = 1;
+	(void)system(BT_CMD_POWER " on");
+	(void)system(BT_CMD_SCAN_ON);
+	(void)system(BT_CMD_PAIRABLE);
+	scanning = 0;
+	return 0;
+}
+
+int BT_getDevices(BtDevice *out, int max) {
+	int i;
+
+	if (!out)
+		return 0;
+	bt_refresh_devices();
+	for (i = 0; i < device_count && i < max; i++)
+		out[i] = devices[i];
+	return device_count < max ? device_count : max;
+}
+
+int BT_toggleDevice(const char *addr) {
+	char cmd[256];
+	int i;
+	BtDeviceKind kind = BT_DEVICE_AUDIO;
+	int is_connected = 0;
+
+	if (!addr)
+		return -1;
+
+	for (i = 0; i < device_count; i++) {
+		if (strcmp(devices[i].addr, addr) == 0) {
+			kind = devices[i].kind;
+			is_connected = devices[i].connected;
+			break;
+		}
+	}
+
+	if (is_connected) {
+		snprintf(cmd, sizeof(cmd), BT_CMD_DISCONNECT, addr);
+		(void)system(cmd);
+		if (kind == BT_DEVICE_AUDIO)
+			bt_restore_alsa();
+		return 0;
+	}
+
+	// pair, trust, connect
+	snprintf(cmd, sizeof(cmd), BT_CMD_PAIR, addr);
+	(void)system(cmd);
+	snprintf(cmd, sizeof(cmd), BT_CMD_TRUST, addr);
+	(void)system(cmd);
+	snprintf(cmd, sizeof(cmd), BT_CMD_CONNECT, addr);
+	(void)system(cmd);
+
+	if (kind == BT_DEVICE_AUDIO)
+		bt_route_audio_alsa(addr);
+
+	return 0;
+}
+
+int BT_forgetDevice(const char *addr) {
+	char cmd[256];
+
+	if (!addr)
+		return -1;
+	snprintf(cmd, sizeof(cmd), BT_CMD_DISCONNECT, addr);
+	(void)system(cmd);
+	snprintf(cmd, sizeof(cmd), BT_CMD_REMOVE, addr);
+	(void)system(cmd);
+	bt_restore_alsa();
+	return 0;
+}
+
+int BT_isBusy(void) {
+	return scanning;
+}
