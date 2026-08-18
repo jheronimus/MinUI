@@ -70,6 +70,7 @@ typedef struct MinimeTraits {
 
     // [input]
     char input_gamepad[MINIME_TRAIT_NAME_MAX];
+    char input_stick[MINIME_TRAIT_NAME_MAX];
     char input_power[MINIME_TRAIT_NAME_MAX];
     char input_volume[MINIME_TRAIT_NAME_MAX];
     char input_menu[MINIME_TRAIT_NAME_MAX];

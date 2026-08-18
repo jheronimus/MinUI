@@ -126,13 +126,14 @@ static void load_traits(void) {
 #define RAW_HATY 17
 #define RAW_HATX 16
 
-#define INPUT_COUNT 4
+#define INPUT_COUNT 5
 static int inputs[INPUT_COUNT];
 static uint32_t local_pad_pressed = 0;
 
 #define kRawIndex 1
 #define kVolumeIndex 2
 #define kMenuIndex 3
+#define kStickIndex 4
 static void drainInputFd(int input);
 static void drainAllInputs(void);
 
@@ -214,6 +215,7 @@ void PLAT_initInput(void) {
     // device; opening it lets the launcher see the menu (in-game menu, the
     // version OSD, and the brightness OSD for the menu+volume shortcut).
     inputs[kMenuIndex] = MINIME_inputOpenByName(traits->input_menu);
+    inputs[kStickIndex] = MINIME_inputOpenByName(traits->input_stick);
     local_pad_pressed = 0;
     drainAllInputs();
 }
@@ -320,6 +322,11 @@ void PLAT_pollInput(void) {
                 } else if (code == k_select) {
                     btn = BTN_SELECT;
                     id = BTN_ID_SELECT;
+                    if (k_menu < 0) {
+                        // On devices without a dedicated F/Menu button, SELECT doubles as MENU
+                        // modifier
+                        updateButtonState(source_pressed, BTN_MENU, pressed, BTN_ID_MENU, tick);
+                    }
                 } else if (code == k_menu) {
                     btn = BTN_MENU;
                     id = BTN_ID_MENU;

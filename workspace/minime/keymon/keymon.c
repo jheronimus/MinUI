@@ -17,7 +17,7 @@
 #define PRESSED 1
 #define REPEAT 2
 
-static int input_fds[4] = {0};
+static int input_fds[6] = {0};
 static int input_count = 0;
 
 static uint32_t now_ms(void) {
@@ -60,6 +60,7 @@ int main(int argc, char *argv[]) {
     input_count =
         MINIME_inputOpenShortcutDevices(input_fds, sizeof(input_fds) / sizeof(input_fds[0]));
 
+    int menu_code = (traits->key_menu >= 0 ? traits->key_menu : traits->key_select);
     uint32_t val;
     uint32_t menu_pressed = 0;
 
@@ -94,7 +95,7 @@ int main(int argc, char *argv[]) {
 
                 if ((ev.type != EV_KEY) || (val > REPEAT))
                     continue;
-                if (ev.code == traits->key_menu) {
+                if (ev.code == menu_code) {
                     menu_pressed = val;
                 } else if (ev.code == traits->key_vol_up) {
                     up_pressed = up_just_pressed = val;

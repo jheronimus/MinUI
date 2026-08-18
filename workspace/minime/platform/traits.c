@@ -82,6 +82,7 @@ static const TraitField TRAIT_FIELDS[] = {
     STR_FIELD(audio_jack_device_name),
     INT_FIELD(audio_mic),
     KEYED_STR("input_gamepad_device_name", input_gamepad),
+    KEYED_STR("input_stick_device_name", input_stick),
     KEYED_STR("input_power_device_name", input_power),
     KEYED_STR("input_volume_device_name", input_volume),
     KEYED_STR("input_menu_device_name", input_menu),
@@ -411,10 +412,8 @@ int MINIME_inputOpenShortcutDevices(int *fds, size_t max_fds) {
     // element here — sizeof keeps the loop in sync (no separate count to
     // forget to bump). Empty/unset names are skipped by MINIME_inputOpenByName.
     const char *names[] = {
-        traits->input_gamepad,
-        traits->input_power,
-        traits->input_volume,
-        traits->input_menu,
+        traits->input_gamepad, traits->input_stick, traits->input_power,
+        traits->input_volume,  traits->input_menu,
     };
     int count = 0;
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]) && (size_t)count < max_fds; i++) {
