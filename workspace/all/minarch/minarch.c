@@ -13,8 +13,8 @@
 #include <unistd.h>
 #include <zlib.h>
 
-#include "api.h"
 #include "defines.h"
+#include "api.h"
 #include "libretro.h"
 #include "menu.h"
 #include "scaler.h"
