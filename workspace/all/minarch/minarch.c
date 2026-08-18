@@ -885,7 +885,6 @@ static struct Config {
 	char* system_cfg; // system.cfg based on system limitations
 	char* default_cfg; // pak.cfg based on platform limitations
 	char* user_cfg; // minarch.cfg or game.cfg based on user preference
-	char* device_tag;
 	OptionList frontend;
 	OptionList core;
 	ButtonMapping* controls;
@@ -1181,10 +1180,8 @@ enum {
 	CONFIG_WRITE_GAME,
 };
 static void Config_getPath(char* filename, int override) {
-	char device_tag[64] = {0};
-	if (config.device_tag) sprintf(device_tag,"-%s",config.device_tag);
-	if (override) sprintf(filename, "%s/%s%s.cfg", core.config_dir, game.name, device_tag);
-	else sprintf(filename, "%s/minarch%s.cfg", core.config_dir, device_tag);
+	if (override) sprintf(filename, "%s/%s.cfg", core.config_dir, game.name);
+	else sprintf(filename, "%s/minarch.cfg", core.config_dir);
 	LOG_info("Config_getPath %s\n", filename);
 }
 static void Config_init(void) {
@@ -1348,9 +1345,6 @@ static void Config_readControlsString(char* cfg) {
 static void Config_load(void) {
 	LOG_info("Config_load\n");
 	
-	config.device_tag = getenv("DEVICE");
-	LOG_info("config.device_tag %s\n", config.device_tag);
-	
 	// update for crop overscan support
 	Option* scaling_option = &config.frontend.options[FE_OPT_SCALING];
 	scaling_option->desc = getScreenScalingDesc();
@@ -1361,14 +1355,7 @@ static void Config_load(void) {
 	
 	char* system_path = SYSTEM_PATH "/system.cfg";
 	
-	char device_system_path[MAX_PATH] = {0};
-	if (config.device_tag) sprintf(device_system_path, SYSTEM_PATH "/system-%s.cfg", config.device_tag);
-	
-	if (config.device_tag && exists(device_system_path)) {
-		LOG_info("usng device_system_path: %s\n", device_system_path);
-		config.system_cfg = allocFile(device_system_path);
-	}
-	else if (exists(system_path)) config.system_cfg = allocFile(system_path);
+	if (exists(system_path)) config.system_cfg = allocFile(system_path);
 	else config.system_cfg = NULL;
 	
 	// LOG_info("config.system_cfg: %s\n", config.system_cfg);
@@ -1377,21 +1364,8 @@ static void Config_load(void) {
 	getEmuPath((char *)core.tag, default_path);
 	char* tmp = strrchr(default_path, '/');
 	strcpy(tmp,"/default.cfg");
-
-	char device_default_path[MAX_PATH] = {0};
-	if (config.device_tag) {
-		getEmuPath((char *)core.tag, device_default_path);
-		tmp = strrchr(device_default_path, '/');
-		char filename[64];
-		sprintf(filename,"/default-%s.cfg", config.device_tag);
-		strcpy(tmp,filename);
-	}
 	
-	if (config.device_tag && exists(device_default_path)) {
-		LOG_info("usng device_default_path: %s\n", device_default_path);
-		config.default_cfg = allocFile(device_default_path);
-	}
-	else if (exists(default_path)) config.default_cfg = allocFile(default_path);
+	if (exists(default_path)) config.default_cfg = allocFile(default_path);
 	else config.default_cfg = NULL;
 	
 	// LOG_info("config.default_cfg: %s\n", config.default_cfg);
@@ -1470,14 +1444,12 @@ static void Config_write(int override) {
 static void Config_restore(void) {
 	char path[MAX_PATH];
 	if (config.loaded==CONFIG_GAME) {
-		if (config.device_tag) sprintf(path, "%s/%s-%s.cfg", core.config_dir, game.name, config.device_tag);
-		else sprintf(path, "%s/%s.cfg", core.config_dir, game.name);
+		sprintf(path, "%s/%s.cfg", core.config_dir, game.name);
 		unlink(path);
 		LOG_info("deleted game config: %s\n", path);
 	}
 	else if (config.loaded==CONFIG_CONSOLE) {
-		if (config.device_tag) sprintf(path, "%s/minarch-%s.cfg", core.config_dir, config.device_tag);
-		else sprintf(path, "%s/minarch.cfg", core.config_dir);
+		sprintf(path, "%s/minarch.cfg", core.config_dir);
 		unlink(path);
 		LOG_info("deleted console config: %s\n", path);
 	}

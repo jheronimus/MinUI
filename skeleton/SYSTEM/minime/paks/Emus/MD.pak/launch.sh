@@ -1,6 +1,6 @@
 #!/bin/sh
 
-EMU_EXE=picodrive
+EMU_EXE=genesis_plus_gx
 
 ###############################
 
