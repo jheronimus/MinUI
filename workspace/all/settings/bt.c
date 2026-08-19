@@ -65,7 +65,7 @@ static void rebuild(void) {
 			if (devices[i].connected) {
 				MenuItem* item = &items[count++];
 				item->name = devices[i].name[0] ? devices[i].name : devices[i].addr;
-				item->desc = "Connected. Press A to disconnect.";
+				item->desc = "Connected. Press A to disconnect, X to forget.";
 				set_badge(item, &devices[i]);
 			}
 		}
@@ -73,7 +73,7 @@ static void rebuild(void) {
 			if (devices[i].paired && !devices[i].connected) {
 				MenuItem* item = &items[count++];
 				item->name = devices[i].name[0] ? devices[i].name : devices[i].addr;
-				item->desc = "Paired. Press A to connect.";
+				item->desc = "Paired. Press A to connect, X to forget.";
 				set_badge(item, &devices[i]);
 			}
 		}

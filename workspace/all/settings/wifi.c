@@ -58,7 +58,7 @@ static void rebuild(void) {
 			if (networks[i].connected) {
 				MenuItem* item = &items[count++];
 				item->name = networks[i].ssid;
-				item->desc = "Connected. Press A to disconnect.";
+				item->desc = "Connected. Press A to disconnect, X to forget.";
 				set_badge(item, &networks[i]);
 			}
 		}
@@ -66,7 +66,7 @@ static void rebuild(void) {
 			if (!networks[i].connected && networks[i].known) {
 				MenuItem* item = &items[count++];
 				item->name = networks[i].ssid;
-				item->desc = "Known network. Press A to connect.";
+				item->desc = "Known network. Press A to connect, X to forget.";
 				set_badge(item, &networks[i]);
 			}
 		}
