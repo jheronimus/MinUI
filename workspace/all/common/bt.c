@@ -193,6 +193,14 @@ static void bt_refresh_devices(void) {
 
 ///////////////////////////////////////
 
+static void bt_start_scan_session(void) {
+	(void)system("pgrep -f 'bluetoothctl' >/dev/null 2>&1 || ( (echo scan on; while true; do sleep 3600; done) | bluetoothctl >/dev/null 2>&1 & )");
+}
+
+static void bt_stop_scan_session(void) {
+	(void)system("pkill -f 'bluetoothctl' 2>/dev/null");
+}
+
 int BT_init(void) {
 	bt_enabled = is_bt_service_up();
 	device_count = 0;
@@ -200,14 +208,14 @@ int BT_init(void) {
 	if (bt_enabled) {
 		(void)system("bluetoothctl power on >/dev/null 2>&1");
 		(void)system("bluetoothctl pairable on >/dev/null 2>&1");
-		(void)system("pkill -f 'bluetoothctl.*scan' 2>/dev/null; bluetoothctl --timeout 60 scan on >/dev/null 2>&1 &");
+		bt_start_scan_session();
 	}
 	return 0;
 }
 
 int BT_quit(void) {
 	if (bt_enabled) {
-		(void)system("pkill -f 'bluetoothctl.*scan' 2>/dev/null; bluetoothctl scan off >/dev/null 2>&1 &");
+		bt_stop_scan_session();
 	}
 	device_count = 0;
 	return 0;
@@ -234,9 +242,9 @@ int BT_setEnabled(int enabled) {
 		bt_enabled = 1;
 		(void)system("bluetoothctl power on >/dev/null 2>&1");
 		(void)system("bluetoothctl pairable on >/dev/null 2>&1");
-		(void)system("pkill -f 'bluetoothctl.*scan' 2>/dev/null; bluetoothctl --timeout 60 scan on >/dev/null 2>&1 &");
+		bt_start_scan_session();
 	} else {
-		(void)system("pkill -f 'bluetoothctl.*scan' 2>/dev/null");
+		bt_stop_scan_session();
 		unlink(BT_ENABLE_FILE);
 		snprintf(cmd, sizeof(cmd), BT_SERVICE " stop >/dev/null 2>&1 &");
 		(void)system(cmd);
@@ -249,7 +257,7 @@ int BT_setEnabled(int enabled) {
 int BT_scan(void) {
 	if (!BT_enabled())
 		return -1;
-	(void)system("pkill -f 'bluetoothctl.*scan' 2>/dev/null; bluetoothctl --timeout 60 scan on >/dev/null 2>&1 &");
+	bt_start_scan_session();
 	return 0;
 }
 
