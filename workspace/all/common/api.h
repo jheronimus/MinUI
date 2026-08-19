@@ -98,6 +98,7 @@ enum {
 	
 	ASSET_COUNT,
 };
+extern SDL_Rect asset_rects[ASSET_COUNT];
 
 typedef struct GFX_Fonts {
 	TTF_Font* large; 	// menu
