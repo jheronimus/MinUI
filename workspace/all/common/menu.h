@@ -24,6 +24,9 @@ typedef int (*MenuList_callback_t)(MenuList* list, int i);
 typedef struct MenuItem {
 	char* name;
 	char* desc;
+	char* aux_label; // optional, eg. "UNPAIR" or "FORGET" (shown in X pill on left)
+	char* confirm_label; // optional, eg. "CONNECT", "DISCONNECT", "TOGGLE" (shown in A pill on right)
+	int icon; // optional ASSET_* icon (eg. ASSET_HEADPHONES, ASSET_GAMEPAD)
 	char** values;
 	char* key; // optional, used by options
 	int id; // optional, used by bindings

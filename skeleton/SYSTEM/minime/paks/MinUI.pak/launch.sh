@@ -14,6 +14,7 @@ export DATETIME_PATH="$SHARED_USERDATA_PATH/datetime.txt"
 
 export PATH=$SYSTEM_PATH/bin:$PATH
 export LD_LIBRARY_PATH=$SYSTEM_PATH/lib:$LD_LIBRARY_PATH
+export HOME=$SDCARD_PATH
 
 #######################################
 

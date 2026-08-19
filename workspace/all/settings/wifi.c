@@ -32,10 +32,12 @@ static int is_toggle_row(int i) {
 }
 
 static void set_badge(MenuItem* item, const WifiNetwork* net) {
-	char state[16];
-
-	strcpy(state, net->connected ? "Connected" : (net->known ? "Known" : (net->security == WIFI_SECURITY_OPEN ? "Open" : "Secure")));
-	snprintf(item->badge, sizeof(item->badge), "%s", state);
+	if (net->connected)
+		strcpy(item->badge, "connected");
+	else if (net->known)
+		strcpy(item->badge, "known");
+	else
+		item->badge[0] = '\0';
 }
 
 static void rebuild(void) {
@@ -47,7 +49,7 @@ static void rebuild(void) {
 	items = calloc(1 + WIFI_MAX_NETWORKS + 1, sizeof(MenuItem));
 
 	items[count].name = WIFI_enabled() ? "Disable Wi-Fi" : "Enable Wi-Fi";
-	items[count].desc = "Turn the Wi-Fi radio on or off.\nPress A to toggle.";
+	items[count].confirm_label = "TOGGLE";
 	count++;
 
 	if (WIFI_enabled()) {
@@ -58,7 +60,8 @@ static void rebuild(void) {
 			if (networks[i].connected) {
 				MenuItem* item = &items[count++];
 				item->name = networks[i].ssid;
-				item->desc = "Connected. Press A to disconnect, X to forget.";
+				item->confirm_label = "DISCONNECT";
+				item->aux_label = "FORGET";
 				set_badge(item, &networks[i]);
 			}
 		}
@@ -66,7 +69,8 @@ static void rebuild(void) {
 			if (!networks[i].connected && networks[i].known) {
 				MenuItem* item = &items[count++];
 				item->name = networks[i].ssid;
-				item->desc = "Known network. Press A to connect, X to forget.";
+				item->confirm_label = "CONNECT";
+				item->aux_label = "FORGET";
 				set_badge(item, &networks[i]);
 			}
 		}
@@ -74,7 +78,7 @@ static void rebuild(void) {
 			if (!networks[i].connected && !networks[i].known) {
 				MenuItem* item = &items[count++];
 				item->name = networks[i].ssid;
-				item->desc = "Press A to connect.";
+				item->confirm_label = "CONNECT";
 				set_badge(item, &networks[i]);
 			}
 		}
@@ -240,6 +244,12 @@ static int on_confirm(MenuList* list, int i) {
 	}
 
 	// open network
+	if (net->security == WIFI_SECURITY_OPEN) {
+		if (!Menu_message("This is an unprotected open network,\nare you sure you want to connect?", (char*[]){"B","CANCEL", "A","CONNECT", NULL})) {
+			rebuild();
+			return MENU_CALLBACK_NOP;
+		}
+	}
 	do_connect(net->ssid, net->security, NULL);
 	rebuild();
 	return MENU_CALLBACK_NOP;
@@ -274,7 +284,7 @@ int main(int argc, char* argv[]) {
 
 	menu_screen = screen;
 	menu.type = MENU_FIXED;
-	menu.desc = "Wi-Fi";
+	menu.desc = NULL;
 	menu.on_confirm = on_confirm;
 	menu.on_aux = on_aux; // X on a known network forgets it
 	menu.on_update = wifi_update;

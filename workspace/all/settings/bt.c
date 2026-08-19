@@ -24,25 +24,13 @@ static int is_toggle_row(int i) {
 	return i == 0;
 }
 
-static const char* kind_label(BtDeviceKind kind) {
-	switch (kind) {
-	case BT_DEVICE_AUDIO: return "audio";
-	case BT_DEVICE_GAMEPAD: return "gamepad";
-	default: return "device";
-	}
-}
-
 static void set_badge(MenuItem* item, const BtDevice* dev) {
-	char state[16];
-
 	if (dev->connected)
-		strcpy(state, "connected");
+		strcpy(item->badge, "connected");
 	else if (dev->paired)
-		strcpy(state, "paired");
+		strcpy(item->badge, "paired");
 	else
-		strcpy(state, "new");
-
-	snprintf(item->badge, sizeof(item->badge), "%s | %s", kind_label(dev->kind), state);
+		item->badge[0] = '\0';
 }
 
 static void rebuild(void) {
@@ -53,7 +41,7 @@ static void rebuild(void) {
 	items = calloc(1 + BT_MAX_DEVICES + 1, sizeof(MenuItem));
 
 	items[count].name = BT_enabled() ? "Disable Bluetooth" : "Enable Bluetooth";
-	items[count].desc = "Turn the Bluetooth radio on or off.\nPress A to toggle.";
+	items[count].confirm_label = "TOGGLE";
 	if (BT_isBusy()) {
 		items[count].name = BT_enabled() ? "Disabling Bluetooth" : "Enabling Bluetooth";
 	}
@@ -65,7 +53,9 @@ static void rebuild(void) {
 			if (devices[i].connected) {
 				MenuItem* item = &items[count++];
 				item->name = devices[i].name[0] ? devices[i].name : devices[i].addr;
-				item->desc = "Connected. Press A to disconnect, X to forget.";
+				item->confirm_label = "DISCONNECT";
+				item->aux_label = "UNPAIR";
+				item->icon = (devices[i].kind == BT_DEVICE_GAMEPAD) ? ASSET_GAMEPAD : ASSET_HEADPHONES;
 				set_badge(item, &devices[i]);
 			}
 		}
@@ -73,7 +63,9 @@ static void rebuild(void) {
 			if (devices[i].paired && !devices[i].connected) {
 				MenuItem* item = &items[count++];
 				item->name = devices[i].name[0] ? devices[i].name : devices[i].addr;
-				item->desc = "Paired. Press A to connect, X to forget.";
+				item->confirm_label = "CONNECT";
+				item->aux_label = "UNPAIR";
+				item->icon = (devices[i].kind == BT_DEVICE_GAMEPAD) ? ASSET_GAMEPAD : ASSET_HEADPHONES;
 				set_badge(item, &devices[i]);
 			}
 		}
@@ -81,7 +73,8 @@ static void rebuild(void) {
 			if (!devices[i].paired) {
 				MenuItem* item = &items[count++];
 				item->name = devices[i].name[0] ? devices[i].name : devices[i].addr;
-				item->desc = "Discovered. Press A to pair and connect.";
+				item->confirm_label = "CONNECT";
+				item->icon = (devices[i].kind == BT_DEVICE_GAMEPAD) ? ASSET_GAMEPAD : ASSET_HEADPHONES;
 				set_badge(item, &devices[i]);
 			}
 		}
@@ -207,7 +200,7 @@ int main(int argc, char* argv[]) {
 
 	menu_screen = screen;
 	menu.type = MENU_FIXED;
-	menu.desc = "Bluetooth";
+	menu.desc = NULL;
 	menu.on_confirm = on_confirm;
 	menu.on_aux = on_aux; // X on a paired device forgets it
 	menu.on_update = bt_update;

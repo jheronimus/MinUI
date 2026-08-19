@@ -26,11 +26,19 @@ char** menu_button_labels;
 int Menu_message(char* message, char** pairs) {
 	GFX_setMode(MODE_MAIN);
 	int dirty = 1;
+	int result = 0;
 	while (1) {
 		GFX_startFrame();
 		PAD_poll();
 
-		if (PAD_justPressed(BTN_A) || PAD_justPressed(BTN_B)) break;
+		if (PAD_justPressed(BTN_A)) {
+			result = 1;
+			break;
+		}
+		if (PAD_justPressed(BTN_B)) {
+			result = 0;
+			break;
+		}
 		
 		PWR_update(&dirty, NULL, menu_before_sleep, menu_after_sleep);
 		
@@ -46,7 +54,7 @@ int Menu_message(char* message, char** pairs) {
 		if (menu_hdmi_monitor) menu_hdmi_monitor();
 	}
 	GFX_setMode(MODE_MENU);
-	return MENU_CALLBACK_NOP; // TODO: this should probably be an arg
+	return result;
 }
 
 int Menu_options(MenuList* list) {
@@ -82,11 +90,10 @@ int Menu_options(MenuList* list) {
 			for (new_count=0; items[new_count].name; new_count++);
 			if (new_count != count) {
 				count = new_count;
+				visible_rows = MIN(count, max_visible_options);
 				if (selected >= count) selected = count ? count - 1 : 0;
-				if (end > count) end = count;
 				if (start > selected) start = selected;
-				if (end - start > visible_rows) end = start + visible_rows;
-				if (end > count) end = count;
+				end = MIN(count, start + visible_rows);
 			}
 		}
 
@@ -120,11 +127,10 @@ int Menu_options(MenuList* list) {
 				for (new_count=0; items[new_count].name; new_count++);
 				if (new_count != count) {
 					count = new_count;
+					visible_rows = MIN(count, max_visible_options);
 					if (selected >= count) selected = count ? count - 1 : 0;
-					if (end > count) end = count;
 					if (start > selected) start = selected;
-					if (end - start > visible_rows) end = start + visible_rows;
-					if (end > count) end = count;
+					end = MIN(count, start + visible_rows);
 				}
 			}
 			dirty = 1;
@@ -332,6 +338,10 @@ int Menu_options(MenuList* list) {
 				for (int i=start,j=0; i<end; i++,j++) {
 					MenuItem* item = &items[i];
 					SDL_Color text_color = COLOR_WHITE;
+					int icon_offset = 0;
+					if (item->icon > 0) {
+						icon_offset = asset_rects[item->icon].w + SCALE1(6);
+					}
 
 					if (j==selected_row) {
 						// gray pill
@@ -364,7 +374,7 @@ int Menu_options(MenuList* list) {
 						// white pill
 						int w = 0;
 						TTF_SizeUTF8(font.small, item->name, &w, NULL);
-						w += SCALE1(OPTION_PADDING*2);
+						w += SCALE1(OPTION_PADDING*2) + icon_offset;
 						GFX_blitPill(ASSET_BUTTON, menu_screen, &(SDL_Rect){
 							ox,
 							oy+SCALE1(j*BUTTON_SIZE),
@@ -375,9 +385,20 @@ int Menu_options(MenuList* list) {
 						
 						if (item->desc) desc = item->desc;
 					}
+					if (item->icon > 0) {
+						int icon_asset = (j == selected_row && item->icon == ASSET_HEADPHONES) ? ASSET_HEADPHONES_BLACK :
+						                 (j == selected_row && item->icon == ASSET_GAMEPAD) ? ASSET_GAMEPAD_BLACK :
+						                 item->icon;
+						SDL_Rect* rect = &asset_rects[icon_asset];
+						int icon_y = oy + SCALE1(j * BUTTON_SIZE) + (SCALE1(BUTTON_SIZE) - rect->h) / 2;
+						GFX_blitAsset(icon_asset, NULL, menu_screen, &(SDL_Rect){
+							ox + SCALE1(OPTION_PADDING),
+							icon_y
+						});
+					}
 					text = TTF_RenderUTF8_Blended(font.small, item->name, text_color);
 					SDL_BlitSurface(text, NULL, menu_screen, &(SDL_Rect){
-						ox+SCALE1(OPTION_PADDING),
+						ox+SCALE1(OPTION_PADDING) + icon_offset,
 						oy+SCALE1((j*BUTTON_SIZE)+1)
 					});
 					SDL_FreeSurface(text);
@@ -482,16 +503,28 @@ int Menu_options(MenuList* list) {
 				if (end<count) GFX_blitAsset(ASSET_SCROLL_DOWN, NULL, menu_screen, &(SDL_Rect){ox, menu_screen->h - SCALE1(PADDING + PILL_SIZE + BUTTON_SIZE) + oy});
 			}
 			
-			if (!desc && list->desc) desc = list->desc;
-			
-			if (desc) {
-				int w,h;
-				GFX_sizeText(font.tiny, desc, SCALE1(12), &w,&h);
-				GFX_blitText(font.tiny, desc, SCALE1(12), COLOR_WHITE, menu_screen, &(SDL_Rect){
-					(menu_screen->w - w) / 2,
-					menu_screen->h - SCALE1(PADDING) - h,
-					w,h
-				});
+			MenuItem* sel_item = (selected >= 0 && selected < count) ? &items[selected] : NULL;
+			if (sel_item && (sel_item->aux_label || sel_item->confirm_label)) {
+				if (sel_item->aux_label) {
+					GFX_blitButtonGroup((char*[]){ "X", sel_item->aux_label, NULL }, 0, menu_screen, 0);
+				}
+				if (sel_item->confirm_label) {
+					GFX_blitButtonGroup((char*[]){ "B", "BACK", "A", sel_item->confirm_label, NULL }, 1, menu_screen, 1);
+				} else {
+					GFX_blitButtonGroup((char*[]){ "B", "BACK", NULL }, 0, menu_screen, 1);
+				}
+			}
+			else {
+				if (!desc && list->desc) desc = list->desc;
+				if (desc) {
+					int w,h;
+					GFX_sizeText(font.tiny, desc, SCALE1(12), &w,&h);
+					GFX_blitText(font.tiny, desc, SCALE1(12), COLOR_WHITE, menu_screen, &(SDL_Rect){
+						(menu_screen->w - w) / 2,
+						menu_screen->h - SCALE1(PADDING) - h,
+						w,h
+					});
+				}
 			}
 			
 			GFX_flip(menu_screen);

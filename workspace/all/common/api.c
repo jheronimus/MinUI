@@ -256,6 +256,10 @@ SDL_Surface* GFX_init(int mode) {
 	asset_rects[ASSET_SCROLL_DOWN]		= (SDL_Rect){SCALE4(97,31,24, 6)};
 	asset_rects[ASSET_WIFI]				= (SDL_Rect){SCALE4(95,39,14,10)};
 	asset_rects[ASSET_BLUETOOTH]		= (SDL_Rect){SCALE4(111,38, 8,12)};
+	asset_rects[ASSET_HEADPHONES]		= (SDL_Rect){SCALE4(25,70,14,12)};
+	asset_rects[ASSET_HEADPHONES_BLACK]	= (SDL_Rect){SCALE4(25,84,14,12)};
+	asset_rects[ASSET_GAMEPAD]			= (SDL_Rect){SCALE4(45,70,14,10)};
+	asset_rects[ASSET_GAMEPAD_BLACK]	= (SDL_Rect){SCALE4(45,84,14,10)};
 	asset_rects[ASSET_HOLE]				= (SDL_Rect){SCALE4( 1,63,20,20)};
 	
 	char asset_path[MAX_PATH];

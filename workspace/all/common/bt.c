@@ -208,6 +208,7 @@ int BT_init(void) {
 	if (bt_enabled) {
 		(void)system("bluetoothctl power on >/dev/null 2>&1");
 		(void)system("bluetoothctl pairable on >/dev/null 2>&1");
+		(void)system("bluetoothctl system-alias minime >/dev/null 2>&1");
 		bt_start_scan_session();
 	}
 	return 0;
@@ -242,6 +243,7 @@ int BT_setEnabled(int enabled) {
 		bt_enabled = 1;
 		(void)system("bluetoothctl power on >/dev/null 2>&1");
 		(void)system("bluetoothctl pairable on >/dev/null 2>&1");
+		(void)system("bluetoothctl system-alias minime >/dev/null 2>&1");
 		bt_start_scan_session();
 	} else {
 		bt_stop_scan_session();
