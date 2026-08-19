@@ -66,15 +66,15 @@ static void bt_refresh_devices(void) {
 	while (fgets(line, sizeof(line), f)) {
 		char *p;
 
-		if (strstr(line, "object path \"/org/bluez/hci0/dev_")) {
+		if (strstr(line, "object path \"/org/bluez/") && strstr(line, "/dev_")) {
 			// Save previous device
 			if (in_device && current_addr[0] && raw_count < BT_MAX_DEVICES) {
 				memset(&raw[raw_count], 0, sizeof(BtDevice));
 				strncpy(raw[raw_count].addr, current_addr, sizeof(raw[raw_count].addr) - 1);
-				if (current_alias[0])
-					strncpy(raw[raw_count].name, current_alias, sizeof(raw[raw_count].name) - 1);
-				else if (current_name[0])
+				if (current_name[0])
 					strncpy(raw[raw_count].name, current_name, sizeof(raw[raw_count].name) - 1);
+				else if (current_alias[0])
+					strncpy(raw[raw_count].name, current_alias, sizeof(raw[raw_count].name) - 1);
 				else
 					strncpy(raw[raw_count].name, current_addr, sizeof(raw[raw_count].name) - 1);
 				raw[raw_count].paired = current_paired;
@@ -108,17 +108,6 @@ static void bt_refresh_devices(void) {
 					strncpy(current_addr, val, sizeof(current_addr) - 1);
 				}
 			}
-		} else if ((p = strstr(line, "string \"Alias\""))) {
-			if (fgets(line, sizeof(line), f)) {
-				char *val = strstr(line, "string \"");
-				if (val) {
-					val += 8;
-					char *end = strchr(val, '"');
-					if (end)
-						*end = '\0';
-					strncpy(current_alias, val, sizeof(current_alias) - 1);
-				}
-			}
 		} else if ((p = strstr(line, "string \"Name\""))) {
 			if (fgets(line, sizeof(line), f)) {
 				char *val = strstr(line, "string \"");
@@ -128,6 +117,17 @@ static void bt_refresh_devices(void) {
 					if (end)
 						*end = '\0';
 					strncpy(current_name, val, sizeof(current_name) - 1);
+				}
+			}
+		} else if ((p = strstr(line, "string \"Alias\""))) {
+			if (fgets(line, sizeof(line), f)) {
+				char *val = strstr(line, "string \"");
+				if (val) {
+					val += 8;
+					char *end = strchr(val, '"');
+					if (end)
+						*end = '\0';
+					strncpy(current_alias, val, sizeof(current_alias) - 1);
 				}
 			}
 		} else if ((p = strstr(line, "string \"Icon\""))) {
@@ -161,10 +161,10 @@ static void bt_refresh_devices(void) {
 	if (in_device && current_addr[0] && raw_count < BT_MAX_DEVICES) {
 		memset(&raw[raw_count], 0, sizeof(BtDevice));
 		strncpy(raw[raw_count].addr, current_addr, sizeof(raw[raw_count].addr) - 1);
-		if (current_alias[0])
-			strncpy(raw[raw_count].name, current_alias, sizeof(raw[raw_count].name) - 1);
-		else if (current_name[0])
+		if (current_name[0])
 			strncpy(raw[raw_count].name, current_name, sizeof(raw[raw_count].name) - 1);
+		else if (current_alias[0])
+			strncpy(raw[raw_count].name, current_alias, sizeof(raw[raw_count].name) - 1);
 		else
 			strncpy(raw[raw_count].name, current_addr, sizeof(raw[raw_count].name) - 1);
 		raw[raw_count].paired = current_paired;
@@ -198,15 +198,16 @@ int BT_init(void) {
 	device_count = 0;
 	scanning = 0;
 	if (bt_enabled) {
-		(void)system("bluetoothctl power on >/dev/null 2>&1 &");
-		(void)system("bluetoothctl scan on >/dev/null 2>&1 &");
+		(void)system("bluetoothctl power on >/dev/null 2>&1");
+		(void)system("bluetoothctl pairable on >/dev/null 2>&1");
+		(void)system("pkill -f 'bluetoothctl.*scan' 2>/dev/null; bluetoothctl --timeout 60 scan on >/dev/null 2>&1 &");
 	}
 	return 0;
 }
 
 int BT_quit(void) {
 	if (bt_enabled) {
-		(void)system("bluetoothctl scan off >/dev/null 2>&1 &");
+		(void)system("pkill -f 'bluetoothctl.*scan' 2>/dev/null; bluetoothctl scan off >/dev/null 2>&1 &");
 	}
 	device_count = 0;
 	return 0;
@@ -231,9 +232,11 @@ int BT_setEnabled(int enabled) {
 		snprintf(cmd, sizeof(cmd), BT_SERVICE " restart >/dev/null 2>&1 &");
 		(void)system(cmd);
 		bt_enabled = 1;
-		(void)system("bluetoothctl power on >/dev/null 2>&1 &");
-		(void)system("bluetoothctl scan on >/dev/null 2>&1 &");
+		(void)system("bluetoothctl power on >/dev/null 2>&1");
+		(void)system("bluetoothctl pairable on >/dev/null 2>&1");
+		(void)system("pkill -f 'bluetoothctl.*scan' 2>/dev/null; bluetoothctl --timeout 60 scan on >/dev/null 2>&1 &");
 	} else {
+		(void)system("pkill -f 'bluetoothctl.*scan' 2>/dev/null");
 		unlink(BT_ENABLE_FILE);
 		snprintf(cmd, sizeof(cmd), BT_SERVICE " stop >/dev/null 2>&1 &");
 		(void)system(cmd);
@@ -246,7 +249,7 @@ int BT_setEnabled(int enabled) {
 int BT_scan(void) {
 	if (!BT_enabled())
 		return -1;
-	(void)system("bluetoothctl scan on >/dev/null 2>&1 &");
+	(void)system("pkill -f 'bluetoothctl.*scan' 2>/dev/null; bluetoothctl --timeout 60 scan on >/dev/null 2>&1 &");
 	return 0;
 }
 
