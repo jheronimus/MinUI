@@ -353,11 +353,12 @@ int MINIME_inputOpenByNameOrPath(const char *name_or_path) {
 }
 
 void MINIME_audioSetJackPath(int jack) {
+    const MinimeTraits *traits = MINIME_traits();
     static int mux_card = -2; // -2 = not probed, -1 = no control
     char command[512];
     int card;
 
-    if (!MINIME_traitAvailable(MINIME_traits()->audio_mixer))
+    if (!traits || !MINIME_traitAvailable(traits->audio_mixer))
         return;
     if (mux_card == -2) {
         mux_card = -1;
