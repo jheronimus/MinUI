@@ -134,17 +134,24 @@ int Menu_options(MenuList* list) {
 
 		if (list->on_update) {
 			list->on_update(list);
-			// on_update may rebuild the list; re-sync our local pointers
+			// on_update may rebuild the list; re-sync our local pointers and selection
 			items = list->items;
 			{
 				int new_count;
 				for (new_count=0; items[new_count].name; new_count++);
-				if (new_count != count) {
+				if (new_count != count || list->selected != selected) {
 					count = new_count;
 					visible_rows = MIN(count, max_visible_options);
+					selected = list->selected;
 					if (selected >= count) selected = count ? count - 1 : 0;
-					if (start > selected) start = selected;
+					if (selected < 0) selected = 0;
+					if (selected < start) start = selected;
+					if (selected >= end) {
+						end = selected + 1;
+						start = end > visible_rows ? end - visible_rows : 0;
+					}
 					end = MIN(count, start + visible_rows);
+					list->selected = selected;
 				}
 			}
 			dirty = 1;

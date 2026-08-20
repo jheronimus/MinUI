@@ -48,35 +48,22 @@ static void rebuild(void) {
 	count++;
 
 	if (BT_enabled()) {
-		// connected first, then paired, then new
 		for (i = 0; i < device_count; i++) {
+			MenuItem* item = &items[count++];
+			item->name = devices[i].name[0] ? devices[i].name : devices[i].addr;
+			item->id = i;
 			if (devices[i].connected) {
-				MenuItem* item = &items[count++];
-				item->name = devices[i].name[0] ? devices[i].name : devices[i].addr;
 				item->confirm_label = "DISCONNECT";
 				item->aux_label = "UNPAIR";
-				item->icon = (devices[i].kind == BT_DEVICE_GAMEPAD) ? ASSET_GAMEPAD : ASSET_HEADPHONES;
-				set_badge(item, &devices[i]);
-			}
-		}
-		for (i = 0; i < device_count; i++) {
-			if (devices[i].paired && !devices[i].connected) {
-				MenuItem* item = &items[count++];
-				item->name = devices[i].name[0] ? devices[i].name : devices[i].addr;
+			} else if (devices[i].paired) {
 				item->confirm_label = "CONNECT";
 				item->aux_label = "UNPAIR";
-				item->icon = (devices[i].kind == BT_DEVICE_GAMEPAD) ? ASSET_GAMEPAD : ASSET_HEADPHONES;
-				set_badge(item, &devices[i]);
-			}
-		}
-		for (i = 0; i < device_count; i++) {
-			if (!devices[i].paired) {
-				MenuItem* item = &items[count++];
-				item->name = devices[i].name[0] ? devices[i].name : devices[i].addr;
+			} else {
 				item->confirm_label = "CONNECT";
-				item->icon = (devices[i].kind == BT_DEVICE_GAMEPAD) ? ASSET_GAMEPAD : ASSET_HEADPHONES;
-				set_badge(item, &devices[i]);
+				item->aux_label = NULL;
 			}
+			item->icon = (devices[i].kind == BT_DEVICE_GAMEPAD) ? ASSET_GAMEPAD : ASSET_HEADPHONES;
+			set_badge(item, &devices[i]);
 		}
 	}
 
@@ -96,10 +83,14 @@ static uint32_t scan_due_at = 0;
 static char tracking_addr[BT_MAX_ADDR] = "";
 
 static BtDevice* device_for_index(int i) {
-	int idx = i - 1;
-	if (idx < 0 || idx >= device_count)
+	if (!menu.items || i < 0)
 		return NULL;
-	return &devices[idx];
+	if (is_toggle_row(i))
+		return NULL;
+	int dev_idx = menu.items[i].id;
+	if (dev_idx < 0 || dev_idx >= device_count)
+		return NULL;
+	return &devices[dev_idx];
 }
 
 static void bt_update(MenuList* list) {

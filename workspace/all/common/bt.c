@@ -254,9 +254,9 @@ static FILE* scan_pipe = NULL;
 
 static void bt_start_scan_session(void) {
 	if (!scan_pipe) {
-		scan_pipe = popen("bluetoothctl >/dev/null 2>&1", "w");
+		scan_pipe = popen("bluetoothctl --agent=NoInputNoOutput >/dev/null 2>&1", "w");
 		if (scan_pipe) {
-			fputs("scan on\n", scan_pipe);
+			fputs("default-agent\nscan on\n", scan_pipe);
 			fflush(scan_pipe);
 		}
 	}
@@ -345,11 +345,9 @@ int BT_getDevices(BtDevice *out, int max) {
 }
 
 int BT_toggleDevice(const char *addr) {
-	char cmd[512];
 	int i;
 	BtDeviceKind kind = BT_DEVICE_AUDIO;
 	int is_connected = 0;
-	int is_paired = 0;
 
 	if (!addr || !addr[0])
 		return -1;
@@ -358,46 +356,51 @@ int BT_toggleDevice(const char *addr) {
 		if (strcmp(devices[i].addr, addr) == 0) {
 			kind = devices[i].kind;
 			is_connected = devices[i].connected;
-			is_paired = devices[i].paired;
 			break;
 		}
 	}
 
 	if (is_connected) {
-		snprintf(cmd, sizeof(cmd), "bluetoothctl disconnect %s >/dev/null 2>&1 &", addr);
-		(void)system(cmd);
+		if (scan_pipe) {
+			fprintf(scan_pipe, "disconnect %s\n", addr);
+			fflush(scan_pipe);
+		} else {
+			char cmd[256];
+			snprintf(cmd, sizeof(cmd), "bluetoothctl disconnect %s >/dev/null 2>&1 &", addr);
+			(void)system(cmd);
+		}
 		if (kind == BT_DEVICE_AUDIO)
 			bt_restore_alsa();
 		return 0;
 	}
 
-	if (is_paired) {
-		if (kind == BT_DEVICE_AUDIO) {
-			snprintf(cmd, sizeof(cmd), "bluetoothctl connect %s && " AUDIO_HELPER " bt-on %s >/dev/null 2>&1 &", addr, addr);
-		} else {
-			snprintf(cmd, sizeof(cmd), "bluetoothctl connect %s >/dev/null 2>&1 &", addr);
-		}
-		(void)system(cmd);
-		return 0;
-	}
-
-	// New unpaired device: pair -> trust -> connect -> route audio
-	if (kind == BT_DEVICE_AUDIO) {
-		snprintf(cmd, sizeof(cmd), "bluetoothctl pair %s && bluetoothctl trust %s && bluetoothctl connect %s && " AUDIO_HELPER " bt-on %s >/dev/null 2>&1 &", addr, addr, addr, addr);
+	if (scan_pipe) {
+		fprintf(scan_pipe, "trust %s\npair %s\nconnect %s\n", addr, addr, addr);
+		fflush(scan_pipe);
 	} else {
-		snprintf(cmd, sizeof(cmd), "bluetoothctl pair %s && bluetoothctl trust %s && bluetoothctl connect %s >/dev/null 2>&1 &", addr, addr, addr);
+		char cmd[512];
+		snprintf(cmd, sizeof(cmd), "bluetoothctl trust %s >/dev/null 2>&1; bluetoothctl pair %s >/dev/null 2>&1; bluetoothctl connect %s >/dev/null 2>&1 &", addr, addr, addr);
+		(void)system(cmd);
 	}
-	(void)system(cmd);
 	return 0;
 }
 
 int BT_forgetDevice(const char *addr) {
-	char cmd[256];
+	char sync_cmd[512];
 
 	if (!addr || !addr[0])
 		return -1;
-	snprintf(cmd, sizeof(cmd), "bluetoothctl disconnect %s; bluetoothctl remove %s >/dev/null 2>&1 &", addr, addr);
-	(void)system(cmd);
+
+	if (scan_pipe) {
+		fprintf(scan_pipe, "disconnect %s\nremove %s\n", addr, addr);
+		fflush(scan_pipe);
+	} else {
+		char cmd[256];
+		snprintf(cmd, sizeof(cmd), "bluetoothctl disconnect %s; bluetoothctl remove %s >/dev/null 2>&1 &", addr, addr);
+		(void)system(cmd);
+	}
+	snprintf(sync_cmd, sizeof(sync_cmd), "rm -rf /mnt/sdcard/.minime/config/bluetooth/storage/*/%s 2>/dev/null &", addr);
+	(void)system(sync_cmd);
 	bt_restore_alsa();
 	return 0;
 }
