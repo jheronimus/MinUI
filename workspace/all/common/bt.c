@@ -362,6 +362,7 @@ int BT_toggleDevice(const char *addr) {
 	int i;
 	BtDeviceKind kind = BT_DEVICE_AUDIO;
 	int is_connected = 0;
+	int is_paired = 0;
 
 	if (!addr || !addr[0])
 		return -1;
@@ -370,6 +371,7 @@ int BT_toggleDevice(const char *addr) {
 		if (strcmp(devices[i].addr, addr) == 0) {
 			kind = devices[i].kind;
 			is_connected = devices[i].connected;
+			is_paired = devices[i].paired;
 			break;
 		}
 	}
@@ -385,6 +387,18 @@ int BT_toggleDevice(const char *addr) {
 		}
 		if (kind == BT_DEVICE_AUDIO)
 			bt_restore_alsa();
+		return 0;
+	}
+
+	if (is_paired) {
+		if (scan_pipe) {
+			fprintf(scan_pipe, "connect %s\n", addr);
+			fflush(scan_pipe);
+		} else {
+			char cmd[512];
+			snprintf(cmd, sizeof(cmd), "bluetoothctl connect %s >/dev/null 2>&1 &", addr);
+			(void)system(cmd);
+		}
 		return 0;
 	}
 
