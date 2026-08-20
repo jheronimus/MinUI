@@ -224,6 +224,8 @@ extern LID_Context lid;
 
 void PLAT_initLid(void);
 int PLAT_lidChanged(int* state);
+int PLAT_is6Button(void);
+int PLAT_hasMenuButton(void);
 
 ///////////////////////////////
 

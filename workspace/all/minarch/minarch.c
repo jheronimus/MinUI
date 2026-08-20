@@ -825,8 +825,8 @@ static const char *device_button_names[LOCAL_BUTTON_COUNT] = {
 
 // NOTE: these must be in BTN_ID_ order also off by 1 because of NONE (which is
 // -1 in BTN_ID_ land) plain section indexes BTN_ID 0..LOCAL_BUTTON_COUNT-1, mod
-// section (MENU+*) starts at LOCAL_BUTTON_COUNT
-static char *button_labels[] = {
+// section (MENU+* or SELECT+*) starts at LOCAL_BUTTON_COUNT
+static char *button_labels_menu[] = {
     "NONE", // displayed by default
     "UP",        "DOWN",       "LEFT",    "RIGHT",      "A",
     "B",         "C",          "X",       "Y",          "Z",
@@ -837,6 +837,18 @@ static char *button_labels[] = {
     "MENU+L1",   "MENU+R1",    "MENU+L2", "MENU+R2",    "MENU+L3",
     "MENU+R3",   NULL,
 };
+static char *button_labels_select[] = {
+    "NONE", // displayed by default
+    "UP",        "DOWN",       "LEFT",    "RIGHT",      "A",
+    "B",         "C",          "X",       "Y",          "Z",
+    "START",     "SELECT",     "L1",      "R1",         "L2",
+    "R2",        "L3",         "R3",      "SELECT+UP",    "SELECT+DOWN",
+    "SELECT+LEFT", "SELECT+RIGHT", "SELECT+A",  "SELECT+B",     "SELECT+C",
+    "SELECT+X",    "SELECT+Y",     "SELECT+Z",  "SELECT+START", "SELECT+SELECT",
+    "SELECT+L1",   "SELECT+R1",    "SELECT+L2", "SELECT+R2",    "SELECT+L3",
+    "SELECT+R3",   NULL,
+};
+static char **button_labels = button_labels_menu;
 static char *overclock_labels[] = {
     "Powersave",
     "Normal",
@@ -1235,7 +1247,99 @@ static void Config_getPath(char *filename, int override) {
     sprintf(filename, "%s/minarch.cfg", core.config_dir);
   LOG_info("Config_getPath %s\n", filename);
 }
+static void applyArcDefaultControls(void) {
+  if (!PLAT_is6Button())
+    return;
+
+  const char *tag = (const char *)core.tag;
+
+  int is_md = exactMatch((char *)tag, "MD") || exactMatch((char *)tag, "GENESIS") ||
+              exactMatch((char *)tag, "SEGACD") || exactMatch((char *)tag, "32X") ||
+              exactMatch((char *)tag, "SAT") || exactMatch((char *)tag, "SATURN") ||
+              exactMatch((char *)tag, "ARCADE");
+
+  int is_pce = exactMatch((char *)tag, "PCE") || exactMatch((char *)tag, "PCECD") ||
+               exactMatch((char *)tag, "SGFX") || exactMatch((char *)tag, "TG16") ||
+               exactMatch((char *)tag, "TGCD");
+
+  int is_sms = exactMatch((char *)tag, "SMS") || exactMatch((char *)tag, "GG");
+
+  for (int i = 0; config.controls[i].name; i++) {
+    ButtonMapping *mapping = &config.controls[i];
+    const char *name = mapping->name;
+
+    if (is_md) {
+      if (exactMatch((char *)name, "A Button") || exactMatch((char *)name, "A"))
+        mapping->local = BTN_ID_A;
+      else if (exactMatch((char *)name, "B Button") || exactMatch((char *)name, "B"))
+        mapping->local = BTN_ID_B;
+      else if (exactMatch((char *)name, "C Button") || exactMatch((char *)name, "C"))
+        mapping->local = BTN_ID_C;
+      else if (exactMatch((char *)name, "X Button") || exactMatch((char *)name, "X"))
+        mapping->local = BTN_ID_X;
+      else if (exactMatch((char *)name, "Y Button") || exactMatch((char *)name, "Y"))
+        mapping->local = BTN_ID_Y;
+      else if (exactMatch((char *)name, "Z Button") || exactMatch((char *)name, "Z"))
+        mapping->local = BTN_ID_Z;
+      else if (exactMatch((char *)name, "Mode") || exactMatch((char *)name, "Select"))
+        mapping->local = BTN_ID_SELECT;
+      else if (exactMatch((char *)name, "Start"))
+        mapping->local = BTN_ID_START;
+      else if (exactMatch((char *)name, "L1 Button") || exactMatch((char *)name, "L1") || exactMatch((char *)name, "L"))
+        mapping->local = BTN_ID_L1;
+      else if (exactMatch((char *)name, "R1 Button") || exactMatch((char *)name, "R1") || exactMatch((char *)name, "R"))
+        mapping->local = BTN_ID_R1;
+    } else if (is_pce) {
+      if (exactMatch((char *)name, "I"))
+        mapping->local = BTN_ID_C;
+      else if (exactMatch((char *)name, "II"))
+        mapping->local = BTN_ID_B;
+      else if (exactMatch((char *)name, "III"))
+        mapping->local = BTN_ID_A;
+      else if (exactMatch((char *)name, "IV"))
+        mapping->local = BTN_ID_Z;
+      else if (exactMatch((char *)name, "V"))
+        mapping->local = BTN_ID_Y;
+      else if (exactMatch((char *)name, "VI"))
+        mapping->local = BTN_ID_X;
+      else if (exactMatch((char *)name, "Select"))
+        mapping->local = BTN_ID_SELECT;
+      else if (exactMatch((char *)name, "Run"))
+        mapping->local = BTN_ID_START;
+      else if (exactMatch((char *)name, "Mode"))
+        mapping->local = BTN_ID_L2;
+    } else if (is_sms) {
+      if (exactMatch((char *)name, "Button 1"))
+        mapping->local = BTN_ID_A;
+      else if (exactMatch((char *)name, "Button 2"))
+        mapping->local = BTN_ID_B;
+      else if (exactMatch((char *)name, "Pause") || exactMatch((char *)name, "Start"))
+        mapping->local = BTN_ID_START;
+    } else {
+      // 2-button & 4-button systems (SNES, PSX, GBA, GB, GBC, NES/FC, etc.)
+      if (exactMatch((char *)name, "A Button") || exactMatch((char *)name, "A") || exactMatch((char *)name, "Circle") || exactMatch((char *)name, "Circle Button"))
+        mapping->local = BTN_ID_B;
+      else if (exactMatch((char *)name, "B Button") || exactMatch((char *)name, "B") || exactMatch((char *)name, "Cross") || exactMatch((char *)name, "Cross Button"))
+        mapping->local = BTN_ID_A;
+      else if (exactMatch((char *)name, "X Button") || exactMatch((char *)name, "X") || exactMatch((char *)name, "Triangle") || exactMatch((char *)name, "Triangle Button"))
+        mapping->local = BTN_ID_Y;
+      else if (exactMatch((char *)name, "Y Button") || exactMatch((char *)name, "Y") || exactMatch((char *)name, "Square") || exactMatch((char *)name, "Square Button"))
+        mapping->local = BTN_ID_X;
+      else if (exactMatch((char *)name, "A Turbo"))
+        mapping->local = BTN_ID_Y;
+      else if (exactMatch((char *)name, "B Turbo"))
+        mapping->local = BTN_ID_X;
+      else if (exactMatch((char *)name, "L Button") || exactMatch((char *)name, "L") || exactMatch((char *)name, "L1 Button") || exactMatch((char *)name, "L1"))
+        mapping->local = BTN_ID_L1;
+      else if (exactMatch((char *)name, "R Button") || exactMatch((char *)name, "R") || exactMatch((char *)name, "R1 Button") || exactMatch((char *)name, "R1"))
+        mapping->local = BTN_ID_R1;
+    }
+  }
+}
+
 static void Config_init(void) {
+  button_labels = (PLAT_is6Button() || !PLAT_hasMenuButton()) ? button_labels_select : button_labels_menu;
+
   if (!config.default_cfg || config.initialized)
     return;
 
@@ -1352,6 +1456,8 @@ static void Config_readControlsString(char *cfg) {
   char key[256];
   char value[256];
   char *tmp;
+  char **alt_labels = (button_labels == button_labels_select) ? button_labels_menu : button_labels_select;
+
   for (int i = 0; config.controls[i].name; i++) {
     ButtonMapping *mapping = &config.controls[i];
     sprintf(key, "bind %s", mapping->name);
@@ -1367,6 +1473,14 @@ static void Config_readControlsString(char *cfg) {
       if (!strcmp(button_labels[j], value)) {
         id = j - 1;
         break;
+      }
+    }
+    if (id == -1 && alt_labels) {
+      for (int j = 0; alt_labels[j]; j++) {
+        if (!strcmp(alt_labels[j], value)) {
+          id = j - 1;
+          break;
+        }
       }
     }
     // LOG_info("\t%s (%i)\n", value, id);
@@ -1394,6 +1508,14 @@ static void Config_readControlsString(char *cfg) {
       if (!strcmp(button_labels[j], value)) {
         id = j - 1;
         break;
+      }
+    }
+    if (id == -1 && alt_labels) {
+      for (int j = 0; alt_labels[j]; j++) {
+        if (!strcmp(alt_labels[j], value)) {
+          id = j - 1;
+          break;
+        }
       }
     }
 
@@ -1474,6 +1596,9 @@ static void Config_readOptions(void) {
 }
 static void Config_readControls(void) {
   Config_readControlsString(config.default_cfg);
+  if (PLAT_is6Button()) {
+    applyArcDefaultControls();
+  }
   Config_readControlsString(config.user_cfg);
 }
 static void Config_write(int override) {
@@ -1888,11 +2013,13 @@ static void input_poll_callback(void) {
   int show_setting = 0;
   PWR_update(NULL, &show_setting, Menu_beforeSleep, Menu_afterSleep);
 
-  // I _think_ this can stay as is...
-  if (PAD_justPressed(BTN_MENU)) {
+  int mod_btn = (PLAT_is6Button() || !PLAT_hasMenuButton()) ? BTN_SELECT : BTN_MENU;
+  int has_menu_key = PLAT_hasMenuButton() && (mod_btn != BTN_MENU);
+
+  if (PAD_justPressed(mod_btn) || (has_menu_key && PAD_justPressed(BTN_MENU))) {
     ignore_menu = 0;
   }
-  if (PAD_isPressed(BTN_MENU) &&
+  if ((PAD_isPressed(mod_btn) || (has_menu_key && PAD_isPressed(BTN_MENU))) &&
       (PAD_isPressed(BTN_PLUS) || PAD_isPressed(BTN_MINUS))) {
     ignore_menu = 1;
   }
@@ -1920,7 +2047,7 @@ static void input_poll_callback(void) {
     int btn = 1 << mapping->local;
     if (btn == BTN_NONE)
       continue; // not bound
-    if (!mapping->mod || PAD_isPressed(BTN_MENU)) {
+    if (!mapping->mod || PAD_isPressed(mod_btn) || (has_menu_key && PAD_isPressed(BTN_MENU))) {
       if (i == SHORTCUT_TOGGLE_FF) {
         if (PAD_justPressed(btn)) {
           toggled_ff_on = setFastForward(!fast_forward);
@@ -2024,7 +2151,7 @@ static void input_poll_callback(void) {
     }
   }
 
-  if (!ignore_menu && PAD_justReleased(BTN_MENU)) {
+  if (!ignore_menu && (PAD_justReleased(mod_btn) || (has_menu_key && PAD_justReleased(BTN_MENU)))) {
     show_menu = 1;
 
     if (thread_video) {
@@ -2065,12 +2192,29 @@ static void input_poll_callback(void) {
         break;
       }
     }
-    if (PAD_isPressed(btn) && (!mapping->mod || PAD_isPressed(BTN_MENU))) {
+    if (PAD_isPressed(btn) && (!mapping->mod || PAD_isPressed(mod_btn) || (has_menu_key && PAD_isPressed(BTN_MENU)))) {
       buttons |= 1 << mapping->retro;
       if (mapping->mod)
         ignore_menu = 1;
     }
     //  && !PWR_ignoreSettingInput(btn, show_setting)
+  }
+
+  if (PLAT_is6Button()) {
+    int c_bound = 0;
+    int z_bound = 0;
+    for (int i = 0; config.controls[i].name; i++) {
+      if (config.controls[i].local == BTN_ID_C)
+        c_bound = 1;
+      if (config.controls[i].local == BTN_ID_Z)
+        z_bound = 1;
+    }
+    if (!c_bound && PAD_isPressed(BTN_C)) {
+      buttons |= (1 << RETRO_DEVICE_ID_JOYPAD_R);
+    }
+    if (!z_bound && PAD_isPressed(BTN_Z)) {
+      buttons |= (1 << RETRO_DEVICE_ID_JOYPAD_L);
+    }
   }
 
   // if (buttons) LOG_info("buttons: %i\n", buttons);
@@ -3666,6 +3810,8 @@ int OptionControls_bind(MenuList *list, int i) {
   }
 
   ButtonMapping *button = &config.controls[item->id];
+  int mod_btn = (PLAT_is6Button() || !PLAT_hasMenuButton()) ? BTN_SELECT : BTN_MENU;
+  int has_menu_key = PLAT_hasMenuButton() && (mod_btn != BTN_MENU);
 
   int bound = 0;
   while (!bound) {
@@ -3677,7 +3823,7 @@ int OptionControls_bind(MenuList *list, int i) {
       if (PAD_justPressed(1 << (id - 1))) {
         item->value = id;
         button->local = id - 1;
-        if (PAD_isPressed(BTN_MENU)) {
+        if (PAD_isPressed(mod_btn) || (has_menu_key && PAD_isPressed(BTN_MENU))) {
           item->value += LOCAL_BUTTON_COUNT;
           button->mod = 1;
         } else {
@@ -3717,15 +3863,16 @@ static int OptionControls_optionChanged(MenuList *list, int i) {
 static MenuList OptionControls_menu = {
     .type = MENU_INPUT,
     .desc = "Press A to set and X to clear."
-            "\nSupports single button and MENU+button." // TODO: not supported
-                                                        // on nano because POWER
-                                                        // doubles as MENU
+            "\nSupports single button and MENU+button." // updated dynamically in openMenu
     ,
     .on_confirm = OptionControls_bind,
     .on_change = OptionControls_unbind,
     .items = NULL};
 static int OptionControls_openMenu(MenuList *list, int i) {
   LOG_info("OptionControls_openMenu\n");
+  OptionControls_menu.desc = (PLAT_is6Button() || !PLAT_hasMenuButton())
+                                 ? "Press A to set and X to clear.\nSupports single button and SELECT+button."
+                                 : "Press A to set and X to clear.\nSupports single button and MENU+button.";
 
   if (OptionControls_menu.items == NULL) {
 
@@ -3786,6 +3933,9 @@ static int OptionControls_openMenu(MenuList *list, int i) {
 static int OptionShortcuts_bind(MenuList *list, int i) {
   MenuItem *item = &list->items[i];
   ButtonMapping *button = &config.shortcuts[item->id];
+  int mod_btn = (PLAT_is6Button() || !PLAT_hasMenuButton()) ? BTN_SELECT : BTN_MENU;
+  int has_menu_key = PLAT_hasMenuButton() && (mod_btn != BTN_MENU);
+
   int bound = 0;
   while (!bound) {
     GFX_startFrame();
@@ -3796,7 +3946,7 @@ static int OptionShortcuts_bind(MenuList *list, int i) {
       if (PAD_justPressed(1 << (id - 1))) {
         item->value = id;
         button->local = id - 1;
-        if (PAD_isPressed(BTN_MENU)) {
+        if (PAD_isPressed(mod_btn) || (has_menu_key && PAD_isPressed(BTN_MENU))) {
           item->value += LOCAL_BUTTON_COUNT;
           button->mod = 1;
         } else {
@@ -3821,9 +3971,7 @@ static int OptionShortcuts_unbind(MenuList *list, int i) {
 static MenuList OptionShortcuts_menu = {
     .type = MENU_INPUT,
     .desc = "Press A to set and X to clear."
-            "\nSupports single button and MENU+button." // TODO: not supported
-                                                        // on nano because POWER
-                                                        // doubles as MENU
+            "\nSupports single button and MENU+button." // updated dynamically in openMenu
     ,
     .on_confirm = OptionShortcuts_bind,
     .on_change = OptionShortcuts_unbind,
@@ -3843,6 +3991,10 @@ static char *getSaveDesc(void) {
   return NULL;
 }
 static int OptionShortcuts_openMenu(MenuList *list, int i) {
+  OptionShortcuts_menu.desc = (PLAT_is6Button() || !PLAT_hasMenuButton())
+                                 ? "Press A to set and X to clear.\nSupports single button and SELECT+button."
+                                 : "Press A to set and X to clear.\nSupports single button and MENU+button.";
+
   if (OptionShortcuts_menu.items == NULL) {
     // TODO: where do I free this? I guess I don't :sweat_smile:
     OptionShortcuts_menu.items = calloc(SHORTCUT_COUNT + 1, sizeof(MenuItem));
@@ -4313,7 +4465,9 @@ static void Menu_loop(void) {
       Menu_updateState();
     }
 
+    int mod_btn = (PLAT_is6Button() || !PLAT_hasMenuButton()) ? BTN_SELECT : BTN_MENU;
     if (PAD_justPressed(BTN_B) ||
+        (mod_btn == BTN_SELECT && PAD_justPressed(BTN_SELECT)) ||
         (BTN_WAKE != BTN_MENU && PAD_tappedMenu(now))) {
       status = STATUS_CONT;
       show_menu = 0;

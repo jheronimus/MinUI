@@ -178,6 +178,18 @@ static void clearStaleAggregateButtons(void) {
 
 static int lid_fd = -1;
 
+int PLAT_is6Button(void) {
+    if (!traits)
+        load_traits();
+    return (traits && traits->key_c >= 0 && traits->key_z >= 0);
+}
+
+int PLAT_hasMenuButton(void) {
+    if (!traits)
+        load_traits();
+    return (traits && traits->key_menu >= 0);
+}
+
 void PLAT_initLid(void) {
     if (!traits)
         load_traits();

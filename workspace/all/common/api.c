@@ -1315,6 +1315,8 @@ LID_Context lid = {
 
 FALLBACK_IMPLEMENTATION void PLAT_initLid(void) {  }
 FALLBACK_IMPLEMENTATION int PLAT_lidChanged(int* state) { return 0; }
+FALLBACK_IMPLEMENTATION int PLAT_is6Button(void) { return 0; }
+FALLBACK_IMPLEMENTATION int PLAT_hasMenuButton(void) { return 1; }
 
 ///////////////////////////////
 

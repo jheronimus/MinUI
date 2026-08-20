@@ -15,6 +15,9 @@ extern int plat_padding;
 extern int plat_screen_rotation;
 extern int on_hdmi;
 
+int PLAT_is6Button(void);
+int PLAT_hasMenuButton(void);
+
 ///////////////////////////////
 
 #define BUTTON_UP BUTTON_NA
