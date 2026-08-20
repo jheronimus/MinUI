@@ -1092,16 +1092,16 @@ static struct Config {
     .controls = default_button_mapping,
     .shortcuts =
         (ButtonMapping[]){
-            [SHORTCUT_SAVE_STATE] = {"Save State", -1, BTN_ID_R1, 1},
-            [SHORTCUT_LOAD_STATE] = {"Load State", -1, BTN_ID_L1, 1},
+            [SHORTCUT_SAVE_STATE] = {"Save State", -1, BTN_ID_R2, 1},
+            [SHORTCUT_LOAD_STATE] = {"Load State", -1, BTN_ID_L2, 1},
             [SHORTCUT_RESET_GAME] = {"Reset Game", -1, BTN_ID_B, 1},
             [SHORTCUT_SAVE_QUIT] = {"Save & Quit", -1, BTN_ID_START, 1},
             [SHORTCUT_CYCLE_SCALE] = {"Cycle Scaling", -1, BTN_ID_NONE, 0},
             [SHORTCUT_CYCLE_EFFECT] = {"Cycle Effect", -1, BTN_ID_NONE, 0},
             [SHORTCUT_TOGGLE_FF] = {"Toggle FF", -1, BTN_ID_NONE, 0},
-            [SHORTCUT_HOLD_FF] = {"Hold FF", -1, BTN_ID_R2, 1},
+            [SHORTCUT_HOLD_FF] = {"Hold FF", -1, BTN_ID_R1, 1},
             [SHORTCUT_TOGGLE_REWIND] = {"Toggle Rewind", -1, BTN_ID_NONE, 0},
-            [SHORTCUT_HOLD_REWIND] = {"Hold Rewind", -1, BTN_ID_L2, 1},
+            [SHORTCUT_HOLD_REWIND] = {"Hold Rewind", -1, BTN_ID_L1, 1},
             {NULL}},
 };
 static int Config_getValue(char *cfg, const char *key, char *out_value,
