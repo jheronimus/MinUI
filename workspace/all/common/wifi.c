@@ -199,8 +199,13 @@ static void parse_scan_results(void) {
 		if (!len)
 			continue;
 
-		// Check for active/connected marker (leading ">" or "*")
-		if (line[0] == '>' || line[0] == '*')
+		// Check for active/connected marker (leading ">" or "*").
+		// iwctl indents the marker with spaces before the ANSI escape
+		// codes, so the marker is not at position 0 even after strip_ansi.
+		p = line;
+		while (*p == ' ' || *p == '\t')
+			p++;
+		if (*p == '>' || *p == '*')
 			is_active = 1;
 
 		// skip the trailing signal column

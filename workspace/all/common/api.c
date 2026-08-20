@@ -1271,7 +1271,18 @@ void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
 	spec_in.samples = SAMPLES;
 	spec_in.callback = SND_audioCallback;
 	
-	if (SDL_OpenAudio(&spec_in, &spec_out)<0) {
+	// A Bluetooth A2DP PCM can take a moment to appear right after the
+	// headset connects; a single failed open left the emulator permanently
+	// silent. Retry briefly before giving up.
+	int ret = -1;
+	for (int attempt = 0; attempt < 5; attempt++) {
+		ret = SDL_OpenAudio(&spec_in, &spec_out);
+		if (ret >= 0)
+			break;
+		LOG_info("SDL_OpenAudio attempt %d failed: %s\n", attempt + 1, SDL_GetError());
+		SDL_Delay(200);
+	}
+	if (ret < 0) {
 		LOG_info("SDL_OpenAudio error: %s\n", SDL_GetError());
 		snd.frame_count = 0;
 		snd.initialized = 0;
