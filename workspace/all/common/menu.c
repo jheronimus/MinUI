@@ -73,10 +73,17 @@ int Menu_options(MenuList* list) {
 	int end;
 	int visible_rows;
 	for (count=0; items[count].name; count++);
-	int selected = 0;
+	int selected = list->selected;
+	if (selected >= count) selected = count ? count - 1 : 0;
+	if (selected < 0) selected = 0;
 	int start = 0;
-	end = MIN(count,max_visible_options);
-	visible_rows = end;
+	if (selected >= max_visible_options) {
+		end = selected + 1;
+		start = end > max_visible_options ? end - max_visible_options : 0;
+	}
+	end = MIN(count, start + max_visible_options);
+	visible_rows = end - start;
+	list->selected = selected;
 	
 	if (menu_update_desc) menu_update_desc();
 	
@@ -88,12 +95,19 @@ int Menu_options(MenuList* list) {
 		{
 			int new_count;
 			for (new_count=0; items[new_count].name; new_count++);
-			if (new_count != count) {
+			if (new_count != count || list->selected != selected) {
 				count = new_count;
 				visible_rows = MIN(count, max_visible_options);
+				selected = list->selected;
 				if (selected >= count) selected = count ? count - 1 : 0;
-				if (start > selected) start = selected;
+				if (selected < 0) selected = 0;
+				if (selected < start) start = selected;
+				if (selected >= end) {
+					end = selected + 1;
+					start = end > visible_rows ? end - visible_rows : 0;
+				}
 				end = MIN(count, start + visible_rows);
+				list->selected = selected;
 			}
 		}
 
@@ -247,6 +261,7 @@ int Menu_options(MenuList* list) {
 			dirty = 1;
 		}
 		
+		list->selected = selected;
 		if (!defer_menu) PWR_update(&dirty, &show_settings, menu_before_sleep, menu_after_sleep);
 		
 		if (defer_menu && PAD_justReleased(BTN_MENU)) defer_menu = 0;

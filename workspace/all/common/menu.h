@@ -46,6 +46,7 @@ enum {
 
 typedef struct MenuList {
 	int type;
+	int selected;
 	int max_width; // cached on first draw
 	char* desc;
 	MenuItem* items;

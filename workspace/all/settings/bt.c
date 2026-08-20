@@ -95,6 +95,13 @@ static uint32_t last_scan_at = 0;
 static uint32_t scan_due_at = 0;
 static char tracking_addr[BT_MAX_ADDR] = "";
 
+static BtDevice* device_for_index(int i) {
+	int idx = i - 1;
+	if (idx < 0 || idx >= device_count)
+		return NULL;
+	return &devices[idx];
+}
+
 static void bt_update(MenuList* list) {
 	uint32_t now;
 	BtDevice fresh[BT_MAX_DEVICES];
@@ -150,13 +157,6 @@ static void bt_update(MenuList* list) {
 			}
 		}
 	}
-}
-
-static BtDevice* device_for_index(int i) {
-	int idx = i - 1;
-	if (idx < 0 || idx >= device_count)
-		return NULL;
-	return &devices[idx];
 }
 
 static int on_confirm(MenuList* list, int i) {
