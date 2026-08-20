@@ -80,8 +80,14 @@ static int find_bt_sink(char *out, size_t out_size) {
     if (!p)
         return 0;
     while (fgets(line, sizeof(line), p)) {
+        // bluetoothctl output: "Device AA:BB:CC:DD:EE:FF Name..." — the MAC
+        // is the SECOND whitespace-separated token, after the literal
+        // "Device" label.
         char *dev = strtok(line, " \t\n");
 
+        if (!dev)
+            continue;
+        dev = strtok(NULL, " \t\n");
         if (!dev || !strchr(dev, ':'))
             continue;
         char cmd[512];

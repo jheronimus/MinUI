@@ -1197,28 +1197,25 @@ static void SND_checkRoute(void) {
 size_t SND_batchSamples(const SND_Frame* frames, size_t frame_count) { // plat_sound_write / plat_sound_write_resample
 	
 	// return frame_count; // TODO: tmp, silent
-	
-	if (snd.frame_count==0) {
-		// Not initialized: a failed open (e.g. the bluealsa PCM not ready
-		// yet) must not leave the emulator permanently silent. Retry once a
-		// second so a headset that connects later — or a route change — can
-		// bring audio back.
-		if (!snd.initialized) {
-			uint32_t now = SDL_GetTicks();
-			if (now - snd.last_recovery_at >= 1000) {
-				snd.last_recovery_at = now;
-				SND_reopen();
-			}
+
+	// Recover from a failed or dead stream: either the initial open failed
+	// (bluealsa PCM not ready yet), a route change left us uninitialized, or
+	// SDL stopped the device after an unrecoverable ALSA write error (e.g.
+	// the A2DP transport vanished mid-game). Retry the open once a second so
+	// audio comes back without the emulator having to be restarted.
+	if (!snd.initialized) {
+		uint32_t now = SDL_GetTicks();
+		if (now - snd.last_recovery_at >= 1000) {
+			snd.last_recovery_at = now;
+			SND_reopen();
 		}
 		return 0;
 	}
 	
-	if (snd.initialized) {
-		if (SDL_GetAudioStatus() == SDL_AUDIO_STOPPED) {
-			SND_reopen();
-		} else {
-			SND_checkRoute();
-		}
+	if (SDL_GetAudioStatus() == SDL_AUDIO_STOPPED) {
+		SND_reopen();
+	} else {
+		SND_checkRoute();
 	}
 	
 	// LOG_info("%8i batching samples (%i frames)\n", ms(), frame_count);
