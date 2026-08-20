@@ -22,4 +22,13 @@ void SetHDMI(int value); // 0-1
 int GetMute(void);
 void SetMute(int value); // 0-1
 
+int GetCharging(void);
+void SetCharging(int value); // 0-1
+
+int GetBattery(void);
+void SetBattery(int value); // 0-100
+
+int GetBT(void);
+void SetBT(int value); // 0-1
+
 #endif

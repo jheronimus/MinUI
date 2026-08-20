@@ -21,6 +21,9 @@ typedef struct {
     int jack;
     int hdmi;
     int mute;
+    int charging;
+    int battery;
+    int bt;
     int size;
 } SharedSettings;
 
