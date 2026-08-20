@@ -1067,6 +1067,7 @@ static struct SND_Context {
 	int frame_filled; // max_buf_w
 	
 	SND_Resampler resample;
+	uint32_t last_recovery_at;
 } snd = {0};
 static void SND_audioCallback(void* userdata, uint8_t* stream, int len) { // plat_sound_callback
 	
@@ -1157,10 +1158,10 @@ static uint32_t last_route_check = 0;
 static time_t last_asoundrc_mtime = 0;
 
 static void SND_reopen(void) {
-	if (!snd.initialized) return;
-	SDL_CloseAudio();
 	SDL_AudioSpec spec_in;
 	SDL_AudioSpec spec_out;
+
+	SDL_CloseAudio();
 	spec_in.freq = PLAT_pickSampleRate(snd.sample_rate_in, MAX_SAMPLE_RATE);
 	spec_in.format = AUDIO_S16;
 	spec_in.channels = 2;
@@ -1168,8 +1169,12 @@ static void SND_reopen(void) {
 	spec_in.callback = SND_audioCallback;
 	if (SDL_OpenAudio(&spec_in, &spec_out) >= 0) {
 		snd.sample_rate_out = spec_out.freq;
+		snd.initialized = 1;
 		SND_selectResampler();
+		SND_resizeBuffer();
 		SDL_PauseAudio(0);
+	} else {
+		snd.initialized = 0;
 	}
 }
 
@@ -1193,7 +1198,20 @@ size_t SND_batchSamples(const SND_Frame* frames, size_t frame_count) { // plat_s
 	
 	// return frame_count; // TODO: tmp, silent
 	
-	if (snd.frame_count==0) return 0;
+	if (snd.frame_count==0) {
+		// Not initialized: a failed open (e.g. the bluealsa PCM not ready
+		// yet) must not leave the emulator permanently silent. Retry once a
+		// second so a headset that connects later — or a route change — can
+		// bring audio back.
+		if (!snd.initialized) {
+			uint32_t now = SDL_GetTicks();
+			if (now - snd.last_recovery_at >= 1000) {
+				snd.last_recovery_at = now;
+				SND_reopen();
+			}
+		}
+		return 0;
+	}
 	
 	if (snd.initialized) {
 		if (SDL_GetAudioStatus() == SDL_AUDIO_STOPPED) {
@@ -1261,6 +1279,8 @@ void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
 	
 	memset(&snd, 0, sizeof(struct SND_Context));
 	snd.frame_rate = frame_rate;
+	snd.buffer_seconds = 5;
+	snd.sample_rate_in = sample_rate;
 
 	SDL_AudioSpec spec_in;
 	SDL_AudioSpec spec_out;
@@ -1273,7 +1293,8 @@ void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
 	
 	// A Bluetooth A2DP PCM can take a moment to appear right after the
 	// headset connects; a single failed open left the emulator permanently
-	// silent. Retry briefly before giving up.
+	// silent. Retry briefly before giving up (SND_batchSamples keeps
+	// retrying once a second afterwards).
 	int ret = -1;
 	for (int attempt = 0; attempt < 5; attempt++) {
 		ret = SDL_OpenAudio(&spec_in, &spec_out);
@@ -1289,8 +1310,6 @@ void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
 		return;
 	}
 	
-	snd.buffer_seconds = 5;
-	snd.sample_rate_in  = sample_rate;
 	snd.sample_rate_out = spec_out.freq;
 	
 	SND_selectResampler();
@@ -1299,6 +1318,7 @@ void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
 	struct stat st;
 	last_asoundrc_mtime = (stat("/run/asoundrc", &st) == 0) ? st.st_mtime : 0;
 	last_route_check = SDL_GetTicks();
+	snd.last_recovery_at = SDL_GetTicks();
 
 	SDL_PauseAudio(0);
 

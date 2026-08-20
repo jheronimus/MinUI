@@ -63,7 +63,7 @@ static int rewind_toggle = 0;
 static int rewinding = 0;
 static enum retro_savestate_context rewind_savestate_context =
     RETRO_SAVESTATE_CONTEXT_NORMAL;
-static int rewind_cfg_enable = 0;
+static int rewind_cfg_enable = 1;
 static int rewind_cfg_buffer_mb = 64;
 static int rewind_cfg_granularity = 16;
 static int rewind_cfg_audio = 0;
@@ -1011,8 +1011,8 @@ static struct Config {
                          .desc = "Enable in-memory rewind buffer.\nMust set a "
                                  "shortcut to access rewind\nduring gameplay. "
                                  "Uses extra CPU and memory.",
-                         .default_value = 0,
-                         .value = 0,
+                         .default_value = 1,
+                         .value = 1,
                          .count = 2,
                          .values = onoff_labels,
                          .labels = onoff_labels,
