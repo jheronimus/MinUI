@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <dlfcn.h>
 
 #include <msettings.h>
 
@@ -1162,6 +1163,19 @@ static void SND_reopen(void) {
 	SDL_AudioSpec spec_out;
 
 	SDL_CloseAudio();
+	// Invalidate ALSA's cached config tree so the next open re-parses the
+	// current .asoundrc. Without this, a long-running process keeps resolving
+	// `default` to the previously-loaded (now stale) route — e.g. it stays on
+	// a dead bluealsa PCM after the headset disconnects instead of falling
+	// back to the speakers. Resolved via dlsym so the audio layer has no
+	// hard link-time dependency on libasound.
+	static int (*alsa_free_global)(void) = (void *)-1;
+	if (alsa_free_global == (void *)-1) {
+		void *h = dlopen("libasound.so.2", RTLD_NOW);
+		alsa_free_global = h ? (int (*)(void))dlsym(h, "snd_config_update_free_global") : NULL;
+	}
+	if (alsa_free_global)
+		alsa_free_global();
 	spec_in.freq = PLAT_pickSampleRate(snd.sample_rate_in, MAX_SAMPLE_RATE);
 	spec_in.format = AUDIO_S16;
 	spec_in.channels = 2;
