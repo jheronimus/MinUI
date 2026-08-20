@@ -131,3 +131,24 @@ void SetMute(int value) {
     if (shared)
         shared->mute = value;
 }
+int GetCharging(void) {
+    return shared ? shared->charging : 0;
+}
+void SetCharging(int value) {
+    if (shared)
+        shared->charging = value;
+}
+int GetBattery(void) {
+    return shared ? shared->battery : 0;
+}
+void SetBattery(int value) {
+    if (shared)
+        shared->battery = value;
+}
+int GetBT(void) {
+    return shared ? shared->bt : 0;
+}
+void SetBT(int value) {
+    if (shared)
+        shared->bt = value;
+}
