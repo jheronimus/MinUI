@@ -943,15 +943,15 @@ void PLAT_enableOverlay(int enable) {
 static int online = 0;
 static int bt_up = 0;
 void PLAT_getBatteryStatus(int *is_charging, int *charge) {
-    int i = -1;
+    // Battery state is owned by keymon: it polls the sysfs traits and
+    // publishes via shared memory (msettings). Reading it here means the UI
+    // reflects the new value within ~1s of a charger being plugged in.
+    int i = GetBattery();
 
     if (!is_charging || !charge)
         return;
 
-    if (MINIME_powerGetBattery(is_charging, &i) != 0) {
-        *is_charging = 0;
-        i = 0;
-    }
+    *is_charging = GetCharging();
 
     // worry less about battery and more about the game you're playing
     if (i > 80)

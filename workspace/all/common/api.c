@@ -1683,9 +1683,10 @@ static void PWR_updateBatteryStatus(void) {
 
 static void* PWR_monitorBattery(void *arg) {
 	while(1) {
-		// TODO: the frequency of checking could depend on whether 
-		// we're in game (less frequent) or menu (more frequent)
-		sleep(5);
+		// Battery state is refreshed by keymon via shared memory; this
+		// thread just republishes it to the UI struct and drives the
+		// overlay. 1s keeps the charging icon snappy (was 5s).
+		sleep(1);
 		PWR_updateBatteryStatus();
 	}
 	return NULL;
