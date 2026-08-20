@@ -1255,8 +1255,9 @@ static void applyArcDefaultControls(void) {
 
   int is_md = exactMatch((char *)tag, "MD") || exactMatch((char *)tag, "GENESIS") ||
               exactMatch((char *)tag, "SEGACD") || exactMatch((char *)tag, "32X") ||
-              exactMatch((char *)tag, "SAT") || exactMatch((char *)tag, "SATURN") ||
-              exactMatch((char *)tag, "ARCADE");
+              exactMatch((char *)tag, "SAT") || exactMatch((char *)tag, "SATURN");
+
+  int is_arcade = exactMatch((char *)tag, "ARCADE");
 
   int is_pce = exactMatch((char *)tag, "PCE") || exactMatch((char *)tag, "PCECD") ||
                exactMatch((char *)tag, "SGFX") || exactMatch((char *)tag, "TG16") ||
@@ -1289,6 +1290,23 @@ static void applyArcDefaultControls(void) {
         mapping->local = BTN_ID_L1;
       else if (exactMatch((char *)name, "R1 Button") || exactMatch((char *)name, "R1") || exactMatch((char *)name, "R"))
         mapping->local = BTN_ID_R1;
+    } else if (is_arcade) {
+      if (exactMatch((char *)name, "A Button") || exactMatch((char *)name, "A"))
+        mapping->local = BTN_ID_A;
+      else if (exactMatch((char *)name, "B Button") || exactMatch((char *)name, "B"))
+        mapping->local = BTN_ID_B;
+      else if (exactMatch((char *)name, "R Button") || exactMatch((char *)name, "R") || exactMatch((char *)name, "R1 Button") || exactMatch((char *)name, "C Button"))
+        mapping->local = BTN_ID_C;
+      else if (exactMatch((char *)name, "X Button") || exactMatch((char *)name, "X"))
+        mapping->local = BTN_ID_X;
+      else if (exactMatch((char *)name, "Y Button") || exactMatch((char *)name, "Y"))
+        mapping->local = BTN_ID_Y;
+      else if (exactMatch((char *)name, "L Button") || exactMatch((char *)name, "L") || exactMatch((char *)name, "L1 Button") || exactMatch((char *)name, "Z Button"))
+        mapping->local = BTN_ID_Z;
+      else if (exactMatch((char *)name, "Coin") || exactMatch((char *)name, "Select"))
+        mapping->local = BTN_ID_SELECT;
+      else if (exactMatch((char *)name, "Start"))
+        mapping->local = BTN_ID_START;
     } else if (is_pce) {
       if (exactMatch((char *)name, "I"))
         mapping->local = BTN_ID_C;
