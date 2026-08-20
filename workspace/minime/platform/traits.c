@@ -325,8 +325,60 @@ const MinimeTraits *MINIME_traits(void) {
 
 int MINIME_audioJackConnected(void) {
     const MinimeTraits *traits = MINIME_traits();
+    int fd;
+    unsigned char switches[1] = {0};
 
-    return (traits && MINIME_traitAvailable(traits->audio_jack_device_name)) ? 1 : 0;
+    if (!traits || !MINIME_traitAvailable(traits->audio_jack_device_name))
+        return 0;
+    fd = MINIME_inputOpenByNameOrPath(traits->audio_jack_device_name);
+    if (fd < 0)
+        return 0;
+    // The codec exposes the jack as a switch input device; read its current
+    // state once so the initial SetJack at startup reflects reality instead
+    // of always reporting a headphone.
+    if (ioctl(fd, EVIOCGSW(sizeof(switches)), switches) >= 0) {
+        close(fd);
+        return (switches[0] & (1 << SW_HEADPHONE_INSERT)) ? 1 : 0;
+    }
+    close(fd);
+    return 0;
+}
+
+int MINIME_inputOpenByNameOrPath(const char *name_or_path) {
+    if (!name_or_path || !MINIME_traitAvailable(name_or_path))
+        return -1;
+    if (name_or_path[0] == '/')
+        return open(name_or_path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+    return MINIME_inputOpenByName(name_or_path);
+}
+
+void MINIME_audioSetJackPath(int jack) {
+    static int mux_card = -2; // -2 = not probed, -1 = no control
+    char command[512];
+    int card;
+
+    if (!MINIME_traitAvailable(MINIME_traits()->audio_mixer))
+        return;
+    if (mux_card == -2) {
+        mux_card = -1;
+        // Find the card exposing the 'Playback Mux' control (codec
+        // headphone/speaker route). Boards that auto-route via hardware jack
+        // detect (e.g. H700) have no such control; probing keeps this a
+        // no-op there.
+        for (card = 0; card < 8; card++) {
+            snprintf(command, sizeof(command),
+                     "amixer -c %d cget name='Playback Mux' >/dev/null 2>&1", card);
+            if (system(command) == 0) {
+                mux_card = card;
+                break;
+            }
+        }
+    }
+    if (mux_card < 0)
+        return;
+    snprintf(command, sizeof(command), "amixer -q -c %d sset 'Playback Mux' %s >/dev/null 2>&1",
+             mux_card, jack ? "HP" : "SPK");
+    system(command);
 }
 
 void MINIME_audioSetRawVolume(int value) {
