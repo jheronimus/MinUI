@@ -1152,11 +1152,55 @@ static void SND_selectResampler(void) { // plat_sound_select_resampler
 		snd.resample = SND_resampleNear;
 	}
 }
+static uint32_t last_route_check = 0;
+static time_t last_asoundrc_mtime = 0;
+
+static void SND_reopen(void) {
+	if (!snd.initialized) return;
+	SDL_CloseAudio();
+	SDL_AudioSpec spec_in;
+	SDL_AudioSpec spec_out;
+	spec_in.freq = PLAT_pickSampleRate(snd.sample_rate_in, MAX_SAMPLE_RATE);
+	spec_in.format = AUDIO_S16;
+	spec_in.channels = 2;
+	spec_in.samples = SAMPLES;
+	spec_in.callback = SND_audioCallback;
+	if (SDL_OpenAudio(&spec_in, &spec_out) >= 0) {
+		snd.sample_rate_out = spec_out.freq;
+		SND_selectResampler();
+		SDL_PauseAudio(0);
+	}
+}
+
+static void SND_checkRoute(void) {
+	uint32_t now = SDL_GetTicks();
+	if (now - last_route_check < 1000) return;
+	last_route_check = now;
+
+	struct stat st;
+	time_t mtime = 0;
+	if (stat("/run/asoundrc", &st) == 0) {
+		mtime = st.st_mtime;
+	}
+	if (mtime != last_asoundrc_mtime) {
+		last_asoundrc_mtime = mtime;
+		SND_reopen();
+	}
+}
+
 size_t SND_batchSamples(const SND_Frame* frames, size_t frame_count) { // plat_sound_write / plat_sound_write_resample
 	
 	// return frame_count; // TODO: tmp, silent
 	
 	if (snd.frame_count==0) return 0;
+	
+	if (snd.initialized) {
+		if (SDL_GetAudioStatus() == SDL_AUDIO_STOPPED) {
+			SND_reopen();
+		} else {
+			SND_checkRoute();
+		}
+	}
 	
 	// LOG_info("%8i batching samples (%i frames)\n", ms(), frame_count);
 	
@@ -1240,6 +1284,10 @@ void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
 	SND_selectResampler();
 	SND_resizeBuffer();
 	
+	struct stat st;
+	last_asoundrc_mtime = (stat("/run/asoundrc", &st) == 0) ? st.st_mtime : 0;
+	last_route_check = SDL_GetTicks();
+
 	SDL_PauseAudio(0);
 
 	LOG_info("sample rate: %i (req) %i (rec) [samples %i]\n", snd.sample_rate_in, snd.sample_rate_out, SAMPLES);

@@ -107,7 +107,14 @@ static void bt_refresh_devices(void) {
 			if (in_device && current_addr[0] && resolved_name) {
 				int dup = 0;
 				for (i = 0; i < raw_count; i++) {
-					if (strcmp(raw[i].addr, current_addr) == 0) {
+					if (strcmp(raw[i].addr, current_addr) == 0 || strcmp(raw[i].name, resolved_name) == 0) {
+						if (current_connected || (current_paired && !raw[i].paired)) {
+							strncpy(raw[i].addr, current_addr, sizeof(raw[i].addr) - 1);
+							raw[i].paired = current_paired;
+							raw[i].connected = current_connected;
+							if (current_kind != BT_DEVICE_UNKNOWN)
+								raw[i].kind = current_kind;
+						}
 						dup = 1;
 						break;
 					}
@@ -205,7 +212,14 @@ static void bt_refresh_devices(void) {
 	if (in_device && current_addr[0] && resolved_name) {
 		int dup = 0;
 		for (i = 0; i < raw_count; i++) {
-			if (strcmp(raw[i].addr, current_addr) == 0) {
+			if (strcmp(raw[i].addr, current_addr) == 0 || strcmp(raw[i].name, resolved_name) == 0) {
+				if (current_connected || (current_paired && !raw[i].paired)) {
+					strncpy(raw[i].addr, current_addr, sizeof(raw[i].addr) - 1);
+					raw[i].paired = current_paired;
+					raw[i].connected = current_connected;
+					if (current_kind != BT_DEVICE_UNKNOWN)
+						raw[i].kind = current_kind;
+				}
 				dup = 1;
 				break;
 			}
