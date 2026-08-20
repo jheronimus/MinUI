@@ -43,6 +43,31 @@ static int is_bt_service_up(void) {
 	return access("/run/bluetoothd.pid", F_OK) == 0;
 }
 
+static int is_mac_string(const char *s) {
+	int i;
+	if (!s || strlen(s) != 17)
+		return 0;
+	for (i = 0; i < 17; i++) {
+		if (i == 2 || i == 5 || i == 8 || i == 11 || i == 14) {
+			if (s[i] != ':' && s[i] != '-')
+				return 0;
+		} else {
+			char c = s[i];
+			if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
+				return 0;
+		}
+	}
+	return 1;
+}
+
+static const char *resolve_device_name(const char *name, const char *alias) {
+	if (name && name[0] && !is_mac_string(name))
+		return name;
+	if (alias && alias[0] && !is_mac_string(alias))
+		return alias;
+	return NULL;
+}
+
 // Single-pass device parser using D-Bus ObjectManager output (zero per-device subprocesses).
 static void bt_refresh_devices(void) {
 	char line[256];
@@ -68,15 +93,11 @@ static void bt_refresh_devices(void) {
 
 		if (strstr(line, "object path \"/org/bluez/") && strstr(line, "/dev_")) {
 			// Save previous device
-			if (in_device && current_addr[0] && raw_count < BT_MAX_DEVICES) {
+			const char *resolved_name = resolve_device_name(current_name, current_alias);
+			if (in_device && current_addr[0] && resolved_name && raw_count < BT_MAX_DEVICES) {
 				memset(&raw[raw_count], 0, sizeof(BtDevice));
 				strncpy(raw[raw_count].addr, current_addr, sizeof(raw[raw_count].addr) - 1);
-				if (current_name[0])
-					strncpy(raw[raw_count].name, current_name, sizeof(raw[raw_count].name) - 1);
-				else if (current_alias[0])
-					strncpy(raw[raw_count].name, current_alias, sizeof(raw[raw_count].name) - 1);
-				else
-					strncpy(raw[raw_count].name, current_addr, sizeof(raw[raw_count].name) - 1);
+				strncpy(raw[raw_count].name, resolved_name, sizeof(raw[raw_count].name) - 1);
 				raw[raw_count].paired = current_paired;
 				raw[raw_count].connected = current_connected;
 				raw[raw_count].kind = (current_kind != BT_DEVICE_UNKNOWN) ? current_kind : BT_DEVICE_AUDIO;
@@ -158,15 +179,11 @@ static void bt_refresh_devices(void) {
 	}
 
 	// Flush trailing device
-	if (in_device && current_addr[0] && raw_count < BT_MAX_DEVICES) {
+	const char *resolved_name = resolve_device_name(current_name, current_alias);
+	if (in_device && current_addr[0] && resolved_name && raw_count < BT_MAX_DEVICES) {
 		memset(&raw[raw_count], 0, sizeof(BtDevice));
 		strncpy(raw[raw_count].addr, current_addr, sizeof(raw[raw_count].addr) - 1);
-		if (current_name[0])
-			strncpy(raw[raw_count].name, current_name, sizeof(raw[raw_count].name) - 1);
-		else if (current_alias[0])
-			strncpy(raw[raw_count].name, current_alias, sizeof(raw[raw_count].name) - 1);
-		else
-			strncpy(raw[raw_count].name, current_addr, sizeof(raw[raw_count].name) - 1);
+		strncpy(raw[raw_count].name, resolved_name, sizeof(raw[raw_count].name) - 1);
 		raw[raw_count].paired = current_paired;
 		raw[raw_count].connected = current_connected;
 		raw[raw_count].kind = (current_kind != BT_DEVICE_UNKNOWN) ? current_kind : BT_DEVICE_AUDIO;
