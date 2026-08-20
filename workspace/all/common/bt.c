@@ -193,12 +193,25 @@ static void bt_refresh_devices(void) {
 
 ///////////////////////////////////////
 
+static FILE* scan_pipe = NULL;
+
 static void bt_start_scan_session(void) {
-	(void)system("pgrep -f 'bluetoothctl' >/dev/null 2>&1 || ( (echo scan on; while true; do sleep 3600; done) | bluetoothctl >/dev/null 2>&1 & )");
+	if (!scan_pipe) {
+		scan_pipe = popen("bluetoothctl >/dev/null 2>&1", "w");
+		if (scan_pipe) {
+			fputs("scan on\n", scan_pipe);
+			fflush(scan_pipe);
+		}
+	}
 }
 
 static void bt_stop_scan_session(void) {
-	(void)system("pkill -f 'bluetoothctl' 2>/dev/null");
+	if (scan_pipe) {
+		fputs("scan off\nquit\n", scan_pipe);
+		fflush(scan_pipe);
+		pclose(scan_pipe);
+		scan_pipe = NULL;
+	}
 }
 
 int BT_init(void) {
