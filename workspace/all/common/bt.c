@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <signal.h>
 
 #include "traits.h"
 #include "wireless.h"
@@ -266,13 +267,27 @@ static void bt_refresh_devices(void) {
 
 static FILE* scan_pipe = NULL;
 
+// Re-assert discovery every rescan cycle. bluetoothd can silently drop
+// discovery (a failed connect attempt, an adapter power event, or the
+// scanner process dying), and BT_scan runs on the 5s cycle for as long as
+// BT.pak is open — so re-sending `scan on` on the live session keeps
+// discovery active the whole time the screen is up. If the session process
+// died (the write fails), reap it and start a fresh one.
 static void bt_start_scan_session(void) {
-	if (!scan_pipe) {
-		scan_pipe = popen("bluetoothctl --agent=NoInputNoOutput >/dev/null 2>&1", "w");
-		if (scan_pipe) {
-			fputs("default-agent\nscan on\n", scan_pipe);
-			fflush(scan_pipe);
+	if (scan_pipe) {
+		clearerr(scan_pipe);
+		fputs("scan on\n", scan_pipe);
+		if (fflush(scan_pipe) == EOF || ferror(scan_pipe)) {
+			pclose(scan_pipe);
+			scan_pipe = NULL;
+		} else {
+			return;
 		}
+	}
+	scan_pipe = popen("bluetoothctl --agent=NoInputNoOutput >/dev/null 2>&1", "w");
+	if (scan_pipe) {
+		fputs("default-agent\nscan on\n", scan_pipe);
+		fflush(scan_pipe);
 	}
 }
 
@@ -289,6 +304,8 @@ int BT_init(void) {
 	bt_enabled = is_bt_service_up();
 	device_count = 0;
 	scanning = 0;
+	// Writing to a dead scan session must not kill the UI (EPIPE).
+	signal(SIGPIPE, SIG_IGN);
 	if (bt_enabled) {
 		(void)system("bluetoothctl power on >/dev/null 2>&1");
 		(void)system("bluetoothctl pairable on >/dev/null 2>&1");
