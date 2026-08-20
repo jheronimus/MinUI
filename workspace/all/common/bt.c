@@ -75,6 +75,7 @@ static void bt_refresh_devices(void) {
 	BtDevice raw[BT_MAX_DEVICES];
 	int raw_count = 0;
 	int i;
+	const char *connected_audio_addr = NULL;
 
 	char current_addr[BT_MAX_ADDR] = "";
 	char current_name[BT_MAX_NAME] = "";
@@ -91,27 +92,48 @@ static void bt_refresh_devices(void) {
 	while (fgets(line, sizeof(line), f)) {
 		char *p;
 
-		if (strstr(line, "object path \"/org/bluez/") && strstr(line, "/dev_")) {
-			// Save previous device
-			const char *resolved_name = resolve_device_name(current_name, current_alias);
-			if (in_device && current_addr[0] && resolved_name && raw_count < BT_MAX_DEVICES) {
-				memset(&raw[raw_count], 0, sizeof(BtDevice));
-				strncpy(raw[raw_count].addr, current_addr, sizeof(raw[raw_count].addr) - 1);
-				strncpy(raw[raw_count].name, resolved_name, sizeof(raw[raw_count].name) - 1);
-				raw[raw_count].paired = current_paired;
-				raw[raw_count].connected = current_connected;
-				raw[raw_count].kind = (current_kind != BT_DEVICE_UNKNOWN) ? current_kind : BT_DEVICE_AUDIO;
-				raw_count++;
+		if ((p = strstr(line, "object path \"/org/bluez/"))) {
+			char *dev_part = strstr(p, "/dev_");
+			int is_top_device = 0;
+			if (dev_part) {
+				char *quote = strchr(dev_part, '"');
+				if (quote && !strchr(dev_part + 5, '/')) {
+					is_top_device = 1;
+				}
 			}
 
-			// Start new device
-			in_device = 1;
-			current_addr[0] = '\0';
-			current_name[0] = '\0';
-			current_alias[0] = '\0';
-			current_paired = 0;
-			current_connected = 0;
-			current_kind = BT_DEVICE_UNKNOWN;
+			// Save previous device
+			const char *resolved_name = resolve_device_name(current_name, current_alias);
+			if (in_device && current_addr[0] && resolved_name) {
+				int dup = 0;
+				for (i = 0; i < raw_count; i++) {
+					if (strcmp(raw[i].addr, current_addr) == 0) {
+						dup = 1;
+						break;
+					}
+				}
+				if (!dup && raw_count < BT_MAX_DEVICES) {
+					memset(&raw[raw_count], 0, sizeof(BtDevice));
+					strncpy(raw[raw_count].addr, current_addr, sizeof(raw[raw_count].addr) - 1);
+					strncpy(raw[raw_count].name, resolved_name, sizeof(raw[raw_count].name) - 1);
+					raw[raw_count].paired = current_paired;
+					raw[raw_count].connected = current_connected;
+					raw[raw_count].kind = (current_kind != BT_DEVICE_UNKNOWN) ? current_kind : BT_DEVICE_AUDIO;
+					raw_count++;
+				}
+			}
+
+			if (is_top_device) {
+				in_device = 1;
+				current_addr[0] = '\0';
+				current_name[0] = '\0';
+				current_alias[0] = '\0';
+				current_paired = 0;
+				current_connected = 0;
+				current_kind = BT_DEVICE_UNKNOWN;
+			} else {
+				in_device = 0;
+			}
 			continue;
 		}
 
@@ -180,14 +202,23 @@ static void bt_refresh_devices(void) {
 
 	// Flush trailing device
 	const char *resolved_name = resolve_device_name(current_name, current_alias);
-	if (in_device && current_addr[0] && resolved_name && raw_count < BT_MAX_DEVICES) {
-		memset(&raw[raw_count], 0, sizeof(BtDevice));
-		strncpy(raw[raw_count].addr, current_addr, sizeof(raw[raw_count].addr) - 1);
-		strncpy(raw[raw_count].name, resolved_name, sizeof(raw[raw_count].name) - 1);
-		raw[raw_count].paired = current_paired;
-		raw[raw_count].connected = current_connected;
-		raw[raw_count].kind = (current_kind != BT_DEVICE_UNKNOWN) ? current_kind : BT_DEVICE_AUDIO;
-		raw_count++;
+	if (in_device && current_addr[0] && resolved_name) {
+		int dup = 0;
+		for (i = 0; i < raw_count; i++) {
+			if (strcmp(raw[i].addr, current_addr) == 0) {
+				dup = 1;
+				break;
+			}
+		}
+		if (!dup && raw_count < BT_MAX_DEVICES) {
+			memset(&raw[raw_count], 0, sizeof(BtDevice));
+			strncpy(raw[raw_count].addr, current_addr, sizeof(raw[raw_count].addr) - 1);
+			strncpy(raw[raw_count].name, resolved_name, sizeof(raw[raw_count].name) - 1);
+			raw[raw_count].paired = current_paired;
+			raw[raw_count].connected = current_connected;
+			raw[raw_count].kind = (current_kind != BT_DEVICE_UNKNOWN) ? current_kind : BT_DEVICE_AUDIO;
+			raw_count++;
+		}
 	}
 
 	pclose(f);
@@ -195,8 +226,11 @@ static void bt_refresh_devices(void) {
 	// Sort: connected first, then paired, then discovered
 	device_count = 0;
 	for (i = 0; i < raw_count && device_count < BT_MAX_DEVICES; i++) {
-		if (raw[i].connected)
+		if (raw[i].connected) {
+			if (raw[i].kind == BT_DEVICE_AUDIO && !connected_audio_addr)
+				connected_audio_addr = raw[i].addr;
 			devices[device_count++] = raw[i];
+		}
 	}
 	for (i = 0; i < raw_count && device_count < BT_MAX_DEVICES; i++) {
 		if (raw[i].paired && !raw[i].connected)
@@ -205,6 +239,12 @@ static void bt_refresh_devices(void) {
 	for (i = 0; i < raw_count && device_count < BT_MAX_DEVICES; i++) {
 		if (!raw[i].paired)
 			devices[device_count++] = raw[i];
+	}
+
+	if (connected_audio_addr) {
+		char alsa_cmd[512];
+		snprintf(alsa_cmd, sizeof(alsa_cmd), "%s bt-on %s >/dev/null 2>&1 &", AUDIO_HELPER, connected_audio_addr);
+		(void)system(alsa_cmd);
 	}
 }
 

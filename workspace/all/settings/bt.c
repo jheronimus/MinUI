@@ -93,6 +93,7 @@ static void rebuild(void) {
 #define BT_SETTLE_MS 1500
 static uint32_t last_scan_at = 0;
 static uint32_t scan_due_at = 0;
+static char tracking_addr[BT_MAX_ADDR] = "";
 
 static void bt_update(MenuList* list) {
 	uint32_t now;
@@ -126,9 +127,28 @@ static void bt_update(MenuList* list) {
 	}
 
 	if (changed) {
+		char selected_addr[BT_MAX_ADDR] = "";
+		if (tracking_addr[0]) {
+			strncpy(selected_addr, tracking_addr, sizeof(selected_addr) - 1);
+		} else {
+			BtDevice* sel_dev = device_for_index(menu.selected);
+			if (sel_dev)
+				strncpy(selected_addr, sel_dev->addr, sizeof(selected_addr) - 1);
+		}
+
 		device_count = fresh_count;
 		memcpy(devices, fresh, sizeof(BtDevice) * fresh_count);
 		rebuild();
+
+		if (selected_addr[0]) {
+			int j;
+			for (j = 0; j < device_count; j++) {
+				if (strcmp(devices[j].addr, selected_addr) == 0) {
+					menu.selected = j + 1;
+					break;
+				}
+			}
+		}
 	}
 }
 
@@ -152,6 +172,7 @@ static int on_confirm(MenuList* list, int i) {
 		last_scan_at = 0;
 		scan_due_at = 0;
 		device_count = 0;
+		tracking_addr[0] = '\0';
 		rebuild();
 		return MENU_CALLBACK_NOP;
 	}
@@ -160,12 +181,10 @@ static int on_confirm(MenuList* list, int i) {
 	if (!dev)
 		return MENU_CALLBACK_NOP;
 
+	strncpy(tracking_addr, dev->addr, sizeof(tracking_addr) - 1);
 	if (BT_toggleDevice(dev->addr) != 0) {
 		Menu_message("Device action failed", (char*[]){"B","BACK", NULL});
 	}
-	last_scan_at = 0;
-	scan_due_at = 0;
-	rebuild();
 	return MENU_CALLBACK_NOP;
 }
 
@@ -174,14 +193,16 @@ static int on_aux(MenuList* list, int i) {
 
 	(void)list;
 
+	if (is_toggle_row(i))
+		return MENU_CALLBACK_NOP;
+
 	dev = device_for_index(i);
 	if (!dev)
 		return MENU_CALLBACK_NOP;
-	if (dev->paired) {
-		BT_forgetDevice(dev->addr);
-		last_scan_at = 0;
-		scan_due_at = 0;
-		rebuild();
+
+	tracking_addr[0] = '\0';
+	if (BT_forgetDevice(dev->addr) != 0) {
+		Menu_message("Forget failed", (char*[]){"B","BACK", NULL});
 	}
 	return MENU_CALLBACK_NOP;
 }
