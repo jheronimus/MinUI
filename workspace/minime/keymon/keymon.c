@@ -145,9 +145,6 @@ int main(int argc, char *argv[]) {
     pthread_create(&power_pt, NULL, &watchPower, NULL);
     pthread_create(&bt_pt, NULL, &watchBT, NULL);
 
-    // Sync the codec headphone/speaker mux with the initial jack state.
-    MINIME_audioSetJackPath(MINIME_audioJackConnected());
-
     input_count =
         MINIME_inputOpenShortcutDevices(input_fds, sizeof(input_fds) / sizeof(input_fds[0]));
     if (traits && MINIME_traitAvailable(traits->audio_jack_device_name) &&
@@ -192,12 +189,8 @@ int main(int argc, char *argv[]) {
                 val = ev.value;
 
                 if (ev.type == EV_SW) {
-                    // Codec headphone jack switch (rk817/H616). Report the
-                    // state to the UI and drive the Playback Mux HP/SPK
-                    // route (no-op on boards that auto-switch).
                     if (ev.code == SW_HEADPHONE_INSERT) {
                         SetJack(val);
-                        MINIME_audioSetJackPath(val);
                     }
                     continue;
                 }

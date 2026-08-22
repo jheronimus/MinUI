@@ -144,7 +144,6 @@ int MINIME_traitAvailable(const char *value);
 
 int MINIME_audioJackConnected(void);
 void MINIME_audioSetRawVolume(int value);
-void MINIME_audioSetJackPath(int jack);
 
 int MINIME_videoHDMIConnected(void);
 void MINIME_videoSetBacklight(int value);

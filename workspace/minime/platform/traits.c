@@ -352,37 +352,6 @@ int MINIME_inputOpenByNameOrPath(const char *name_or_path) {
     return MINIME_inputOpenByName(name_or_path);
 }
 
-void MINIME_audioSetJackPath(int jack) {
-    (void)jack;
-    const MinimeTraits *traits = MINIME_traits();
-    static int mux_card = -2; // -2 = not probed, -1 = no control
-    char command[512];
-    int card;
-
-    if (!traits || !MINIME_traitAvailable(traits->audio_mixer))
-        return;
-    if (mux_card == -2) {
-        mux_card = -1;
-        // On Anbernic handhelds (RK3566/RK3326), the external speaker amplifier
-        // is fed from the codec HPOL/HPOR lines, and hardware/DAPM jack detection
-        // automatically mutes the speaker amp when headphones are plugged in.
-        // Playback Mux must always be 'HP' so the HPOL/HPOR signal is active.
-        for (card = 0; card < 8; card++) {
-            snprintf(command, sizeof(command),
-                     "amixer -c %d cget name='Playback Mux' >/dev/null 2>&1", card);
-            if (system(command) == 0) {
-                mux_card = card;
-                break;
-            }
-        }
-    }
-    if (mux_card < 0)
-        return;
-    snprintf(command, sizeof(command), "amixer -q -c %d sset 'Playback Mux' HP >/dev/null 2>&1",
-             mux_card);
-    system(command);
-}
-
 void MINIME_audioSetRawVolume(int value) {
     const MinimeTraits *traits = MINIME_traits();
     char card_flag[64] = "";
