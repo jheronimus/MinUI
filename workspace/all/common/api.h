@@ -178,6 +178,14 @@ enum {
 
 void GFX_setVsync(int vsync);
 
+// hardware rendering (libretro SET_HW_RENDER support, see minarch)
+#define GFX_glInit PLAT_glInit			// int:(int major,int minor) 1 on success
+#define GFX_glQuit PLAT_glQuit			// void:(void)
+#define GFX_glMakeCurrent PLAT_glMakeCurrent	// void:(void)
+#define GFX_glSwap PLAT_glSwap			// void:(void)
+#define GFX_glDrawableSize PLAT_glDrawableSize	// void:(int* w, int* h)
+extern int plat_screen_rotation; // 0/90/180/270 degrees, for GL presentation
+
 int GFX_truncateText(TTF_Font* font, const char* in_name, char* out_name, int max_width, int padding); // returns final width
 int GFX_wrapText(TTF_Font* font, char* str, int max_width, int max_lines);
 

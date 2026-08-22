@@ -13,6 +13,9 @@
 #include <unistd.h>
 #include <zlib.h>
 
+#include <GLES2/gl2.h>
+#include <math.h>
+
 #include "defines.h"
 #include "api.h"
 #include "libretro.h"
@@ -2340,6 +2343,234 @@ static bool set_rumble_state(unsigned port, enum retro_rumble_effect effect,
   VIB_setStrength(strength);
   return 1;
 }
+
+///////////////////////////////////////
+// hardware rendering (libretro SET_HW_RENDER)
+//
+// The core renders into a framebuffer we own and presents it with a
+// RETRO_HW_FRAME_BUFFER_VALID refresh. We read that framebuffer back and
+// hand the pixels to the regular software pipeline, so scaling, rotation,
+// effects, menus and screenshots all behave exactly like software cores.
+
+#ifndef GL_DEPTH_COMPONENT24
+#define GL_DEPTH_COMPONENT24 0x81A6
+#endif
+#ifndef GL_DEPTH24_STENCIL8
+#define GL_DEPTH24_STENCIL8 0x84F9
+#endif
+#ifndef GL_STENCIL_INDEX8
+#define GL_STENCIL_INDEX8 0x8D48
+#endif
+#ifndef GL_DEPTH_STENCIL_ATTACHMENT
+#define GL_DEPTH_STENCIL_ATTACHMENT 0x84FB
+#endif
+
+static struct HWRender {
+  int active;                        // core accepted our context offer
+  struct retro_hw_render_callback cb;
+  unsigned fbo;
+  unsigned tex;
+  unsigned rbo;
+  int tex_w, tex_h;
+  int frame_w, frame_h;
+  int reset_pending;
+  unsigned char *rgba;               // readback scratch
+  size_t rgba_cap;
+  uint16_t *shadow;                  // RGB565 copy of the last frame
+  size_t shadow_cap;
+} hw;
+
+static void *hw_getProcAddress(const char *sym) {
+  return SDL_GL_GetProcAddress(sym);
+}
+static uintptr_t hw_getFramebuffer(void) { return hw.fbo; }
+
+static void hw_makeCurrent(void) { GFX_glMakeCurrent(); }
+static void selectScaler(int src_w, int src_h, int src_p);
+static void video_refresh_callback_main(const void *data, unsigned width,
+                                        unsigned height, size_t pitch);
+
+// verbose driver diagnostics for hardware-render debugging; enabled by
+// setting MINIME_GL_DEBUG in the environment
+typedef void(GL_APIENTRY *GLDEBUGPROC)(unsigned source, unsigned type,
+                                        unsigned id, unsigned severity,
+                                        signed length, const char *message,
+                                        const void *user);
+static void GL_APIENTRY hw_debugCallback(unsigned source, unsigned type,
+                                        unsigned id, unsigned severity,
+                                        signed length, const char *message,
+                                        const void *user) {
+  (void)source;
+  (void)type;
+  (void)severity;
+  (void)length;
+  (void)user;
+  fprintf(stderr, "GL[%u] %s\n", id, message);
+}
+
+static void hw_installDebugCallback(void) {
+  if (!getenv("MINIME_GL_DEBUG"))
+    return;
+  typedef void(GL_APIENTRY *PFN_glDebugMessageCallback)(GLDEBUGPROC cb,
+                                                        const void *user);
+  PFN_glDebugMessageCallback cb = (PFN_glDebugMessageCallback)(void (*)(
+      void))SDL_GL_GetProcAddress("glDebugMessageCallback");
+  void (*enabler)(unsigned) =
+      (void (*)(unsigned))SDL_GL_GetProcAddress("glEnable");
+  void (*ctrl)(unsigned, unsigned, signed, unsigned, unsigned, const unsigned *) =
+      (void (*)(unsigned, unsigned, signed, unsigned, unsigned,
+                const unsigned *))SDL_GL_GetProcAddress("glDebugMessageControl");
+  if (!cb || !enabler || !ctrl) {
+    LOG_info("gl debug unavailable: cb=%p en=%p ctrl=%p\n", (void *)cb,
+             (void *)enabler, (void *)ctrl);
+    return;
+  }
+  LOG_info("gl debug callback installed\n");
+  enabler(0x92E0); // GL_DEBUG_OUTPUT
+  enabler(0x813C); // GL_DEBUG_OUTPUT_SYNCHRONOUS
+  ctrl(0xD10, 0, 0, 0, 0, NULL); // don't filter anything out
+  cb(hw_debugCallback, NULL);
+}
+
+static int hw_resize(int w, int h) {
+  if (!w || !h || (w == hw.tex_w && h == hw.tex_h))
+    return 1;
+
+  GLint fbo_binding = 0;
+  glGetIntegerv(GL_FRAMEBUFFER_BINDING, &fbo_binding);
+
+  if (hw.tex)
+    glDeleteTextures(1, &hw.tex);
+  if (hw.rbo)
+    glDeleteRenderbuffers(1, &hw.rbo);
+
+  glGenTextures(1, &hw.tex);
+  glBindTexture(GL_TEXTURE_2D, hw.tex);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+               NULL);
+  int linear = screen_sharpness != SHARPNESS_SHARP;
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                  linear ? GL_LINEAR : GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
+                  linear ? GL_LINEAR : GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+  glGenRenderbuffers(1, &hw.rbo);
+  glBindRenderbuffer(GL_RENDERBUFFER, hw.rbo);
+  if (hw.cb.depth && hw.cb.stencil)
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, w, h);
+  else if (hw.cb.depth)
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w, h);
+  else if (hw.cb.stencil)
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_STENCIL_INDEX8, w, h);
+
+  glBindFramebuffer(GL_FRAMEBUFFER, hw.fbo);
+  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                         hw.tex, 0);
+  GLenum attachment =
+      (hw.cb.depth && hw.cb.stencil) ? GL_DEPTH_STENCIL_ATTACHMENT
+      : hw.cb.depth                  ? GL_DEPTH_ATTACHMENT
+                                     : GL_STENCIL_ATTACHMENT;
+  if (hw.cb.depth || hw.cb.stencil)
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, attachment, GL_RENDERBUFFER,
+                              hw.rbo);
+
+  GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+  if (status != GL_FRAMEBUFFER_COMPLETE) {
+    LOG_error("hw framebuffer %ix%i incomplete: %x\n", w, h, status);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo_binding);
+    return 0;
+  }
+
+  hw.tex_w = w;
+  hw.tex_h = h;
+  glBindTexture(GL_TEXTURE_2D, 0);
+  glBindFramebuffer(GL_FRAMEBUFFER, fbo_binding);
+  return 1;
+}
+
+// read the core's frame into the RGB565 shadow buffer and run it through
+// the regular scaler/renderer path; returns false when there is no frame
+static bool hw_present(void) {
+  if (!hw.fbo || !hw.frame_w || !hw.frame_h)
+    return false;
+
+  size_t pixels = (size_t)hw.frame_w * hw.frame_h;
+  if (hw.rgba_cap < pixels * 4) {
+    free(hw.rgba);
+    hw.rgba = malloc(pixels * 4);
+    hw.rgba_cap = hw.rgba ? pixels * 4 : 0;
+  }
+  if (hw.shadow_cap < pixels * 2) {
+    free(hw.shadow);
+    hw.shadow = malloc(pixels * 2);
+    hw.shadow_cap = hw.shadow ? pixels * 2 : 0;
+  }
+  if (!hw.rgba || !hw.shadow)
+    return false;
+
+  GFX_glMakeCurrent();
+  glBindFramebuffer(GL_FRAMEBUFFER, hw.fbo);
+  glReadPixels(0, 0, hw.frame_w, hw.frame_h, GL_RGBA, GL_UNSIGNED_BYTE, hw.rgba);
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+  static int sum_logged;
+  if (!sum_logged && getenv("MINIME_GL_DEBUG")) {
+    sum_logged = 1;
+    unsigned long sum = 0;
+    size_t nz = 0;
+    for (size_t j = 0; j < pixels * 4; j += 97) {
+      sum += hw.rgba[j];
+      nz += hw.rgba[j] != 0;
+    }
+    LOG_info("hw frame %ix%i sum=%lu nonzero=%lu/%zu\n", hw.frame_w, hw.frame_h,
+             sum, nz, pixels * 4 / 97);
+  }
+
+  // glReadPixels rows are bottom-up; bottom-left origin cores draw unflipped,
+  // so their rows need reversing to land top-down in the shadow buffer
+  int flip = hw.cb.bottom_left_origin;
+  for (int y = 0; y < hw.frame_h; y++) {
+    const unsigned char *src =
+        hw.rgba + (size_t)(flip ? hw.frame_h - 1 - y : y) * hw.frame_w * 4;
+    uint16_t *dst = hw.shadow + (size_t)y * hw.frame_w;
+    for (int x = 0; x < hw.frame_w; x++) {
+      uint16_t r = src[x * 4 + 0], g = src[x * 4 + 1], b = src[x * 4 + 2];
+      dst[x] = (r & 0xF8) << 8 | (g & 0xFC) << 3 | b >> 3;
+    }
+  }
+
+  video_refresh_callback_main(hw.shadow, hw.frame_w, hw.frame_h,
+                              (size_t)hw.frame_w * 2);
+  return true;
+}
+
+
+static void hw_contextReset(void) {
+  if (!hw.cb.context_reset || !hw.reset_pending)
+    return;
+  hw.reset_pending = 0;
+  hw.cb.context_reset();
+}
+
+static void hw_quit(void) {
+  if (!hw.active)
+    return;
+  hw.active = 0;
+  if (hw.cb.context_destroy)
+    hw.cb.context_destroy();
+  GFX_glMakeCurrent();
+  if (hw.fbo)
+    glDeleteFramebuffers(1, &hw.fbo);
+  if (hw.tex)
+    glDeleteTextures(1, &hw.tex);
+  if (hw.rbo)
+    glDeleteRenderbuffers(1, &hw.rbo);
+  memset(&hw, 0, sizeof(hw));
+  GFX_glQuit();
+}
+
 static bool environment_callback(unsigned cmd,
                                  void *data) { // copied from picoarch initially
   // LOG_info("environment_callback: %i\n", cmd);
@@ -2360,6 +2591,43 @@ static bool environment_callback(unsigned cmd,
     if (out)
       *out = true;
     break;
+  }
+  case RETRO_ENVIRONMENT_SET_HW_RENDER: { /* 14 */
+    struct retro_hw_render_callback *cb = (struct retro_hw_render_callback *)data;
+    int major = 0;
+    int minor = 0;
+    switch (cb->context_type) {
+    case RETRO_HW_CONTEXT_OPENGLES2:
+      major = 2;
+      minor = 0;
+      break;
+    case RETRO_HW_CONTEXT_OPENGLES3:
+      major = 3;
+      minor = 0;
+      break;
+    case RETRO_HW_CONTEXT_OPENGLES_VERSION:
+      major = cb->version_major;
+      minor = cb->version_minor;
+      break;
+    default: // desktop GL / Vulkan are not available on Minime devices
+      LOG_info("rejecting unsupported hw context type %i\n", cb->context_type);
+      return false;
+    }
+    if (major < 2 || major > 3)
+      return false;
+
+    cb->get_current_framebuffer = hw_getFramebuffer;
+    cb->get_proc_address =
+        (retro_hw_get_proc_address_t)hw_getProcAddress;
+    if (!GFX_glInit(major, minor))
+      return false; // core falls back to its software renderer
+
+    hw.cb = *cb;
+    hw.active = 1;
+    hw.reset_pending = 1;
+    thread_video = 0; // threaded video would need cross-thread context handoff
+    LOG_info("hw render active: GLES %i.%i\n", major, minor);
+    return true;
   }
   case RETRO_ENVIRONMENT_SET_MESSAGE: { /* 6 */
     const struct retro_message *message = (const struct retro_message *)data;
@@ -2500,6 +2768,23 @@ static bool environment_callback(unsigned cmd,
     return false; // TODO: tmp
     break;
   }
+  case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO: { /* 32 */
+    const struct retro_system_av_info *av = data;
+    if (hw.active && av)
+      hw_resize(MAX(hw.tex_w, (int)av->geometry.max_width),
+                MAX(hw.tex_h, (int)av->geometry.max_height));
+    break;
+  }
+  case RETRO_ENVIRONMENT_SET_GEOMETRY: { /* 37 */
+    // like SET_SYSTEM_AV_INFO but only for changing the size of the frame;
+    // max size changes require SET_SYSTEM_AV_INFO
+    const struct retro_game_geometry *geo = data;
+    if (hw.active && geo)
+      hw_resize(MAX(hw.tex_w, (int)geo->max_width),
+                MAX(hw.tex_h, (int)geo->max_height));
+    break;
+  }
+
   // RETRO_ENVIRONMENT_SET_MEMORY_MAPS (36 | RETRO_ENVIRONMENT_EXPERIMENTAL)
   // RETRO_ENVIRONMENT_GET_LANGUAGE 39
   case RETRO_ENVIRONMENT_GET_CURRENT_SOFTWARE_FRAMEBUFFER: { /* (40 |
@@ -3387,6 +3672,15 @@ static void video_refresh_callback(const void *data, unsigned width,
   if (!data)
     return;
 
+  if (hw.active) {
+    if (data == RETRO_HW_FRAME_BUFFER_VALID) {
+      hw.frame_w = width;
+      hw.frame_h = height;
+      hw_present();
+    }
+    return;
+  }
+
   if (thread_video) {
     pthread_mutex_lock(&core_mx);
 
@@ -3541,6 +3835,18 @@ void Core_load(void) {
 
   LOG_info("aspect_ratio: %f (%ix%i) fps: %f\n", a, av_info.geometry.base_width,
            av_info.geometry.base_height, core.fps);
+
+  if (hw.active) {
+    GFX_glMakeCurrent();
+    glGenFramebuffers(1, &hw.fbo);
+    if (!hw_resize(av_info.geometry.max_width, av_info.geometry.max_height)) {
+      LOG_error("hw framebuffer allocation failed\n");
+      hw_quit();
+      return;
+    }
+    hw_contextReset(); // the core initializes its renderer against our FBO
+    hw_installDebugCallback();
+  }
 }
 void Core_reset(void) {
   core.reset();
@@ -3555,6 +3861,7 @@ void Core_quit(void) {
     core.deinit();
     core.initialized = 0;
   }
+  hw_quit();
 }
 void Core_close(void) {
   if (core.handle)
@@ -5619,6 +5926,13 @@ static void Rewind_on_state_change(void) {
 static void Rewind_quit(void) { Rewind_free(); }
 
 static void run_frame(void) {
+  if (hw.active) {
+    // SDL_Renderer steals the context whenever a menu or overlay flips;
+    // take it back for the core
+    hw_makeCurrent();
+    hw_contextReset();
+  }
+
   // if rewind is toggled, fast-forward toggle must stay off; fast-forward hold
   // pauses rewind
   int do_rewind =
@@ -5815,7 +6129,10 @@ int main(int argc, char *argv[]) {
 
     if (toggle_thread) {
       toggle_thread = 0;
-      if (was_threaded && !thread_video) {
+      if (hw.active) {
+        // threaded video is incompatible with hardware rendering
+        continue;
+      } else if (was_threaded && !thread_video) {
         // LOG_info("was fast forwarding while previously threaded (%i) so
         // re-enabling threading %i\n", thread_video, !thread_video); revert to
         // pre-fast_forward state before toggling

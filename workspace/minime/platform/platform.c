@@ -565,10 +565,11 @@ SDL_Surface *PLAT_initVideo(void) {
         LOG_error("SDL video init failed: %s\n", SDL_GetError());
         exit(1);
     }
+    LOG_info("SDL video driver: %s\n", SDL_GetCurrentVideoDriver());
     SDL_ShowCursor(0);
 
     vid.window = SDL_CreateWindow("", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, w, h,
-                                  SDL_WINDOW_SHOWN);
+                                  SDL_WINDOW_SHOWN | SDL_WINDOW_OPENGL);
     if (!vid.window) {
         LOG_error("SDL window creation failed: %s\n", SDL_GetError());
         exit(1);
@@ -607,6 +608,7 @@ SDL_Surface *PLAT_initVideo(void) {
 }
 
 void PLAT_quitVideo(void) {
+    PLAT_glQuit();
     SDL_FreeSurface(vid.screen);
     if (vid.target)
         SDL_DestroyTexture(vid.target);
@@ -814,6 +816,45 @@ void PLAT_setEffectColor(int next_color) {
 void PLAT_vsync(int remaining) {
     if (remaining > 0)
         SDL_Delay(remaining);
+}
+
+// Secondary GLES context for libretro hardware rendering. It lives on the same
+// window as the SDL_Renderer context; the two simply alternate who presents
+// (cores render into a framebuffer owned by minarch, menus keep using
+// SDL_Renderer).
+static struct GL_Context {
+    SDL_GLContext ctx;
+} gl_ctx;
+
+int PLAT_glInit(int major, int minor) {
+    if (gl_ctx.ctx)
+        return 0;
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, major);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, minor);
+    gl_ctx.ctx = SDL_GL_CreateContext(vid.window);
+    if (!gl_ctx.ctx) {
+        LOG_error("GLES %i.%i context creation failed: %s\n", major, minor, SDL_GetError());
+        return 0;
+    }
+    SDL_GL_SetSwapInterval(1); // KMSDRM page flip waits for vblank
+    LOG_info("GLES %i.%i context ready\n", major, minor);
+    return 1;
+}
+
+void PLAT_glQuit(void) {
+    if (!gl_ctx.ctx)
+        return;
+    SDL_GL_DeleteContext(gl_ctx.ctx);
+    gl_ctx.ctx = NULL;
+}
+
+void PLAT_glMakeCurrent(void) {
+    SDL_GL_MakeCurrent(vid.window, gl_ctx.ctx);
+}
+
+void PLAT_glSwap(void) {
+    SDL_GL_SwapWindow(vid.window);
 }
 
 scaler_t PLAT_getScaler(GFX_Renderer *renderer) {

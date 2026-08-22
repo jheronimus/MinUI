@@ -18,6 +18,15 @@ extern int on_hdmi;
 int PLAT_is6Button(void);
 int PLAT_hasMenuButton(void);
 
+// Secondary GLES context for libretro hardware rendering (minarch).
+// The window must have been created with SDL_WINDOW_OPENGL.
+#define GL_INIT_FAILED 0
+int PLAT_glInit(int major, int minor); // returns 1 on success, GL_INIT_FAILED otherwise
+void PLAT_glQuit(void);
+void PLAT_glMakeCurrent(void);
+void PLAT_glSwap(void);
+void PLAT_glDrawableSize(int *w, int *h); // GLES drawable dims (panel mode, may be rotated)
+
 ///////////////////////////////
 
 #define BUTTON_UP BUTTON_NA
