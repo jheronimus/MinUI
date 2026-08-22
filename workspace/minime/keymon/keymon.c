@@ -37,13 +37,17 @@ static pthread_t power_pt;
 static pthread_t bt_pt;
 
 static void *watchHDMI(void *arg) {
+    const MinimeTraits *traits = MINIME_traits();
     int has_hdmi, had_hdmi;
 
     has_hdmi = had_hdmi = MINIME_videoHDMIConnected();
     SetHDMI(has_hdmi);
 
+    if (!traits || !MINIME_traitAvailable(traits->gpu_hdmi_state_path))
+        return 0;
+
     while (1) {
-        sleep(1);
+        sleep(2);
 
         has_hdmi = MINIME_videoHDMIConnected();
         if (had_hdmi != has_hdmi) {
@@ -56,9 +60,6 @@ static void *watchHDMI(void *arg) {
 }
 
 static void *watchPower(void *arg) {
-    // Poll the sysfs power traits and publish via shared memory. The UI
-    // reads GetCharging()/GetBattery() in PLAT_getBatteryStatus, so the
-    // charging icon updates within ~1s of a charger being plugged in.
     while (1) {
         int charging = 0;
         int battery = 0;
@@ -66,35 +67,34 @@ static void *watchPower(void *arg) {
         MINIME_powerGetBattery(&charging, &battery);
         SetCharging(charging);
         SetBattery(battery);
-        sleep(1);
+        sleep(2);
     }
     return 0;
 }
 
 static int find_bt_sink(char *out, size_t out_size) {
     FILE *p;
-    char line[256];
+    char buf[1024];
 
     out[0] = '\0';
-    p = popen("bluetoothctl devices Connected 2>/dev/null", "r");
+    // Delegate to BlueALSA via D-Bus: BlueALSA is the single source of truth
+    // for connected audio endpoints (managed objects under /org/bluealsa).
+    p = popen("gdbus call --system --dest org.bluealsa --object-path /org/bluealsa "
+              "--method org.freedesktop.DBus.ObjectManager.GetManagedObjects 2>/dev/null",
+              "r");
     if (!p)
         return 0;
-    while (fgets(line, sizeof(line), p)) {
-        // bluetoothctl output: "Device AA:BB:CC:DD:EE:FF Name..." — the MAC
-        // is the SECOND whitespace-separated token, after the literal
-        // "Device" label.
-        char *dev = strtok(line, " \t\n");
-
-        if (!dev)
-            continue;
-        dev = strtok(NULL, " \t\n");
-        if (!dev || !strchr(dev, ':'))
-            continue;
-        char cmd[512];
-        snprintf(cmd, sizeof(cmd), "bluetoothctl info %s 2>/dev/null | grep -q 'Audio Sink'", dev);
-        if (system(cmd) == 0) {
-            snprintf(out, out_size, "%s", dev);
-            break;
+    while (fgets(buf, sizeof(buf), p)) {
+        char *dev = strstr(buf, "/dev_");
+        if (dev) {
+            dev += 5; // skip "/dev_"
+            if (strlen(dev) >= 17) {
+                for (int i = 0; i < 17 && i < (int)out_size - 1; i++) {
+                    out[i] = (dev[i] == '_') ? ':' : dev[i];
+                }
+                out[17] = '\0';
+                break;
+            }
         }
     }
     pclose(p);
@@ -107,7 +107,7 @@ static void *watchBT(void *arg) {
 
     for (;;) {
         // bluetoothd runs only when the user enabled Bluetooth; skip the
-        // poll otherwise to avoid spawning bluetoothctl pointlessly.
+        // poll otherwise to avoid querying D-Bus pointlessly.
         if (access(BLUETOOTHD_PID, F_OK) == 0) {
             if (find_bt_sink(mac, sizeof(mac))) {
                 if (strcmp(mac, active) != 0) {
