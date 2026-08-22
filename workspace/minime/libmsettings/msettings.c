@@ -126,12 +126,21 @@ void SetJack(int value) {
     if (shared)
         shared->jack = value;
     char cmd[256];
-    snprintf(cmd, sizeof(cmd), "%s %s >/dev/null 2>&1", AUDIO_SH, value ? "jack-in" : "jack-out");
+    snprintf(cmd, sizeof(cmd), "%s start-interface %s >/dev/null 2>&1", AUDIO_SH,
+             value ? "headphones" : "speakers");
     (void)system(cmd);
 }
 void SetHDMI(int value) {
     if (shared)
         shared->hdmi = value;
+    char cmd[256];
+    if (value) {
+        snprintf(cmd, sizeof(cmd), "%s start-interface hdmi >/dev/null 2>&1", AUDIO_SH);
+    } else {
+        snprintf(cmd, sizeof(cmd), "%s start-interface %s >/dev/null 2>&1", AUDIO_SH,
+                 (shared && shared->jack) ? "headphones" : "speakers");
+    }
+    (void)system(cmd);
 }
 void SetMute(int value) {
     if (shared)

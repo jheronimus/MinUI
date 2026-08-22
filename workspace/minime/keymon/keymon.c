@@ -113,7 +113,8 @@ static void *watchBT(void *arg) {
                 if (strcmp(mac, active) != 0) {
                     char cmd[512];
 
-                    snprintf(cmd, sizeof(cmd), "%s bt-on %s >/dev/null 2>&1", AUDIO_SH, mac);
+                    snprintf(cmd, sizeof(cmd), "%s start-interface bluetooth %s >/dev/null 2>&1",
+                             AUDIO_SH, mac);
                     system(cmd);
                     strncpy(active, mac, sizeof(active) - 1);
                     SetBT(1);
@@ -121,7 +122,8 @@ static void *watchBT(void *arg) {
             } else if (active[0]) {
                 char cmd[512];
 
-                snprintf(cmd, sizeof(cmd), "%s bt-off >/dev/null 2>&1", AUDIO_SH);
+                snprintf(cmd, sizeof(cmd), "%s start-interface %s >/dev/null 2>&1", AUDIO_SH,
+                         GetJack() ? "headphones" : "speakers");
                 system(cmd);
                 active[0] = '\0';
                 SetBT(0);
