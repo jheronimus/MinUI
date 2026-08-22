@@ -1094,7 +1094,7 @@ static struct Config {
         (ButtonMapping[]){
             [SHORTCUT_SAVE_STATE] = {"Save State", -1, BTN_ID_R2, 1},
             [SHORTCUT_LOAD_STATE] = {"Load State", -1, BTN_ID_L2, 1},
-            [SHORTCUT_RESET_GAME] = {"Reset Game", -1, BTN_ID_B, 1},
+            [SHORTCUT_RESET_GAME] = {"Reset Game", -1, BTN_ID_NONE, 0},
             [SHORTCUT_SAVE_QUIT] = {"Save & Quit", -1, BTN_ID_START, 1},
             [SHORTCUT_CYCLE_SCALE] = {"Cycle Scaling", -1, BTN_ID_NONE, 0},
             [SHORTCUT_CYCLE_EFFECT] = {"Cycle Effect", -1, BTN_ID_NONE, 0},
@@ -1356,7 +1356,7 @@ static void applyArcDefaultControls(void) {
 }
 
 static void Config_init(void) {
-  button_labels = (PLAT_is6Button() || !PLAT_hasMenuButton()) ? button_labels_select : button_labels_menu;
+  button_labels = !PLAT_hasMenuButton() ? button_labels_select : button_labels_menu;
 
   if (!config.default_cfg || config.initialized)
     return;
@@ -2031,13 +2031,12 @@ static void input_poll_callback(void) {
   int show_setting = 0;
   PWR_update(NULL, &show_setting, Menu_beforeSleep, Menu_afterSleep);
 
-  int mod_btn = (PLAT_is6Button() || !PLAT_hasMenuButton()) ? BTN_SELECT : BTN_MENU;
-  int has_menu_key = PLAT_hasMenuButton() && (mod_btn != BTN_MENU);
+  int mod_btn = !PLAT_hasMenuButton() ? BTN_SELECT : BTN_MENU;
 
-  if (PAD_justPressed(mod_btn) || (has_menu_key && PAD_justPressed(BTN_MENU))) {
+  if (PAD_justPressed(mod_btn)) {
     ignore_menu = 0;
   }
-  if ((PAD_isPressed(mod_btn) || (has_menu_key && PAD_isPressed(BTN_MENU))) &&
+  if (PAD_isPressed(mod_btn) &&
       (PAD_isPressed(BTN_PLUS) || PAD_isPressed(BTN_MINUS))) {
     ignore_menu = 1;
   }
@@ -2065,7 +2064,7 @@ static void input_poll_callback(void) {
     int btn = 1 << mapping->local;
     if (btn == BTN_NONE)
       continue; // not bound
-    if (!mapping->mod || PAD_isPressed(mod_btn) || (has_menu_key && PAD_isPressed(BTN_MENU))) {
+    if (!mapping->mod || PAD_isPressed(mod_btn)) {
       if (i == SHORTCUT_TOGGLE_FF) {
         if (PAD_justPressed(btn)) {
           toggled_ff_on = setFastForward(!fast_forward);
@@ -2169,7 +2168,7 @@ static void input_poll_callback(void) {
     }
   }
 
-  if (!ignore_menu && (PAD_justReleased(mod_btn) || (has_menu_key && PAD_justReleased(BTN_MENU)))) {
+  if (!ignore_menu && PAD_justReleased(mod_btn)) {
     show_menu = 1;
 
     if (thread_video) {
@@ -2210,7 +2209,7 @@ static void input_poll_callback(void) {
         break;
       }
     }
-    if (PAD_isPressed(btn) && (!mapping->mod || PAD_isPressed(mod_btn) || (has_menu_key && PAD_isPressed(BTN_MENU)))) {
+    if (PAD_isPressed(btn) && (!mapping->mod || PAD_isPressed(mod_btn))) {
       buttons |= 1 << mapping->retro;
       if (mapping->mod)
         ignore_menu = 1;
@@ -3828,8 +3827,7 @@ int OptionControls_bind(MenuList *list, int i) {
   }
 
   ButtonMapping *button = &config.controls[item->id];
-  int mod_btn = (PLAT_is6Button() || !PLAT_hasMenuButton()) ? BTN_SELECT : BTN_MENU;
-  int has_menu_key = PLAT_hasMenuButton() && (mod_btn != BTN_MENU);
+  int mod_btn = !PLAT_hasMenuButton() ? BTN_SELECT : BTN_MENU;
 
   int bound = 0;
   while (!bound) {
@@ -3841,7 +3839,7 @@ int OptionControls_bind(MenuList *list, int i) {
       if (PAD_justPressed(1 << (id - 1))) {
         item->value = id;
         button->local = id - 1;
-        if (PAD_isPressed(mod_btn) || (has_menu_key && PAD_isPressed(BTN_MENU))) {
+        if (PAD_isPressed(mod_btn)) {
           item->value += LOCAL_BUTTON_COUNT;
           button->mod = 1;
         } else {
@@ -3888,7 +3886,7 @@ static MenuList OptionControls_menu = {
     .items = NULL};
 static int OptionControls_openMenu(MenuList *list, int i) {
   LOG_info("OptionControls_openMenu\n");
-  OptionControls_menu.desc = (PLAT_is6Button() || !PLAT_hasMenuButton())
+  OptionControls_menu.desc = !PLAT_hasMenuButton()
                                  ? "Press A to set and X to clear.\nSupports single button and SELECT+button."
                                  : "Press A to set and X to clear.\nSupports single button and MENU+button.";
 
@@ -3951,8 +3949,7 @@ static int OptionControls_openMenu(MenuList *list, int i) {
 static int OptionShortcuts_bind(MenuList *list, int i) {
   MenuItem *item = &list->items[i];
   ButtonMapping *button = &config.shortcuts[item->id];
-  int mod_btn = (PLAT_is6Button() || !PLAT_hasMenuButton()) ? BTN_SELECT : BTN_MENU;
-  int has_menu_key = PLAT_hasMenuButton() && (mod_btn != BTN_MENU);
+  int mod_btn = !PLAT_hasMenuButton() ? BTN_SELECT : BTN_MENU;
 
   int bound = 0;
   while (!bound) {
@@ -3964,7 +3961,7 @@ static int OptionShortcuts_bind(MenuList *list, int i) {
       if (PAD_justPressed(1 << (id - 1))) {
         item->value = id;
         button->local = id - 1;
-        if (PAD_isPressed(mod_btn) || (has_menu_key && PAD_isPressed(BTN_MENU))) {
+        if (PAD_isPressed(mod_btn)) {
           item->value += LOCAL_BUTTON_COUNT;
           button->mod = 1;
         } else {
@@ -4009,7 +4006,7 @@ static char *getSaveDesc(void) {
   return NULL;
 }
 static int OptionShortcuts_openMenu(MenuList *list, int i) {
-  OptionShortcuts_menu.desc = (PLAT_is6Button() || !PLAT_hasMenuButton())
+  OptionShortcuts_menu.desc = !PLAT_hasMenuButton()
                                  ? "Press A to set and X to clear.\nSupports single button and SELECT+button."
                                  : "Press A to set and X to clear.\nSupports single button and MENU+button.";
 
@@ -4483,7 +4480,7 @@ static void Menu_loop(void) {
       Menu_updateState();
     }
 
-    int mod_btn = (PLAT_is6Button() || !PLAT_hasMenuButton()) ? BTN_SELECT : BTN_MENU;
+    int mod_btn = !PLAT_hasMenuButton() ? BTN_SELECT : BTN_MENU;
     if (PAD_justPressed(BTN_B) ||
         (mod_btn == BTN_SELECT && PAD_justPressed(BTN_SELECT)) ||
         (BTN_WAKE != BTN_MENU && PAD_tappedMenu(now))) {

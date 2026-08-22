@@ -15,6 +15,8 @@
 #include "settings.h"
 #include "traits.h"
 
+#define AUDIO_SH "/usr/share/minime/scripts/audio.sh"
+
 typedef struct {
     int brightness;
     int volume;
@@ -123,6 +125,9 @@ void SetRawVolume(int value) {
 void SetJack(int value) {
     if (shared)
         shared->jack = value;
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "%s %s >/dev/null 2>&1", AUDIO_SH, value ? "jack-in" : "jack-out");
+    (void)system(cmd);
 }
 void SetHDMI(int value) {
     if (shared)
