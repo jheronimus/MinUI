@@ -112,7 +112,8 @@ void SetVolume(int value) {
         value = VOLUME_MAX;
     shared->volume = value;
 
-    MINIME_audioSetRawVolume((value * 100) / VOLUME_MAX);
+    int raw = (value == 0) ? 0 : 60 + ((value - 1) * 40) / (VOLUME_MAX - 1);
+    MINIME_audioSetRawVolume(raw);
 }
 
 void SetRawVolume(int value) {
