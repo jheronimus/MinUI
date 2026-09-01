@@ -3980,15 +3980,23 @@ void Core_load(void) {
     int gles = (hw_render.context_type == RETRO_HW_CONTEXT_OPENGLES2 ||
                 hw_render.context_type == RETRO_HW_CONTEXT_OPENGLES3);
     int major = hw_render.version_major ? hw_render.version_major : 3;
+    LOG_info("minarch: calling PLAT_initGLContext\n");
     PLAT_initGLContext(major, hw_render.version_minor, gles);
+    LOG_info("minarch: calling hw_init_compositor\n");
     hw_init_compositor();
     unsigned initial_w =
         av_info.geometry.base_width ? av_info.geometry.base_width : 640;
     unsigned initial_h =
         av_info.geometry.base_height ? av_info.geometry.base_height : 480;
+    LOG_info("minarch: calling hw_resize_fbo(%u, %u)\n", initial_w, initial_h);
     hw_resize_fbo(initial_w, initial_h);
-    if (hw_render.context_reset)
+    glBindFramebuffer(GL_FRAMEBUFFER, hw_fbo);
+    glViewport(0, 0, initial_w, initial_h);
+    if (hw_render.context_reset) {
+      LOG_info("minarch: calling context_reset\n");
       hw_render.context_reset();
+    }
+    LOG_info("minarch: HW render initialized\n");
   }
 }
 void Core_reset(void) {
@@ -6126,7 +6134,15 @@ static void run_frame(void) {
       ff_paused_by_rewind_hold = 0;
     }
 
+    static int frame_count = 0;
+    if (frame_count < 5) {
+      LOG_info("minarch: calling core.run() frame=%d\n", frame_count);
+    }
     core.run();
+    if (frame_count < 5) {
+      LOG_info("minarch: core.run() finished frame=%d\n", frame_count);
+      frame_count++;
+    }
     Rewind_push(0);
   }
   limitFF();
@@ -6229,16 +6245,23 @@ int main(int argc, char *argv[]) {
   Config_free();
 
   SND_init(core.sample_rate, core.fps);
+  LOG_info("minarch: SND_init done\n");
   InitSettings(); // after we initialize audio
+  LOG_info("minarch: InitSettings done\n");
   Menu_init();
+  LOG_info("minarch: Menu_init done\n");
   State_resume();
+  LOG_info("minarch: State_resume done\n");
   rewind_init_ready = 1;
   Rewind_init(core.serialize_size ? core.serialize_size() : 0);
+  LOG_info("minarch: Rewind_init done\n");
   if (rewind_ctx.enabled)
     Rewind_on_state_change();
   Menu_initState(); // make ready for state shortcuts
+  LOG_info("minarch: Menu_initState done\n");
 
   if (thread_video) {
+    LOG_info("minarch: starting video thread\n");
     core_mx = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
     core_rq = (pthread_cond_t)PTHREAD_COND_INITIALIZER;
     pthread_create(&core_pt, NULL, &coreThread, NULL);
@@ -6255,6 +6278,7 @@ int main(int argc, char *argv[]) {
   }
 
   Special_init(); // after config
+  LOG_info("minarch: starting main loop\n");
 
   sec_start = SDL_GetTicks();
   while (!quit) {
