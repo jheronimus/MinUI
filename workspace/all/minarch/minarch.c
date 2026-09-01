@@ -85,11 +85,58 @@ static void Rewind_on_state_change(void);
 static void Rewind_quit(void);
 static void run_frame(void);
 
-// these are no longer constants as of the RG CubeXX (even though they look like
-// it)
 static int DEVICE_WIDTH = 0;  // FIXED_WIDTH;
 static int DEVICE_HEIGHT = 0; // FIXED_HEIGHT;
 static int DEVICE_PITCH = 0;  // FIXED_PITCH;
+
+GFX_Renderer renderer;
+
+static struct Core {
+  int initialized;
+  int need_fullpath;
+
+  const char tag[8];          // eg. GBC
+  const char name[128];       // eg. gambatte
+  const char version[128];    // eg. Gambatte (v0.5.0-netlink 7e02df6)
+  const char extensions[128]; // eg. gb|gbc|dmg
+
+  const char
+      config_dir[MAX_PATH]; // eg. /mnt/sdcard/.userdata/rg35xx/GB-gambatte
+  const char
+      states_dir[MAX_PATH]; // eg. /mnt/sdcard/.userdata/arm-480/GB-gambatte
+  const char saves_dir[MAX_PATH]; // eg. /mnt/sdcard/Saves/GB
+  const char bios_dir[MAX_PATH];  // eg. /mnt/sdcard/Bios/GB
+
+  double fps;
+  double sample_rate;
+  double aspect_ratio;
+
+  void *handle;
+  void (*init)(void);
+  void (*deinit)(void);
+
+  void (*get_system_info)(struct retro_system_info *info);
+  void (*get_system_av_info)(struct retro_system_av_info *info);
+  void (*set_controller_port_device)(unsigned port, unsigned device);
+
+  void (*reset)(void);
+  void (*run)(void);
+  size_t (*serialize_size)(void);
+  bool (*serialize)(void *data, size_t size);
+  bool (*unserialize)(const void *data, size_t size);
+  bool (*load_game)(const struct retro_game_info *game);
+  bool (*load_game_special)(unsigned game_type,
+                            const struct retro_game_info *info,
+                            size_t num_info);
+  void (*unload_game)(void);
+  unsigned (*get_region)(void);
+  void *(*get_memory_data)(unsigned id);
+  size_t (*get_memory_size)(unsigned id);
+
+  // retro_audio_buffer_status_callback_t audio_buffer_status;
+} core;
+
+///////////////////////////////////////
 
 #ifndef RETRO_HW_FRAME_BUFFER_VALID
 #define RETRO_HW_FRAME_BUFFER_VALID ((void *)-1)
@@ -449,51 +496,6 @@ static void hw_render_compositor_frame(unsigned width, unsigned height) {
   glBindFramebuffer(GL_FRAMEBUFFER, hw_fbo);
   glViewport(0, 0, hw_fbo_w, hw_fbo_h);
 }
-
-static struct Core {
-  int initialized;
-  int need_fullpath;
-
-  const char tag[8];          // eg. GBC
-  const char name[128];       // eg. gambatte
-  const char version[128];    // eg. Gambatte (v0.5.0-netlink 7e02df6)
-  const char extensions[128]; // eg. gb|gbc|dmg
-
-  const char
-      config_dir[MAX_PATH]; // eg. /mnt/sdcard/.userdata/rg35xx/GB-gambatte
-  const char
-      states_dir[MAX_PATH]; // eg. /mnt/sdcard/.userdata/arm-480/GB-gambatte
-  const char saves_dir[MAX_PATH]; // eg. /mnt/sdcard/Saves/GB
-  const char bios_dir[MAX_PATH];  // eg. /mnt/sdcard/Bios/GB
-
-  double fps;
-  double sample_rate;
-  double aspect_ratio;
-
-  void *handle;
-  void (*init)(void);
-  void (*deinit)(void);
-
-  void (*get_system_info)(struct retro_system_info *info);
-  void (*get_system_av_info)(struct retro_system_av_info *info);
-  void (*set_controller_port_device)(unsigned port, unsigned device);
-
-  void (*reset)(void);
-  void (*run)(void);
-  size_t (*serialize_size)(void);
-  bool (*serialize)(void *data, size_t size);
-  bool (*unserialize)(const void *data, size_t size);
-  bool (*load_game)(const struct retro_game_info *game);
-  bool (*load_game_special)(unsigned game_type,
-                            const struct retro_game_info *info,
-                            size_t num_info);
-  void (*unload_game)(void);
-  unsigned (*get_region)(void);
-  void *(*get_memory_data)(unsigned id);
-  size_t (*get_memory_size)(unsigned id);
-
-  // retro_audio_buffer_status_callback_t audio_buffer_status;
-} core;
 
 ///////////////////////////////////////
 // based on picoarch/unzip.c
