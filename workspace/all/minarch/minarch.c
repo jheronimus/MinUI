@@ -79,7 +79,7 @@ static int ff_hold_active = 0;
 static int ff_paused_by_rewind_hold = 0;
 
 // forward declarations (definitions live near run_frame)
-static void Rewind_init(size_t state_size);
+static void Rewind_init(void);
 static void Rewind_sync_encode_state(void);
 static void Rewind_on_state_change(void);
 static void Rewind_quit(void);
@@ -909,6 +909,8 @@ static void State_getPath(char *filename) {
   sprintf(filename, "%s/%s.st%i", core.states_dir, game.name, state_slot);
 }
 static void State_read(void) { // from picoarch
+  if (!core.serialize_size)
+    return;
   size_t state_size = core.serialize_size();
   if (!state_size)
     return;
@@ -960,6 +962,8 @@ error:
   fast_forward = was_ff;
 }
 static void State_write(void) { // from picoarch
+  if (!core.serialize_size)
+    return;
   size_t state_size = core.serialize_size();
   if (!state_size)
     return;
@@ -1589,7 +1593,7 @@ static void Config_syncFrontend(char *key, int value) {
   // crash
   if (i >= FE_OPT_REWIND_ENABLE && i <= FE_OPT_REWIND_COMPRESSION_ACCEL &&
       rewind_init_ready) {
-    Rewind_init(core.serialize_size ? core.serialize_size() : 0);
+    Rewind_init();
     if (i == FE_OPT_REWIND_ENABLE) {
       rewind_toggle = 0;
       rewind_pressed = 0;
@@ -5685,7 +5689,7 @@ static void *Rewind_worker_thread(void *arg) {
   return NULL;
 }
 
-static void Rewind_init(size_t state_size) {
+static void Rewind_init(void) {
   Rewind_free();
 
   int enable = rewind_cfg_enable;
@@ -5695,6 +5699,11 @@ static void Rewind_init(size_t state_size) {
   int compress = rewind_cfg_compress;
   if (!enable)
     return;
+  if (!core.serialize_size) {
+    LOG_info("Rewind: core does not report serialize size, disabling\n");
+    return;
+  }
+  size_t state_size = core.serialize_size();
   if (!state_size) {
     LOG_info("Rewind: core reported zero serialize size, disabling\n");
     return;
@@ -6253,7 +6262,7 @@ int main(int argc, char *argv[]) {
   State_resume();
   LOG_info("minarch: State_resume done\n");
   rewind_init_ready = 1;
-  Rewind_init(core.serialize_size ? core.serialize_size() : 0);
+  Rewind_init();
   LOG_info("minarch: Rewind_init done\n");
   if (rewind_ctx.enabled)
     Rewind_on_state_change();
