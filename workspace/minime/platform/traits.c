@@ -8,6 +8,7 @@
 #include "traits.h"
 #include "utils.h"
 #include <fcntl.h>
+#include <glob.h>
 #include <linux/input.h>
 #include <stdint.h>
 #include <sys/ioctl.h>
@@ -574,4 +575,15 @@ void MINIME_powerSetCPUSpeed(int speed) {
 
     if (MINIME_traitAvailable(traits->cpu_clock_path) && clock > 0)
         putInt((char *)traits->cpu_clock_path, clock);
+
+    int gpu_clock = (speed >= 3) ? traits->gpu_clock_max : traits->gpu_clock_min;
+    if (gpu_clock > 0) {
+        glob_t gl;
+        if (glob("/sys/class/devfreq/*gpu*/min_freq", 0, NULL, &gl) == 0) {
+            for (size_t i = 0; i < gl.gl_pathc; i++) {
+                putInt(gl.gl_pathv[i], gpu_clock);
+            }
+            globfree(&gl);
+        }
+    }
 }

@@ -739,33 +739,6 @@ static void hw_draw_hud(void) {
       return;
   }
 
-  memset(hw_hud_surf->pixels, 0, hw_hud_surf->pitch * hw_hud_surf->h);
-
-  int x = 2;
-  int y = 2;
-  char debug_text[128];
-
-  // 1. Top-Left: src_w x src_h scale
-  sprintf(debug_text, "%ux%u %ix", hw_fbo_w, hw_fbo_h, 1);
-  blitBitmapTextRGBA(debug_text, x, y, (uint32_t *)hw_hud_surf->pixels,
-                     hw_hud_surf->pitch / 4, DEVICE_WIDTH, DEVICE_HEIGHT);
-
-  // 2. Top-Right: 0,0 (src_w)x(src_h)
-  sprintf(debug_text, "%i,%i %ux%u", 0, 0, hw_fbo_w, hw_fbo_h);
-  blitBitmapTextRGBA(debug_text, -x, y, (uint32_t *)hw_hud_surf->pixels,
-                     hw_hud_surf->pitch / 4, DEVICE_WIDTH, DEVICE_HEIGHT);
-
-  // 3. Bottom-Left: fps / cpu_fps use%
-  sprintf(debug_text, "%.01f/%.01f %i%%", fps_double, cpu_double,
-          (int)use_double);
-  blitBitmapTextRGBA(debug_text, x, -y, (uint32_t *)hw_hud_surf->pixels,
-                     hw_hud_surf->pitch / 4, DEVICE_WIDTH, DEVICE_HEIGHT);
-
-  // 4. Bottom-Right: dst_w x dst_h
-  sprintf(debug_text, "%ix%i", DEVICE_WIDTH, DEVICE_HEIGHT);
-  blitBitmapTextRGBA(debug_text, -x, -y, (uint32_t *)hw_hud_surf->pixels,
-                     hw_hud_surf->pitch / 4, DEVICE_WIDTH, DEVICE_HEIGHT);
-
   if (!hw_hud_tex) {
     glGenTextures(1, &hw_hud_tex);
     glBindTexture(GL_TEXTURE_2D, hw_hud_tex);
@@ -773,11 +746,53 @@ static void hw_draw_hud(void) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, DEVICE_WIDTH, DEVICE_HEIGHT, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, NULL);
   }
 
-  glBindTexture(GL_TEXTURE_2D, hw_hud_tex);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, DEVICE_WIDTH, DEVICE_HEIGHT, 0,
-               GL_RGBA, GL_UNSIGNED_BYTE, hw_hud_surf->pixels);
+  static double prev_fps = -1.0, prev_cpu = -1.0, prev_use = -1.0;
+  static unsigned prev_fw = 0, prev_fh = 0;
+  int hud_changed = (fps_double != prev_fps || cpu_double != prev_cpu ||
+                     use_double != prev_use || hw_fbo_w != prev_fw ||
+                     hw_fbo_h != prev_fh);
+  if (hud_changed) {
+    prev_fps = fps_double;
+    prev_cpu = cpu_double;
+    prev_use = use_double;
+    prev_fw = hw_fbo_w;
+    prev_fh = hw_fbo_h;
+
+    memset(hw_hud_surf->pixels, 0, hw_hud_surf->pitch * hw_hud_surf->h);
+
+    int x = 2;
+    int y = 2;
+    char debug_text[128];
+
+    // 1. Top-Left: src_w x src_h scale
+    sprintf(debug_text, "%ux%u %ix", hw_fbo_w, hw_fbo_h, 1);
+    blitBitmapTextRGBA(debug_text, x, y, (uint32_t *)hw_hud_surf->pixels,
+                       hw_hud_surf->pitch / 4, DEVICE_WIDTH, DEVICE_HEIGHT);
+
+    // 2. Top-Right: 0,0 (src_w)x(src_h)
+    sprintf(debug_text, "%i,%i %ux%u", 0, 0, hw_fbo_w, hw_fbo_h);
+    blitBitmapTextRGBA(debug_text, -x, y, (uint32_t *)hw_hud_surf->pixels,
+                       hw_hud_surf->pitch / 4, DEVICE_WIDTH, DEVICE_HEIGHT);
+
+    // 3. Bottom-Left: fps / cpu_fps use%
+    sprintf(debug_text, "%.01f/%.01f %i%%", fps_double, cpu_double,
+            (int)use_double);
+    blitBitmapTextRGBA(debug_text, x, -y, (uint32_t *)hw_hud_surf->pixels,
+                       hw_hud_surf->pitch / 4, DEVICE_WIDTH, DEVICE_HEIGHT);
+
+    // 4. Bottom-Right: dst_w x dst_h
+    sprintf(debug_text, "%ix%i", DEVICE_WIDTH, DEVICE_HEIGHT);
+    blitBitmapTextRGBA(debug_text, -x, -y, (uint32_t *)hw_hud_surf->pixels,
+                       hw_hud_surf->pitch / 4, DEVICE_WIDTH, DEVICE_HEIGHT);
+
+    glBindTexture(GL_TEXTURE_2D, hw_hud_tex);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, DEVICE_WIDTH, DEVICE_HEIGHT,
+                    GL_RGBA, GL_UNSIGNED_BYTE, hw_hud_surf->pixels);
+  }
 
   int rot = plat_screen_rotation > 0 ? plat_screen_rotation : 0;
 
@@ -804,7 +819,8 @@ static void hw_draw_hud(void) {
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-  glUseProgram(menu_prog ? menu_prog : comp_prog);
+  GLuint prog = menu_prog ? menu_prog : comp_prog;
+  glUseProgram(prog);
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, hw_hud_tex);
   if (menu_prog) {
@@ -817,12 +833,11 @@ static void hw_draw_hud(void) {
     glUniform1i(comp_u_effect, EFFECT_NONE);
   }
 
+  GLint pos_attr = menu_prog ? menu_a_pos : comp_a_pos;
+  GLint uv_attr = menu_prog ? menu_a_texcoord : comp_a_texcoord;
+
   glBindBuffer(GL_ARRAY_BUFFER, comp_vbo);
   glBufferData(GL_ARRAY_BUFFER, sizeof(hud_verts), hud_verts, GL_DYNAMIC_DRAW);
-  GLint pos_attr =
-      glGetAttribLocation(menu_prog ? menu_prog : comp_prog, "a_pos");
-  GLint uv_attr =
-      glGetAttribLocation(menu_prog ? menu_prog : comp_prog, "a_texcoord");
   glEnableVertexAttribArray(pos_attr);
   glVertexAttribPointer(pos_attr, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
                         (void *)0);
@@ -977,8 +992,13 @@ static void hw_render_compositor_frame(unsigned width, unsigned height) {
 #undef ROT_Y
 
   glBindBuffer(GL_ARRAY_BUFFER, comp_vbo);
-  glBufferData(GL_ARRAY_BUFFER, sizeof(quad_verts), quad_verts,
-               GL_DYNAMIC_DRAW);
+  static float prev_quad[16] = {0};
+  static int quad_initialized = 0;
+  if (!quad_initialized || memcmp(prev_quad, quad_verts, sizeof(quad_verts)) != 0) {
+    memcpy(prev_quad, quad_verts, sizeof(quad_verts));
+    glBufferData(GL_ARRAY_BUFFER, sizeof(quad_verts), quad_verts, GL_DYNAMIC_DRAW);
+    quad_initialized = 1;
+  }
   glEnableVertexAttribArray(comp_a_pos);
   glVertexAttribPointer(comp_a_pos, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
                         (void *)0);
@@ -6528,6 +6548,10 @@ static void *coreThread(void *arg) {
 
 int main(int argc, char *argv[]) {
   LOG_info("MinArch\n");
+
+  setenv("mesa_glthread", "true", 0);
+  setenv("MESA_NO_ERROR", "1", 0);
+  setenv("vblank_mode", "0", 0);
 
   setOverclock(overclock); // default to normal
   // force a stack overflow to ensure asan is linked and actually working
