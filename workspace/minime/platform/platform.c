@@ -634,7 +634,7 @@ SDL_GLContext PLAT_initGLContext(int major, int minor, int gles) {
     }
     if (vid.gl_ctx) {
         SDL_GL_MakeCurrent(vid.window, vid.gl_ctx);
-        SDL_GL_SetSwapInterval(1);
+        SDL_GL_SetSwapInterval(0);
     }
     return vid.gl_ctx;
 }
@@ -683,7 +683,14 @@ void PLAT_clearAll(void) {
 }
 
 void PLAT_setVsync(int vsync) {
-    (void)vsync;
+    if (vid.gl_ctx) {
+        if (vsync == 0)
+            SDL_GL_SetSwapInterval(0);
+        else if (vsync == 1)
+            SDL_GL_SetSwapInterval(SDL_GL_SetSwapInterval(-1) == 0 ? -1 : 0);
+        else
+            SDL_GL_SetSwapInterval(1);
+    }
 }
 
 static int hard_scale = 4; // TODO: base src size, eg. 160x144 can be 4

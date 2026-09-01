@@ -164,11 +164,15 @@ static GLint comp_u_sharpness = -1;
 static GLint comp_u_tex_size = -1;
 static GLint comp_u_out_size = -1;
 static GLint comp_u_effect = -1;
+static GLint comp_a_pos = -1;
+static GLint comp_a_texcoord = -1;
 
 static GLuint menu_prog = 0;
 static GLuint menu_vbo = 0;
 static GLuint menu_tex = 0;
 static GLint menu_u_tex = -1;
+static GLint menu_a_pos = -1;
+static GLint menu_a_texcoord = -1;
 
 static SRC_STATE *audio_src_state = NULL;
 static float *audio_src_in = NULL;
@@ -276,6 +280,8 @@ static void hw_init_compositor(void) {
     comp_u_tex_size = glGetUniformLocation(comp_prog, "u_tex_size");
     comp_u_out_size = glGetUniformLocation(comp_prog, "u_out_size");
     comp_u_effect = glGetUniformLocation(comp_prog, "u_effect");
+    comp_a_pos = glGetAttribLocation(comp_prog, "a_pos");
+    comp_a_texcoord = glGetAttribLocation(comp_prog, "a_texcoord");
     glGenBuffers(1, &comp_vbo);
   }
 
@@ -291,6 +297,8 @@ static void hw_init_compositor(void) {
   menu_prog = hw_create_program(vsrc, menu_fsrc);
   if (menu_prog) {
     menu_u_tex = glGetUniformLocation(menu_prog, "u_tex");
+    menu_a_pos = glGetAttribLocation(menu_prog, "a_pos");
+    menu_a_texcoord = glGetAttribLocation(menu_prog, "a_texcoord");
     glGenBuffers(1, &menu_vbo);
     glGenTextures(1, &menu_tex);
     glBindTexture(GL_TEXTURE_2D, menu_tex);
@@ -435,19 +443,17 @@ static void hw_render_menu_surface(SDL_Surface *surface) {
   glBindBuffer(GL_ARRAY_BUFFER, menu_vbo);
   glBufferData(GL_ARRAY_BUFFER, sizeof(quad_verts), quad_verts,
                GL_DYNAMIC_DRAW);
-  GLint pos_attr = glGetAttribLocation(menu_prog, "a_pos");
-  GLint uv_attr = glGetAttribLocation(menu_prog, "a_texcoord");
-  glEnableVertexAttribArray(pos_attr);
-  glVertexAttribPointer(pos_attr, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+  glEnableVertexAttribArray(menu_a_pos);
+  glVertexAttribPointer(menu_a_pos, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
                         (void *)0);
-  glEnableVertexAttribArray(uv_attr);
-  glVertexAttribPointer(uv_attr, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+  glEnableVertexAttribArray(menu_a_texcoord);
+  glVertexAttribPointer(menu_a_texcoord, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
                         (void *)(2 * sizeof(float)));
 
   glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
-  glDisableVertexAttribArray(pos_attr);
-  glDisableVertexAttribArray(uv_attr);
+  glDisableVertexAttribArray(menu_a_pos);
+  glDisableVertexAttribArray(menu_a_texcoord);
 
   PLAT_glSwap();
 }
@@ -923,8 +929,10 @@ static void hw_render_compositor_frame(unsigned width, unsigned height) {
 
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
   glViewport(0, 0, phys_w, phys_h);
-  glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-  glClear(GL_COLOR_BUFFER_BIT);
+  if (dst_x > 0 || dst_y > 0 || dst_w < DEVICE_WIDTH || dst_h < DEVICE_HEIGHT) {
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+  }
 
   glUseProgram(comp_prog);
   glActiveTexture(GL_TEXTURE0);
@@ -971,19 +979,17 @@ static void hw_render_compositor_frame(unsigned width, unsigned height) {
   glBindBuffer(GL_ARRAY_BUFFER, comp_vbo);
   glBufferData(GL_ARRAY_BUFFER, sizeof(quad_verts), quad_verts,
                GL_DYNAMIC_DRAW);
-  GLint pos_attr = glGetAttribLocation(comp_prog, "a_pos");
-  GLint uv_attr = glGetAttribLocation(comp_prog, "a_texcoord");
-  glEnableVertexAttribArray(pos_attr);
-  glVertexAttribPointer(pos_attr, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+  glEnableVertexAttribArray(comp_a_pos);
+  glVertexAttribPointer(comp_a_pos, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
                         (void *)0);
-  glEnableVertexAttribArray(uv_attr);
-  glVertexAttribPointer(uv_attr, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+  glEnableVertexAttribArray(comp_a_texcoord);
+  glVertexAttribPointer(comp_a_texcoord, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
                         (void *)(2 * sizeof(float)));
 
   glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
-  glDisableVertexAttribArray(pos_attr);
-  glDisableVertexAttribArray(uv_attr);
+  glDisableVertexAttribArray(comp_a_pos);
+  glDisableVertexAttribArray(comp_a_texcoord);
 
   hw_draw_hud();
 
