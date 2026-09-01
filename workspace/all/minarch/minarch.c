@@ -275,6 +275,7 @@ static void hw_init_compositor(void) {
   }
 
   const char *menu_fsrc =
+      "#version 100\n"
       "precision mediump float;\n"
       "varying vec2 v_texcoord;\n"
       "uniform sampler2D u_tex;\n"
@@ -6136,8 +6137,10 @@ static void run_frame(void) {
 static void *coreThread(void *arg) {
   // force a vsync immediately before loop
   // for better frame pacing?
-  GFX_clearAll();
-  GFX_flip(screen);
+  if (!hw_render_enabled) {
+    GFX_clearAll();
+    GFX_flip(screen);
+  }
 
   while (!quit) {
     int run = 0;
@@ -6246,8 +6249,10 @@ int main(int argc, char *argv[]) {
 
   // force a vsync immediately before loop
   // for better frame pacing?
-  GFX_clearAll();
-  GFX_flip(screen);
+  if (!hw_render_enabled) {
+    GFX_clearAll();
+    GFX_flip(screen);
+  }
 
   Special_init(); // after config
 
