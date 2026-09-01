@@ -452,44 +452,328 @@ static void hw_render_menu_surface(SDL_Surface *surface) {
   PLAT_glSwap();
 }
 
-static void hw_draw_hud(void) {
-  if (!show_debug || !font.large)
-    return;
+static const char *bitmap_font[] = {
+    ['0'] = " 111 "
+            "1   1"
+            "1   1"
+            "1  11"
+            "1 1 1"
+            "11  1"
+            "1   1"
+            "1   1"
+            " 111 ",
+    ['1'] = "   1 "
+            " 111 "
+            "   1 "
+            "   1 "
+            "   1 "
+            "   1 "
+            "   1 "
+            "   1 "
+            "   1 ",
+    ['2'] = " 111 "
+            "1   1"
+            "    1"
+            "   1 "
+            "  1  "
+            " 1   "
+            "1    "
+            "1    "
+            "11111",
+    ['3'] = " 111 "
+            "1   1"
+            "    1"
+            "    1"
+            " 111 "
+            "    1"
+            "    1"
+            "1   1"
+            " 111 ",
+    ['4'] = "1   1"
+            "1   1"
+            "1   1"
+            "1   1"
+            "1   1"
+            "1   1"
+            "11111"
+            "    1"
+            "    1",
+    ['5'] = "11111"
+            "1    "
+            "1    "
+            "1111 "
+            "    1"
+            "    1"
+            "    1"
+            "1   1"
+            " 111 ",
+    ['6'] = " 111 "
+            "1    "
+            "1    "
+            "1111 "
+            "1   1"
+            "1   1"
+            "1   1"
+            "1   1"
+            " 111 ",
+    ['7'] = "11111"
+            "    1"
+            "    1"
+            "   1 "
+            "  1  "
+            "  1  "
+            "  1  "
+            "  1  "
+            "  1  ",
+    ['8'] = " 111 "
+            "1   1"
+            "1   1"
+            "1   1"
+            " 111 "
+            "1   1"
+            "1   1"
+            "1   1"
+            " 111 ",
+    ['9'] = " 111 "
+            "1   1"
+            "1   1"
+            "1   1"
+            "1   1"
+            " 1111"
+            "    1"
+            "    1"
+            " 111 ",
+    ['.'] = "     "
+            "     "
+            "     "
+            "     "
+            "     "
+            "     "
+            "     "
+            " 11  "
+            " 11  ",
+    [','] = "     "
+            "     "
+            "     "
+            "     "
+            "     "
+            "     "
+            "  1  "
+            "  1  "
+            " 1   ",
+    [' '] = "     "
+            "     "
+            "     "
+            "     "
+            "     "
+            "     "
+            "     "
+            "     "
+            "     ",
+    ['('] = "   1 "
+            "  1  "
+            " 1   "
+            " 1   "
+            " 1   "
+            " 1   "
+            " 1   "
+            "  1  "
+            "   1 ",
+    [')'] = " 1   "
+            "  1  "
+            "   1 "
+            "   1 "
+            "   1 "
+            "   1 "
+            "   1 "
+            "  1  "
+            " 1   ",
+    ['/'] = "   1 "
+            "   1 "
+            "   1 "
+            "  1  "
+            "  1  "
+            "  1  "
+            " 1   "
+            " 1   "
+            " 1   ",
+    ['x'] = "     "
+            "     "
+            "1   1"
+            "1   1"
+            " 1 1 "
+            "  1  "
+            " 1 1 "
+            "1   1"
+            "1   1",
+    ['%'] = " 1   "
+            "1 1  "
+            "1 1 1"
+            " 1 1 "
+            "  1  "
+            " 1 1 "
+            "1 1 1"
+            "  1 1"
+            "   1 ",
+    ['-'] = "     "
+            "     "
+            "     "
+            "     "
+            " 111 "
+            "     "
+            "     "
+            "     "
+            "     ",
+};
 
-  char debug_text[64];
-  snprintf(debug_text, sizeof(debug_text), "%.1f FPS", fps_double);
+static void blitBitmapText(char *text, int ox, int oy, uint16_t *data,
+                           int stride, int width, int height) {
+#define CHAR_WIDTH 5
+#define CHAR_HEIGHT 9
+#define LETTERSPACING 1
 
-  SDL_Surface *text =
-      TTF_RenderUTF8_Blended(font.large, debug_text, COLOR_WHITE);
-  if (!text)
-    return;
+  int len = strlen(text);
+  int w = ((CHAR_WIDTH + LETTERSPACING) * len) - 1;
+  int h = CHAR_HEIGHT;
 
-  SDL_Surface *rgba = SDL_CreateRGBSurfaceWithFormat(
-      0, text->w, text->h, 32, SDL_PIXELFORMAT_RGBA32);
-  if (rgba) {
-    SDL_BlitSurface(text, NULL, rgba, NULL);
+  if (ox < 0)
+    ox = width - w + ox;
+  if (oy < 0)
+    oy = height - h + oy;
 
-    if (!hw_hud_tex) {
-      glGenTextures(1, &hw_hud_tex);
-      glBindTexture(GL_TEXTURE_2D, hw_hud_tex);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  data += oy * stride + ox;
+  uint16_t *row = data - stride; // TODO: this will crash and burn if ox,oy==0,0
+                                 // but is fine as used currently :sweat_smile:
+  memset(row - 1, 0, (w + 2) * 2);
+  for (int y = 0; y < CHAR_HEIGHT; y++) {
+    row = data + y * stride;
+    memset(row - 1, 0, (w + 2) * 2);
+    for (int i = 0; i < len; i++) {
+      const char *c = bitmap_font[(unsigned char)text[i]];
+      if (!c)
+        continue;
+      for (int x = 0; x < CHAR_WIDTH; x++) {
+        int j = y * CHAR_WIDTH + x;
+        if (c[j] == '1')
+          *row = 0xffff;
+        row++;
+      }
+      row += LETTERSPACING;
     }
+  }
+  row = data + CHAR_HEIGHT * stride;
+  memset(row - 1, 0, (w + 2) * 2);
+#undef CHAR_WIDTH
+#undef CHAR_HEIGHT
+#undef LETTERSPACING
+}
 
+static void blitBitmapTextRGBA(char *text, int ox, int oy, uint32_t *data,
+                               int stride, int width, int height) {
+#define CHAR_WIDTH 5
+#define CHAR_HEIGHT 9
+#define LETTERSPACING 1
+
+  int len = strlen(text);
+  int w = ((CHAR_WIDTH + LETTERSPACING) * len) - 1;
+  int h = CHAR_HEIGHT;
+
+  if (ox < 0)
+    ox = width - w + ox;
+  if (oy < 0)
+    oy = height - h + oy;
+
+  if (ox < 1)
+    ox = 1;
+  if (oy < 1)
+    oy = 1;
+  if (ox + w >= width)
+    ox = width - w - 1;
+  if (oy + h >= height)
+    oy = height - h - 1;
+
+  data += oy * stride + ox;
+  uint32_t *row = data - stride;
+  for (int i = -1; i <= w; i++)
+    row[i] = 0xFF000000;
+  for (int y = 0; y < CHAR_HEIGHT; y++) {
+    row = data + y * stride;
+    for (int i = -1; i <= w; i++)
+      row[i] = 0xFF000000;
+    for (int i = 0; i < len; i++) {
+      const char *c = bitmap_font[(unsigned char)text[i]];
+      if (!c)
+        continue;
+      for (int x = 0; x < CHAR_WIDTH; x++) {
+        int j = y * CHAR_WIDTH + x;
+        if (c[j] == '1')
+          row[i * (CHAR_WIDTH + LETTERSPACING) + x] = 0xFFFFFFFF;
+      }
+    }
+  }
+  row = data + CHAR_HEIGHT * stride;
+  for (int i = -1; i <= w; i++)
+    row[i] = 0xFF000000;
+
+#undef CHAR_WIDTH
+#undef CHAR_HEIGHT
+#undef LETTERSPACING
+}
+
+static SDL_Surface *hw_hud_surf = NULL;
+
+static void hw_draw_hud(void) {
+  if (!show_debug)
+    return;
+
+  if (!hw_hud_surf) {
+    hw_hud_surf = SDL_CreateRGBSurfaceWithFormat(
+        0, DEVICE_WIDTH, DEVICE_HEIGHT, 32, SDL_PIXELFORMAT_RGBA32);
+    if (!hw_hud_surf)
+      return;
+  }
+
+  memset(hw_hud_surf->pixels, 0, hw_hud_surf->pitch * hw_hud_surf->h);
+
+  int x = 2;
+  int y = 2;
+  char debug_text[128];
+
+  // 1. Top-Left: src_w x src_h scale
+  sprintf(debug_text, "%ux%u %ix", hw_fbo_w, hw_fbo_h, 1);
+  blitBitmapTextRGBA(debug_text, x, y, (uint32_t *)hw_hud_surf->pixels,
+                     hw_hud_surf->pitch / 4, DEVICE_WIDTH, DEVICE_HEIGHT);
+
+  // 2. Top-Right: 0,0 (src_w)x(src_h)
+  sprintf(debug_text, "%i,%i %ux%u", 0, 0, hw_fbo_w, hw_fbo_h);
+  blitBitmapTextRGBA(debug_text, -x, y, (uint32_t *)hw_hud_surf->pixels,
+                     hw_hud_surf->pitch / 4, DEVICE_WIDTH, DEVICE_HEIGHT);
+
+  // 3. Bottom-Left: fps / cpu_fps use%
+  sprintf(debug_text, "%.01f/%.01f %i%%", fps_double, cpu_double,
+          (int)use_double);
+  blitBitmapTextRGBA(debug_text, x, -y, (uint32_t *)hw_hud_surf->pixels,
+                     hw_hud_surf->pitch / 4, DEVICE_WIDTH, DEVICE_HEIGHT);
+
+  // 4. Bottom-Right: dst_w x dst_h
+  sprintf(debug_text, "%ix%i", DEVICE_WIDTH, DEVICE_HEIGHT);
+  blitBitmapTextRGBA(debug_text, -x, -y, (uint32_t *)hw_hud_surf->pixels,
+                     hw_hud_surf->pitch / 4, DEVICE_WIDTH, DEVICE_HEIGHT);
+
+  if (!hw_hud_tex) {
+    glGenTextures(1, &hw_hud_tex);
     glBindTexture(GL_TEXTURE_2D, hw_hud_tex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, rgba->w, rgba->h, 0, GL_RGBA,
-                 GL_UNSIGNED_BYTE, rgba->pixels);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  }
 
-    int rot = plat_screen_rotation > 0 ? plat_screen_rotation : 0;
-    int dst_x = 8, dst_y = 8;
-    int dst_w = rgba->w, dst_h = rgba->h;
+  glBindTexture(GL_TEXTURE_2D, hw_hud_tex);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, DEVICE_WIDTH, DEVICE_HEIGHT, 0,
+               GL_RGBA, GL_UNSIGNED_BYTE, hw_hud_surf->pixels);
 
-    float x0 = (float)dst_x / (float)DEVICE_WIDTH * 2.0f - 1.0f;
-    float x1 = (float)(dst_x + dst_w) / (float)DEVICE_WIDTH * 2.0f - 1.0f;
-    float y0 = 1.0f - (float)(dst_y + dst_h) / (float)DEVICE_HEIGHT * 2.0f;
-    float y1 = 1.0f - (float)dst_y / (float)DEVICE_HEIGHT * 2.0f;
+  int rot = plat_screen_rotation > 0 ? plat_screen_rotation : 0;
 
 #define ROT_X(lx, ly)                                                          \
   ((rot == 90)    ? (ly)                                                       \
@@ -502,57 +786,56 @@ static void hw_draw_hud(void) {
    : (rot == 270) ? (lx)                                                       \
                   : (ly))
 
-    float hud_verts[] = {
-        ROT_X(x0, y0), ROT_Y(x0, y0), 0.0f, 1.0f,
-        ROT_X(x1, y0), ROT_Y(x1, y0), 1.0f, 1.0f,
-        ROT_X(x0, y1), ROT_Y(x0, y1), 0.0f, 0.0f,
-        ROT_X(x1, y1), ROT_Y(x1, y1), 1.0f, 0.0f,
-    };
+  float hud_verts[] = {
+      ROT_X(-1.0f, -1.0f), ROT_Y(-1.0f, -1.0f), 0.0f, 1.0f,
+      ROT_X( 1.0f, -1.0f), ROT_Y( 1.0f, -1.0f), 1.0f, 1.0f,
+      ROT_X(-1.0f,  1.0f), ROT_Y(-1.0f,  1.0f), 0.0f, 0.0f,
+      ROT_X( 1.0f,  1.0f), ROT_Y( 1.0f,  1.0f), 1.0f, 0.0f,
+  };
 #undef ROT_X
 #undef ROT_Y
 
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    glUseProgram(menu_prog ? menu_prog : comp_prog);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, hw_hud_tex);
-    if (menu_prog) {
-      glUniform1i(menu_u_tex, 0);
-    } else {
-      glUniform1i(comp_u_tex, 0);
-      glUniform1i(comp_u_sharpness, 0);
-      glUniform2f(comp_u_tex_size, (float)rgba->w, (float)rgba->h);
-      glUniform2f(comp_u_out_size, (float)rgba->w, (float)rgba->h);
-      glUniform1i(comp_u_effect, EFFECT_NONE);
-    }
-
-    glBindBuffer(GL_ARRAY_BUFFER, comp_vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(hud_verts), hud_verts,
-                 GL_DYNAMIC_DRAW);
-    GLint pos_attr =
-        glGetAttribLocation(menu_prog ? menu_prog : comp_prog, "a_pos");
-    GLint uv_attr =
-        glGetAttribLocation(menu_prog ? menu_prog : comp_prog, "a_texcoord");
-    glEnableVertexAttribArray(pos_attr);
-    glVertexAttribPointer(pos_attr, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
-                          (void *)0);
-    glEnableVertexAttribArray(uv_attr);
-    glVertexAttribPointer(uv_attr, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
-                          (void *)(2 * sizeof(float)));
-
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
-    glDisableVertexAttribArray(pos_attr);
-    glDisableVertexAttribArray(uv_attr);
-    glDisable(GL_BLEND);
-
-    SDL_FreeSurface(rgba);
+  glUseProgram(menu_prog ? menu_prog : comp_prog);
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, hw_hud_tex);
+  if (menu_prog) {
+    glUniform1i(menu_u_tex, 0);
+  } else {
+    glUniform1i(comp_u_tex, 0);
+    glUniform1i(comp_u_sharpness, 0);
+    glUniform2f(comp_u_tex_size, (float)DEVICE_WIDTH, (float)DEVICE_HEIGHT);
+    glUniform2f(comp_u_out_size, (float)DEVICE_WIDTH, (float)DEVICE_HEIGHT);
+    glUniform1i(comp_u_effect, EFFECT_NONE);
   }
-  SDL_FreeSurface(text);
+
+  glBindBuffer(GL_ARRAY_BUFFER, comp_vbo);
+  glBufferData(GL_ARRAY_BUFFER, sizeof(hud_verts), hud_verts, GL_DYNAMIC_DRAW);
+  GLint pos_attr =
+      glGetAttribLocation(menu_prog ? menu_prog : comp_prog, "a_pos");
+  GLint uv_attr =
+      glGetAttribLocation(menu_prog ? menu_prog : comp_prog, "a_texcoord");
+  glEnableVertexAttribArray(pos_attr);
+  glVertexAttribPointer(pos_attr, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+                        (void *)0);
+  glEnableVertexAttribArray(uv_attr);
+  glVertexAttribPointer(uv_attr, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+                        (void *)(2 * sizeof(float)));
+
+  glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+  glDisableVertexAttribArray(pos_attr);
+  glDisableVertexAttribArray(uv_attr);
+  glDisable(GL_BLEND);
 }
 
 static void hw_destroy_compositor(void) {
+  if (hw_hud_surf) {
+    SDL_FreeSurface(hw_hud_surf);
+    hw_hud_surf = NULL;
+  }
   if (hw_hud_tex) {
     glDeleteTextures(1, &hw_hud_tex);
     hw_hud_tex = 0;
@@ -3453,218 +3736,6 @@ static int MSG_blitDouble(double num, int x, int y) {
   return x;
 }
 static void MSG_quit(void) { SDL_FreeSurface(digits); }
-
-///////////////////////////////
-
-static const char *bitmap_font[] = {
-    ['0'] = " 111 "
-            "1   1"
-            "1   1"
-            "1  11"
-            "1 1 1"
-            "11  1"
-            "1   1"
-            "1   1"
-            " 111 ",
-    ['1'] = "   1 "
-            " 111 "
-            "   1 "
-            "   1 "
-            "   1 "
-            "   1 "
-            "   1 "
-            "   1 "
-            "   1 ",
-    ['2'] = " 111 "
-            "1   1"
-            "    1"
-            "   1 "
-            "  1  "
-            " 1   "
-            "1    "
-            "1    "
-            "11111",
-    ['3'] = " 111 "
-            "1   1"
-            "    1"
-            "    1"
-            " 111 "
-            "    1"
-            "    1"
-            "1   1"
-            " 111 ",
-    ['4'] = "1   1"
-            "1   1"
-            "1   1"
-            "1   1"
-            "1   1"
-            "1   1"
-            "11111"
-            "    1"
-            "    1",
-    ['5'] = "11111"
-            "1    "
-            "1    "
-            "1111 "
-            "    1"
-            "    1"
-            "    1"
-            "1   1"
-            " 111 ",
-    ['6'] = " 111 "
-            "1    "
-            "1    "
-            "1111 "
-            "1   1"
-            "1   1"
-            "1   1"
-            "1   1"
-            " 111 ",
-    ['7'] = "11111"
-            "    1"
-            "    1"
-            "   1 "
-            "  1  "
-            "  1  "
-            "  1  "
-            "  1  "
-            "  1  ",
-    ['8'] = " 111 "
-            "1   1"
-            "1   1"
-            "1   1"
-            " 111 "
-            "1   1"
-            "1   1"
-            "1   1"
-            " 111 ",
-    ['9'] = " 111 "
-            "1   1"
-            "1   1"
-            "1   1"
-            "1   1"
-            " 1111"
-            "    1"
-            "    1"
-            " 111 ",
-    ['.'] = "     "
-            "     "
-            "     "
-            "     "
-            "     "
-            "     "
-            "     "
-            " 11  "
-            " 11  ",
-    [','] = "     "
-            "     "
-            "     "
-            "     "
-            "     "
-            "     "
-            "  1  "
-            "  1  "
-            " 1   ",
-    [' '] = "     "
-            "     "
-            "     "
-            "     "
-            "     "
-            "     "
-            "     "
-            "     "
-            "     ",
-    ['('] = "   1 "
-            "  1  "
-            " 1   "
-            " 1   "
-            " 1   "
-            " 1   "
-            " 1   "
-            "  1  "
-            "   1 ",
-    [')'] = " 1   "
-            "  1  "
-            "   1 "
-            "   1 "
-            "   1 "
-            "   1 "
-            "   1 "
-            "  1  "
-            " 1   ",
-    ['/'] = "   1 "
-            "   1 "
-            "   1 "
-            "  1  "
-            "  1  "
-            "  1  "
-            " 1   "
-            " 1   "
-            " 1   ",
-    ['x'] = "     "
-            "     "
-            "1   1"
-            "1   1"
-            " 1 1 "
-            "  1  "
-            " 1 1 "
-            "1   1"
-            "1   1",
-    ['%'] = " 1   "
-            "1 1  "
-            "1 1 1"
-            " 1 1 "
-            "  1  "
-            " 1 1 "
-            "1 1 1"
-            "  1 1"
-            "   1 ",
-    ['-'] = "     "
-            "     "
-            "     "
-            "     "
-            " 111 "
-            "     "
-            "     "
-            "     "
-            "     ",
-};
-static void blitBitmapText(char *text, int ox, int oy, uint16_t *data,
-                           int stride, int width, int height) {
-#define CHAR_WIDTH 5
-#define CHAR_HEIGHT 9
-#define LETTERSPACING 1
-
-  int len = strlen(text);
-  int w = ((CHAR_WIDTH + LETTERSPACING) * len) - 1;
-  int h = CHAR_HEIGHT;
-
-  if (ox < 0)
-    ox = width - w + ox;
-  if (oy < 0)
-    oy = height - h + oy;
-
-  data += oy * stride + ox;
-  uint16_t *row = data - stride; // TODO: this will crash and burn if ox,oy==0,0
-                                 // but is fine as used currently :sweat_smile:
-  memset(row - 1, 0, (w + 2) * 2);
-  for (int y = 0; y < CHAR_HEIGHT; y++) {
-    row = data + y * stride;
-    memset(row - 1, 0, (w + 2) * 2);
-    for (int i = 0; i < len; i++) {
-      const char *c = bitmap_font[text[i]];
-      for (int x = 0; x < CHAR_WIDTH; x++) {
-        int j = y * CHAR_WIDTH + x;
-        if (c[j] == '1')
-          *row = 0xffff;
-        row++;
-      }
-      row += LETTERSPACING;
-    }
-  }
-  row = data + CHAR_HEIGHT * stride;
-  memset(row - 1, 0, (w + 2) * 2);
-}
 
 ///////////////////////////////
 
