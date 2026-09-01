@@ -3766,7 +3766,7 @@ static void video_refresh_callback_main(const void *data, unsigned width,
   }
 
   // debug
-  if (show_debug) {
+  if (show_debug && data && (intptr_t)data != -1 && !hw_render_enabled) {
     int x = 2 + renderer.src_x;
     int y = 2 + renderer.src_y;
     char debug_text[128];
@@ -5238,6 +5238,11 @@ static void Menu_loop(void) {
   SDL_FreeSurface(menu.bitmap);
   menu.bitmap = NULL;
   SDL_FreeSurface(backing);
+  if (hw_render_enabled) {
+    PLAT_initGLContext(3, 0, 1);
+    glBindFramebuffer(GL_FRAMEBUFFER, hw_fbo);
+    glViewport(0, 0, hw_fbo_w, hw_fbo_h);
+  }
   PWR_disableAutosleep();
 }
 

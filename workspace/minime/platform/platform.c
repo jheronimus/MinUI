@@ -610,6 +610,7 @@ SDL_Surface *PLAT_initVideo(void) {
 
 SDL_GLContext PLAT_initGLContext(int major, int minor, int gles) {
     if (vid.gl_ctx) {
+        SDL_GL_MakeCurrent(vid.window, vid.gl_ctx);
         return vid.gl_ctx;
     }
     if (gles) {
