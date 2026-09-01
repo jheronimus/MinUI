@@ -2756,6 +2756,7 @@ static void OptionList_init(const struct retro_core_option_definition *defs) {
       // LOG_info("\tINIT %s (%s) TO %s (%s)\n", item->name, item->key,
       // item->labels[item->value], item->values[item->value]);
     }
+    Config_readOptions();
   }
   // fflush(stdout);
 }
@@ -2816,6 +2817,7 @@ static void OptionList_vars(const struct retro_variable *vars) {
       // printf("SET %s to %s (%i)\n", item->key, default_value, item->value);
       // fflush(stdout);
     }
+    Config_readOptions();
   }
   // fflush(stdout);
 }
@@ -2894,9 +2896,10 @@ static void OptionList_setOptionValue(OptionList *list, const char *key,
   if (item) {
     Option_setValue(item, value);
     list->changed = 1;
-    // LOG_info("\tSET %s (%s) TO %s (%s)\n", item->name, item->key,
-    // item->labels[item->value], item->values[item->value]); if (list->on_set)
-    // list->on_set(list, key);
+    LOG_info("\tSET %s (%s) TO %s (%s)\n", item->name, item->key,
+             item->labels[item->value], item->values[item->value]);
+    if (list->on_set)
+      list->on_set(list, key);
 
     if (exactMatch((char *)core.tag, "GB") &&
         containsString(item->key, "palette"))
