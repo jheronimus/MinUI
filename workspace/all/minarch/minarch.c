@@ -217,6 +217,8 @@ static void hw_init_compositor(void) {
     return;
 
   const char *vsrc =
+      "#version 100\n"
+      "precision mediump float;\n"
       "attribute vec2 a_pos;\n"
       "attribute vec2 a_texcoord;\n"
       "varying vec2 v_texcoord;\n"
@@ -226,6 +228,7 @@ static void hw_init_compositor(void) {
       "}\n";
 
   const char *fsrc =
+      "#version 100\n"
       "precision mediump float;\n"
       "varying vec2 v_texcoord;\n"
       "uniform sampler2D u_tex;\n"
