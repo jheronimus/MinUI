@@ -453,12 +453,19 @@ static void hw_render_compositor_frame(unsigned width, unsigned height) {
     dst_y = (DEVICE_HEIGHT - dst_h) / 2;
   }
 
+  int phys_w = DEVICE_WIDTH;
+  int phys_h = DEVICE_HEIGHT;
+  int rot = plat_screen_rotation > 0 ? plat_screen_rotation : 0;
+  if (rot == 90 || rot == 270) {
+    phys_w = DEVICE_HEIGHT;
+    phys_h = DEVICE_WIDTH;
+  }
+
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
-  glViewport(0, 0, DEVICE_WIDTH, DEVICE_HEIGHT);
+  glViewport(0, 0, phys_w, phys_h);
   glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT);
 
-  glViewport(dst_x, dst_y, dst_w, dst_h);
   glUseProgram(comp_prog);
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, hw_fbo_tex);
@@ -470,12 +477,36 @@ static void hw_render_compositor_frame(unsigned width, unsigned height) {
 
   float v0 = hw_render.bottom_left_origin ? 0.0f : 1.0f;
   float v1 = hw_render.bottom_left_origin ? 1.0f : 0.0f;
+
+  float x0 = (float)dst_x / (float)DEVICE_WIDTH * 2.0f - 1.0f;
+  float x1 = (float)(dst_x + dst_w) / (float)DEVICE_WIDTH * 2.0f - 1.0f;
+  float y0 = 1.0f - (float)(dst_y + dst_h) / (float)DEVICE_HEIGHT * 2.0f;
+  float y1 = 1.0f - (float)dst_y / (float)DEVICE_HEIGHT * 2.0f;
+
+  float p_bl_x = x0, p_bl_y = y0;
+  float p_br_x = x1, p_br_y = y0;
+  float p_tl_x = x0, p_tl_y = y1;
+  float p_tr_x = x1, p_tr_y = y1;
+
+#define ROT_X(lx, ly)                                                          \
+  ((rot == 90)    ? (ly)                                                       \
+   : (rot == 180) ? -(lx)                                                      \
+   : (rot == 270) ? -(ly)                                                      \
+                  : (lx))
+#define ROT_Y(lx, ly)                                                          \
+  ((rot == 90)    ? -(lx)                                                      \
+   : (rot == 180) ? -(ly)                                                      \
+   : (rot == 270) ? (lx)                                                       \
+                  : (ly))
+
   float quad_verts[] = {
-      -1.0f, -1.0f, 0.0f, v0,
-       1.0f, -1.0f, 1.0f, v0,
-      -1.0f,  1.0f, 0.0f, v1,
-       1.0f,  1.0f, 1.0f, v1,
+      ROT_X(p_bl_x, p_bl_y), ROT_Y(p_bl_x, p_bl_y), 0.0f, v0,
+      ROT_X(p_br_x, p_br_y), ROT_Y(p_br_x, p_br_y), 1.0f, v0,
+      ROT_X(p_tl_x, p_tl_y), ROT_Y(p_tl_x, p_tl_y), 0.0f, v1,
+      ROT_X(p_tr_x, p_tr_y), ROT_Y(p_tr_x, p_tr_y), 1.0f, v1,
   };
+#undef ROT_X
+#undef ROT_Y
 
   glBindBuffer(GL_ARRAY_BUFFER, comp_vbo);
   glBufferData(GL_ARRAY_BUFFER, sizeof(quad_verts), quad_verts,
