@@ -54,6 +54,13 @@ static int screen_sharpness = SHARPNESS_SOFT;
 static int screen_effect = EFFECT_NONE;
 static int prevent_tearing = 1; // lenient
 static int show_debug = 0;
+static int cpu_ticks = 0;
+static int fps_ticks = 0;
+static int use_ticks = 0;
+static double fps_double = 0;
+static double cpu_double = 0;
+static double use_double = 0;
+static uint32_t sec_start = 0;
 static int max_ff_speed = 3; // 4x
 static int fast_forward = 0;
 static int overclock = 1; // normal
@@ -3660,14 +3667,6 @@ static void blitBitmapText(char *text, int ox, int oy, uint16_t *data,
 }
 
 ///////////////////////////////
-
-static int cpu_ticks = 0;
-static int fps_ticks = 0;
-static int use_ticks = 0;
-static double fps_double = 0;
-static double cpu_double = 0;
-static double use_double = 0;
-static uint32_t sec_start = 0;
 
 #ifdef USES_SWSCALER
 static int fit = 1;
