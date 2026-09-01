@@ -882,7 +882,13 @@ void PLAT_blitRenderer(GFX_Renderer *renderer) {
     resizeVideo(vid.blit->true_w, vid.blit->true_h, vid.blit->src_p);
 }
 
+void (*plat_custom_flip)(SDL_Surface *surface) = NULL;
+
 void PLAT_flip(SDL_Surface *IGNORED, int ignored) {
+    if (plat_custom_flip && vid.screen) {
+        plat_custom_flip(vid.screen);
+        return;
+    }
 
     on_hdmi = GetHDMI(); // use settings instead of getInt(HDMI_STATE_PATH)
 

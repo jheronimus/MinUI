@@ -212,6 +212,8 @@ static GLuint hw_create_program(const char *vsrc, const char *fsrc) {
   return prog;
 }
 
+static void hw_render_menu_surface(SDL_Surface *surface);
+
 static void hw_init_compositor(void) {
   if (comp_prog)
     return;
@@ -237,26 +239,22 @@ static void hw_init_compositor(void) {
       "uniform vec2 u_out_size;\n"
       "uniform int u_effect;\n"
       "void main() {\n"
-      "  vec2 uv = v_texcoord;\n"
       "  vec4 color;\n"
-      "  if (u_sharpness == 2) {\n"
-      "    vec2 pixel = floor(uv * u_tex_size) + 0.5;\n"
-      "    color = texture2D(u_tex, pixel / u_tex_size);\n"
-      "  } else if (u_sharpness == 1) {\n"
-      "    vec2 texel = uv * u_tex_size;\n"
-      "    vec2 texel_floor = floor(texel);\n"
-      "    vec2 s = fract(texel);\n"
-      "    vec2 scale_factor = u_out_size / u_tex_size;\n"
-      "    vec2 region_range = 0.5 - 0.5 / scale_factor;\n"
-      "    vec2 w = clamp((s - region_range) * scale_factor, 0.0, 1.0);\n"
-      "    vec2 sharp_uv = (texel_floor + 0.5 + w - 0.5) / u_tex_size;\n"
-      "    color = texture2D(u_tex, sharp_uv);\n"
+      "  if (u_sharpness == 1) {\n"
+      "    vec2 p = v_texcoord * u_tex_size - 0.5;\n"
+      "    vec2 i = floor(p);\n"
+      "    vec2 f = p - i;\n"
+      "    vec2 f2 = f * f;\n"
+      "    vec2 f3 = f2 * f;\n"
+      "    vec2 w0 = f2 - 0.5 * (f3 + f);\n"
+      "    vec2 w1 = 1.5 * f3 - 2.5 * f2 + 1.0;\n"
+      "    vec2 tc = (i + 0.5 + f) / u_tex_size;\n"
+      "    color = texture2D(u_tex, tc);\n"
       "  } else {\n"
-      "    color = texture2D(u_tex, uv);\n"
+      "    color = texture2D(u_tex, v_texcoord);\n"
       "  }\n"
       "  if (u_effect == 1) {\n"
-      "    float line_val = mod(gl_FragCoord.y, 2.0);\n"
-      "    if (line_val < 1.0) color.rgb *= 0.75;\n"
+      "    if (mod(gl_FragCoord.y, 2.0) < 1.0) color.rgb *= 0.7;\n"
       "  } else if (u_effect == 2) {\n"
       "    vec2 grid_val = mod(gl_FragCoord.xy, 2.0);\n"
       "    if (grid_val.x < 1.0 || grid_val.y < 1.0) color.rgb *= 0.8;\n"
@@ -293,6 +291,7 @@ static void hw_init_compositor(void) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    plat_custom_flip = hw_render_menu_surface;
   }
 }
 
@@ -380,7 +379,178 @@ static SDL_Surface *hw_capture_fbo_surface(void) {
   return s;
 }
 
+static GLuint hw_hud_tex = 0;
+
+static void hw_render_menu_surface(SDL_Surface *surface) {
+  if (!surface || !menu_prog || !menu_tex || !menu_vbo)
+    return;
+
+  int phys_w = DEVICE_WIDTH;
+  int phys_h = DEVICE_HEIGHT;
+  int rot = plat_screen_rotation > 0 ? plat_screen_rotation : 0;
+  if (rot == 90 || rot == 270) {
+    phys_w = DEVICE_HEIGHT;
+    phys_h = DEVICE_WIDTH;
+  }
+
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+  glViewport(0, 0, phys_w, phys_h);
+  glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+  glClear(GL_COLOR_BUFFER_BIT);
+
+  glUseProgram(menu_prog);
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, menu_tex);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, surface->w, surface->h, 0, GL_RGB,
+               GL_UNSIGNED_SHORT_5_6_5, surface->pixels);
+  glUniform1i(menu_u_tex, 0);
+
+#define ROT_X(lx, ly)                                                          \
+  ((rot == 90)    ? (ly)                                                       \
+   : (rot == 180) ? -(lx)                                                      \
+   : (rot == 270) ? -(ly)                                                      \
+                  : (lx))
+#define ROT_Y(lx, ly)                                                          \
+  ((rot == 90)    ? -(lx)                                                      \
+   : (rot == 180) ? -(ly)                                                      \
+   : (rot == 270) ? (lx)                                                       \
+                  : (ly))
+
+  float quad_verts[] = {
+      ROT_X(-1.0f, -1.0f), ROT_Y(-1.0f, -1.0f), 0.0f, 1.0f,
+      ROT_X( 1.0f, -1.0f), ROT_Y( 1.0f, -1.0f), 1.0f, 1.0f,
+      ROT_X(-1.0f,  1.0f), ROT_Y(-1.0f,  1.0f), 0.0f, 0.0f,
+      ROT_X( 1.0f,  1.0f), ROT_Y( 1.0f,  1.0f), 1.0f, 0.0f,
+  };
+#undef ROT_X
+#undef ROT_Y
+
+  glBindBuffer(GL_ARRAY_BUFFER, menu_vbo);
+  glBufferData(GL_ARRAY_BUFFER, sizeof(quad_verts), quad_verts,
+               GL_DYNAMIC_DRAW);
+  GLint pos_attr = glGetAttribLocation(menu_prog, "a_pos");
+  GLint uv_attr = glGetAttribLocation(menu_prog, "a_texcoord");
+  glEnableVertexAttribArray(pos_attr);
+  glVertexAttribPointer(pos_attr, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+                        (void *)0);
+  glEnableVertexAttribArray(uv_attr);
+  glVertexAttribPointer(uv_attr, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+                        (void *)(2 * sizeof(float)));
+
+  glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+  glDisableVertexAttribArray(pos_attr);
+  glDisableVertexAttribArray(uv_attr);
+
+  PLAT_glSwap();
+}
+
+static void hw_draw_hud(void) {
+  if (!show_debug || !font.large)
+    return;
+
+  char debug_text[64];
+  snprintf(debug_text, sizeof(debug_text), "%.1f FPS", fps_double);
+
+  SDL_Surface *text =
+      TTF_RenderUTF8_Blended(font.large, debug_text, COLOR_WHITE);
+  if (!text)
+    return;
+
+  SDL_Surface *rgba = SDL_CreateRGBSurfaceWithFormat(
+      0, text->w, text->h, 32, SDL_PIXELFORMAT_RGBA32);
+  if (rgba) {
+    SDL_BlitSurface(text, NULL, rgba, NULL);
+
+    if (!hw_hud_tex) {
+      glGenTextures(1, &hw_hud_tex);
+      glBindTexture(GL_TEXTURE_2D, hw_hud_tex);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+
+    glBindTexture(GL_TEXTURE_2D, hw_hud_tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, rgba->w, rgba->h, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, rgba->pixels);
+
+    int rot = plat_screen_rotation > 0 ? plat_screen_rotation : 0;
+    int dst_x = 8, dst_y = 8;
+    int dst_w = rgba->w, dst_h = rgba->h;
+
+    float x0 = (float)dst_x / (float)DEVICE_WIDTH * 2.0f - 1.0f;
+    float x1 = (float)(dst_x + dst_w) / (float)DEVICE_WIDTH * 2.0f - 1.0f;
+    float y0 = 1.0f - (float)(dst_y + dst_h) / (float)DEVICE_HEIGHT * 2.0f;
+    float y1 = 1.0f - (float)dst_y / (float)DEVICE_HEIGHT * 2.0f;
+
+#define ROT_X(lx, ly)                                                          \
+  ((rot == 90)    ? (ly)                                                       \
+   : (rot == 180) ? -(lx)                                                      \
+   : (rot == 270) ? -(ly)                                                      \
+                  : (lx))
+#define ROT_Y(lx, ly)                                                          \
+  ((rot == 90)    ? -(lx)                                                      \
+   : (rot == 180) ? -(ly)                                                      \
+   : (rot == 270) ? (lx)                                                       \
+                  : (ly))
+
+    float hud_verts[] = {
+        ROT_X(x0, y0), ROT_Y(x0, y0), 0.0f, 1.0f,
+        ROT_X(x1, y0), ROT_Y(x1, y0), 1.0f, 1.0f,
+        ROT_X(x0, y1), ROT_Y(x0, y1), 0.0f, 0.0f,
+        ROT_X(x1, y1), ROT_Y(x1, y1), 1.0f, 0.0f,
+    };
+#undef ROT_X
+#undef ROT_Y
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glUseProgram(menu_prog ? menu_prog : comp_prog);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, hw_hud_tex);
+    if (menu_prog) {
+      glUniform1i(menu_u_tex, 0);
+    } else {
+      glUniform1i(comp_u_tex, 0);
+      glUniform1i(comp_u_sharpness, 0);
+      glUniform2f(comp_u_tex_size, (float)rgba->w, (float)rgba->h);
+      glUniform2f(comp_u_out_size, (float)rgba->w, (float)rgba->h);
+      glUniform1i(comp_u_effect, EFFECT_NONE);
+    }
+
+    glBindBuffer(GL_ARRAY_BUFFER, comp_vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(hud_verts), hud_verts,
+                 GL_DYNAMIC_DRAW);
+    GLint pos_attr =
+        glGetAttribLocation(menu_prog ? menu_prog : comp_prog, "a_pos");
+    GLint uv_attr =
+        glGetAttribLocation(menu_prog ? menu_prog : comp_prog, "a_texcoord");
+    glEnableVertexAttribArray(pos_attr);
+    glVertexAttribPointer(pos_attr, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+                          (void *)0);
+    glEnableVertexAttribArray(uv_attr);
+    glVertexAttribPointer(uv_attr, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+                          (void *)(2 * sizeof(float)));
+
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    glDisableVertexAttribArray(pos_attr);
+    glDisableVertexAttribArray(uv_attr);
+    glDisable(GL_BLEND);
+
+    SDL_FreeSurface(rgba);
+  }
+  SDL_FreeSurface(text);
+}
+
 static void hw_destroy_compositor(void) {
+  if (hw_hud_tex) {
+    glDeleteTextures(1, &hw_hud_tex);
+    hw_hud_tex = 0;
+  }
+  plat_custom_flip = NULL;
   if (hw_fbo) {
     glDeleteFramebuffers(1, &hw_fbo);
     hw_fbo = 0;
@@ -524,6 +694,8 @@ static void hw_render_compositor_frame(unsigned width, unsigned height) {
 
   glDisableVertexAttribArray(pos_attr);
   glDisableVertexAttribArray(uv_attr);
+
+  hw_draw_hud();
 
   PLAT_glSwap();
 
@@ -1653,6 +1825,9 @@ static void applyArcDefaultControls(void) {
 
   const char *tag = (const char *)core.tag;
 
+  int is_dc = exactMatch((char *)tag, "DC") ||
+              exactMatch((char *)tag, "DREAMCAST");
+
   int is_md = exactMatch((char *)tag, "MD") || exactMatch((char *)tag, "GENESIS") ||
               exactMatch((char *)tag, "SEGACD") || exactMatch((char *)tag, "32X") ||
               exactMatch((char *)tag, "SAT") || exactMatch((char *)tag, "SATURN");
@@ -1669,7 +1844,51 @@ static void applyArcDefaultControls(void) {
     ButtonMapping *mapping = &config.controls[i];
     const char *name = mapping->name;
 
-    if (is_md) {
+    if (is_dc) {
+      if (exactMatch((char *)name, "A Button") || exactMatch((char *)name, "A"))
+        mapping->local = BTN_ID_A;
+      else if (exactMatch((char *)name, "B Button") ||
+               exactMatch((char *)name, "B"))
+        mapping->local = BTN_ID_B;
+      else if (exactMatch((char *)name, "X Button") ||
+               exactMatch((char *)name, "X"))
+        mapping->local = BTN_ID_X;
+      else if (exactMatch((char *)name, "Y Button") ||
+               exactMatch((char *)name, "Y"))
+        mapping->local = BTN_ID_Y;
+      else if (exactMatch((char *)name, "R Button") ||
+               exactMatch((char *)name, "R") ||
+               exactMatch((char *)name, "R2 Button") ||
+               exactMatch((char *)name, "R2") ||
+               exactMatch((char *)name, "R1 Button") ||
+               exactMatch((char *)name, "R1") ||
+               exactMatch((char *)name, "R Trigger"))
+        mapping->local = BTN_ID_R2;
+      else if (exactMatch((char *)name, "L Button") ||
+               exactMatch((char *)name, "L") ||
+               exactMatch((char *)name, "L2 Button") ||
+               exactMatch((char *)name, "L2") ||
+               exactMatch((char *)name, "L1 Button") ||
+               exactMatch((char *)name, "L1") ||
+               exactMatch((char *)name, "L Trigger"))
+        mapping->local = BTN_ID_L2;
+      else if (exactMatch((char *)name, "Start"))
+        mapping->local = BTN_ID_START;
+      else if (exactMatch((char *)name, "Select"))
+        mapping->local = BTN_ID_SELECT;
+      else if (exactMatch((char *)name, "D-Pad Up") ||
+               exactMatch((char *)name, "Up"))
+        mapping->local = BTN_ID_DPAD_UP;
+      else if (exactMatch((char *)name, "D-Pad Down") ||
+               exactMatch((char *)name, "Down"))
+        mapping->local = BTN_ID_DPAD_DOWN;
+      else if (exactMatch((char *)name, "D-Pad Left") ||
+               exactMatch((char *)name, "Left"))
+        mapping->local = BTN_ID_DPAD_LEFT;
+      else if (exactMatch((char *)name, "D-Pad Right") ||
+               exactMatch((char *)name, "Right"))
+        mapping->local = BTN_ID_DPAD_RIGHT;
+    } else if (is_md) {
       if (exactMatch((char *)name, "A Button") || exactMatch((char *)name, "A"))
         mapping->local = BTN_ID_A;
       else if (exactMatch((char *)name, "B Button") || exactMatch((char *)name, "B"))
@@ -2618,19 +2837,32 @@ static void input_poll_callback(void) {
   }
 
   if (PLAT_is6Button()) {
-    int c_bound = 0;
-    int z_bound = 0;
-    for (int i = 0; config.controls[i].name; i++) {
-      if (config.controls[i].local == BTN_ID_C)
-        c_bound = 1;
-      if (config.controls[i].local == BTN_ID_Z)
-        z_bound = 1;
-    }
-    if (!c_bound && PAD_isPressed(BTN_C)) {
-      buttons |= (1 << RETRO_DEVICE_ID_JOYPAD_R);
-    }
-    if (!z_bound && PAD_isPressed(BTN_Z)) {
-      buttons |= (1 << RETRO_DEVICE_ID_JOYPAD_L);
+    int is_dc = exactMatch((char *)core.tag, "DC") ||
+                exactMatch((char *)core.tag, "DREAMCAST");
+    if (is_dc) {
+      if (PAD_isPressed(BTN_C) || PAD_isPressed(BTN_R2)) {
+        buttons |= (1 << RETRO_DEVICE_ID_JOYPAD_R) |
+                   (1 << RETRO_DEVICE_ID_JOYPAD_R2);
+      }
+      if (PAD_isPressed(BTN_Z) || PAD_isPressed(BTN_L2)) {
+        buttons |= (1 << RETRO_DEVICE_ID_JOYPAD_L) |
+                   (1 << RETRO_DEVICE_ID_JOYPAD_L2);
+      }
+    } else {
+      int c_bound = 0;
+      int z_bound = 0;
+      for (int i = 0; config.controls[i].name; i++) {
+        if (config.controls[i].local == BTN_ID_C)
+          c_bound = 1;
+        if (config.controls[i].local == BTN_ID_Z)
+          z_bound = 1;
+      }
+      if (!c_bound && PAD_isPressed(BTN_C)) {
+        buttons |= (1 << RETRO_DEVICE_ID_JOYPAD_R);
+      }
+      if (!z_bound && PAD_isPressed(BTN_Z)) {
+        buttons |= (1 << RETRO_DEVICE_ID_JOYPAD_L);
+      }
     }
   }
 

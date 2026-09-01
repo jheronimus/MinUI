@@ -14,6 +14,7 @@ extern int plat_main_row_count;
 extern int plat_padding;
 extern int plat_screen_rotation;
 extern int on_hdmi;
+extern void (*plat_custom_flip)(SDL_Surface *surface);
 
 int PLAT_is6Button(void);
 int PLAT_hasMenuButton(void);
