@@ -13,6 +13,10 @@
 #include <unistd.h>
 #include <zlib.h>
 
+#include <GLES2/gl2.h>
+#include <GLES2/gl2ext.h>
+#include <samplerate.h>
+
 #include "defines.h"
 #include "api.h"
 #include "libretro.h"
@@ -87,9 +91,364 @@ static int DEVICE_WIDTH = 0;  // FIXED_WIDTH;
 static int DEVICE_HEIGHT = 0; // FIXED_HEIGHT;
 static int DEVICE_PITCH = 0;  // FIXED_PITCH;
 
-GFX_Renderer renderer;
+#ifndef RETRO_HW_FRAME_BUFFER_VALID
+#define RETRO_HW_FRAME_BUFFER_VALID ((void *)-1)
+#endif
 
-///////////////////////////////////////
+static struct retro_hw_render_callback hw_render;
+static int hw_render_enabled = 0;
+static GLuint hw_fbo = 0;
+static GLuint hw_fbo_tex = 0;
+static GLuint hw_fbo_depth = 0;
+static unsigned hw_fbo_w = 0;
+static unsigned hw_fbo_h = 0;
+
+static GLuint comp_prog = 0;
+static GLuint comp_vbo = 0;
+static GLint comp_u_tex = -1;
+static GLint comp_u_sharpness = -1;
+static GLint comp_u_tex_size = -1;
+static GLint comp_u_out_size = -1;
+static GLint comp_u_effect = -1;
+
+static GLuint menu_prog = 0;
+static GLuint menu_vbo = 0;
+static GLuint menu_tex = 0;
+static GLint menu_u_tex = -1;
+
+static SRC_STATE *audio_src_state = NULL;
+static float *audio_src_in = NULL;
+static float *audio_src_out = NULL;
+static size_t audio_src_in_cap = 0;
+static size_t audio_src_out_cap = 0;
+
+static uintptr_t hw_get_current_framebuffer(void) {
+  return (uintptr_t)hw_fbo;
+}
+
+static GLuint hw_compile_shader(GLenum type, const char *src) {
+  GLuint shader = glCreateShader(type);
+  glShaderSource(shader, 1, &src, NULL);
+  glCompileShader(shader);
+  GLint ok = 0;
+  glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
+  if (!ok) {
+    char log[512];
+    glGetShaderInfoLog(shader, sizeof(log), NULL, log);
+    LOG_error("hw_compile_shader failed: %s\n", log);
+    glDeleteShader(shader);
+    return 0;
+  }
+  return shader;
+}
+
+static GLuint hw_create_program(const char *vsrc, const char *fsrc) {
+  GLuint vs = hw_compile_shader(GL_VERTEX_SHADER, vsrc);
+  GLuint fs = hw_compile_shader(GL_FRAGMENT_SHADER, fsrc);
+  if (!vs || !fs)
+    return 0;
+  GLuint prog = glCreateProgram();
+  glAttachShader(prog, vs);
+  glAttachShader(prog, fs);
+  glLinkProgram(prog);
+  glDeleteShader(vs);
+  glDeleteShader(fs);
+  GLint ok = 0;
+  glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+  if (!ok) {
+    char log[512];
+    glGetProgramInfoLog(prog, sizeof(log), NULL, log);
+    LOG_error("hw_create_program link failed: %s\n", log);
+    glDeleteProgram(prog);
+    return 0;
+  }
+  return prog;
+}
+
+static void hw_init_compositor(void) {
+  if (comp_prog)
+    return;
+
+  const char *vsrc =
+      "attribute vec2 a_pos;\n"
+      "attribute vec2 a_texcoord;\n"
+      "varying vec2 v_texcoord;\n"
+      "void main() {\n"
+      "  gl_Position = vec4(a_pos, 0.0, 1.0);\n"
+      "  v_texcoord = a_texcoord;\n"
+      "}\n";
+
+  const char *fsrc =
+      "precision mediump float;\n"
+      "varying vec2 v_texcoord;\n"
+      "uniform sampler2D u_tex;\n"
+      "uniform int u_sharpness;\n"
+      "uniform vec2 u_tex_size;\n"
+      "uniform vec2 u_out_size;\n"
+      "uniform int u_effect;\n"
+      "void main() {\n"
+      "  vec2 uv = v_texcoord;\n"
+      "  vec4 color;\n"
+      "  if (u_sharpness == 2) {\n"
+      "    vec2 pixel = floor(uv * u_tex_size) + 0.5;\n"
+      "    color = texture2D(u_tex, pixel / u_tex_size);\n"
+      "  } else if (u_sharpness == 1) {\n"
+      "    vec2 texel = uv * u_tex_size;\n"
+      "    vec2 texel_floor = floor(texel);\n"
+      "    vec2 s = fract(texel);\n"
+      "    vec2 scale_factor = u_out_size / u_tex_size;\n"
+      "    vec2 region_range = 0.5 - 0.5 / scale_factor;\n"
+      "    vec2 w = clamp((s - region_range) * scale_factor, 0.0, 1.0);\n"
+      "    vec2 sharp_uv = (texel_floor + 0.5 + w - 0.5) / u_tex_size;\n"
+      "    color = texture2D(u_tex, sharp_uv);\n"
+      "  } else {\n"
+      "    color = texture2D(u_tex, uv);\n"
+      "  }\n"
+      "  if (u_effect == 1) {\n"
+      "    float line_val = mod(gl_FragCoord.y, 2.0);\n"
+      "    if (line_val < 1.0) color.rgb *= 0.75;\n"
+      "  } else if (u_effect == 2) {\n"
+      "    vec2 grid_val = mod(gl_FragCoord.xy, 2.0);\n"
+      "    if (grid_val.x < 1.0 || grid_val.y < 1.0) color.rgb *= 0.8;\n"
+      "  }\n"
+      "  gl_FragColor = color;\n"
+      "}\n";
+
+  comp_prog = hw_create_program(vsrc, fsrc);
+  if (comp_prog) {
+    comp_u_tex = glGetUniformLocation(comp_prog, "u_tex");
+    comp_u_sharpness = glGetUniformLocation(comp_prog, "u_sharpness");
+    comp_u_tex_size = glGetUniformLocation(comp_prog, "u_tex_size");
+    comp_u_out_size = glGetUniformLocation(comp_prog, "u_out_size");
+    comp_u_effect = glGetUniformLocation(comp_prog, "u_effect");
+    glGenBuffers(1, &comp_vbo);
+  }
+
+  const char *menu_fsrc =
+      "precision mediump float;\n"
+      "varying vec2 v_texcoord;\n"
+      "uniform sampler2D u_tex;\n"
+      "void main() {\n"
+      "  gl_FragColor = texture2D(u_tex, v_texcoord);\n"
+      "}\n";
+
+  menu_prog = hw_create_program(vsrc, menu_fsrc);
+  if (menu_prog) {
+    menu_u_tex = glGetUniformLocation(menu_prog, "u_tex");
+    glGenBuffers(1, &menu_vbo);
+    glGenTextures(1, &menu_tex);
+    glBindTexture(GL_TEXTURE_2D, menu_tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  }
+}
+
+static void hw_resize_fbo(unsigned width, unsigned height) {
+  if (width == 0 || height == 0)
+    return;
+  if (hw_fbo && hw_fbo_w == width && hw_fbo_h == height)
+    return;
+
+  hw_fbo_w = width;
+  hw_fbo_h = height;
+
+  if (!hw_fbo) {
+    glGenFramebuffers(1, &hw_fbo);
+    glGenTextures(1, &hw_fbo_tex);
+    if (hw_render.depth || hw_render.stencil)
+      glGenRenderbuffers(1, &hw_fbo_depth);
+  }
+
+  glBindTexture(GL_TEXTURE_2D, hw_fbo_tex);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA,
+               GL_UNSIGNED_BYTE, NULL);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+  if (hw_fbo_depth) {
+    glBindRenderbuffer(GL_RENDERBUFFER, hw_fbo_depth);
+    GLenum depth_fmt = GL_DEPTH_COMPONENT16;
+    if (hw_render.stencil)
+      depth_fmt = GL_DEPTH24_STENCIL8_OES;
+    glRenderbufferStorage(GL_RENDERBUFFER, depth_fmt, width, height);
+  }
+
+  glBindFramebuffer(GL_FRAMEBUFFER, hw_fbo);
+  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                         hw_fbo_tex, 0);
+  if (hw_fbo_depth) {
+    if (hw_render.depth)
+      glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                                GL_RENDERBUFFER, hw_fbo_depth);
+    if (hw_render.stencil)
+      glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT,
+                                GL_RENDERBUFFER, hw_fbo_depth);
+  }
+
+  GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+  if (status != GL_FRAMEBUFFER_COMPLETE) {
+    LOG_error("hw_resize_fbo: FBO incomplete status=0x%x\n", status);
+  }
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+static SDL_Surface *hw_capture_fbo_surface(void) {
+  if (!hw_fbo || hw_fbo_w == 0 || hw_fbo_h == 0)
+    return NULL;
+  SDL_Surface *s = SDL_CreateRGBSurface(SDL_SWSURFACE, hw_fbo_w, hw_fbo_h,
+                                        FIXED_DEPTH, RGBA_MASK_565);
+  if (!s)
+    return NULL;
+  uint32_t *rgba = malloc(hw_fbo_w * hw_fbo_h * 4);
+  if (!rgba) {
+    SDL_FreeSurface(s);
+    return NULL;
+  }
+  glBindFramebuffer(GL_FRAMEBUFFER, hw_fbo);
+  glReadPixels(0, 0, hw_fbo_w, hw_fbo_h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+  uint16_t *dst = (uint16_t *)s->pixels;
+  for (int y = 0; y < (int)hw_fbo_h; y++) {
+    int src_y = (hw_render.bottom_left_origin) ? ((int)hw_fbo_h - 1 - y) : y;
+    uint32_t *src_row = rgba + (src_y * hw_fbo_w);
+    uint16_t *dst_row = dst + (y * (s->pitch / 2));
+    for (int x = 0; x < (int)hw_fbo_w; x++) {
+      uint32_t px = src_row[x];
+      uint8_t r = px & 0xFF;
+      uint8_t g = (px >> 8) & 0xFF;
+      uint8_t b = (px >> 16) & 0xFF;
+      dst_row[x] = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
+    }
+  }
+  free(rgba);
+  return s;
+}
+
+static void hw_destroy_compositor(void) {
+  if (hw_fbo) {
+    glDeleteFramebuffers(1, &hw_fbo);
+    hw_fbo = 0;
+  }
+  if (hw_fbo_tex) {
+    glDeleteTextures(1, &hw_fbo_tex);
+    hw_fbo_tex = 0;
+  }
+  if (hw_fbo_depth) {
+    glDeleteRenderbuffers(1, &hw_fbo_depth);
+    hw_fbo_depth = 0;
+  }
+  hw_fbo_w = 0;
+  hw_fbo_h = 0;
+  if (comp_prog) {
+    glDeleteProgram(comp_prog);
+    comp_prog = 0;
+  }
+  if (comp_vbo) {
+    glDeleteBuffers(1, &comp_vbo);
+    comp_vbo = 0;
+  }
+  if (menu_prog) {
+    glDeleteProgram(menu_prog);
+    menu_prog = 0;
+  }
+  if (menu_vbo) {
+    glDeleteBuffers(1, &menu_vbo);
+    menu_vbo = 0;
+  }
+  if (menu_tex) {
+    glDeleteTextures(1, &menu_tex);
+    menu_tex = 0;
+  }
+  if (audio_src_state) {
+    src_delete(audio_src_state);
+    audio_src_state = NULL;
+  }
+  if (audio_src_in) {
+    free(audio_src_in);
+    audio_src_in = NULL;
+    audio_src_in_cap = 0;
+  }
+  if (audio_src_out) {
+    free(audio_src_out);
+    audio_src_out = NULL;
+    audio_src_out_cap = 0;
+  }
+}
+
+static void hw_render_compositor_frame(unsigned width, unsigned height) {
+  hw_resize_fbo(width, height);
+
+  int dst_x = 0, dst_y = 0, dst_w = DEVICE_WIDTH, dst_h = DEVICE_HEIGHT;
+  double aspect =
+      core.aspect_ratio > 0.0 ? core.aspect_ratio : ((double)width / (double)height);
+  if (screen_scaling == SCALE_ASPECT) {
+    dst_h = DEVICE_HEIGHT;
+    dst_w = (int)(dst_h * aspect);
+    if (dst_w > DEVICE_WIDTH) {
+      dst_w = DEVICE_WIDTH;
+      dst_h = (int)(dst_w / aspect);
+    }
+    dst_x = (DEVICE_WIDTH - dst_w) / 2;
+    dst_y = (DEVICE_HEIGHT - dst_h) / 2;
+  } else if (screen_scaling == SCALE_NATIVE) {
+    dst_w = width;
+    dst_h = height;
+    dst_x = (DEVICE_WIDTH - dst_w) / 2;
+    dst_y = (DEVICE_HEIGHT - dst_h) / 2;
+  }
+
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+  glViewport(0, 0, DEVICE_WIDTH, DEVICE_HEIGHT);
+  glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+  glClear(GL_COLOR_BUFFER_BIT);
+
+  glViewport(dst_x, dst_y, dst_w, dst_h);
+  glUseProgram(comp_prog);
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, hw_fbo_tex);
+  glUniform1i(comp_u_tex, 0);
+  glUniform1i(comp_u_sharpness, screen_sharpness);
+  glUniform2f(comp_u_tex_size, (float)width, (float)height);
+  glUniform2f(comp_u_out_size, (float)dst_w, (float)dst_h);
+  glUniform1i(comp_u_effect, screen_effect);
+
+  float v0 = hw_render.bottom_left_origin ? 0.0f : 1.0f;
+  float v1 = hw_render.bottom_left_origin ? 1.0f : 0.0f;
+  float quad_verts[] = {
+      -1.0f, -1.0f, 0.0f, v0,
+       1.0f, -1.0f, 1.0f, v0,
+      -1.0f,  1.0f, 0.0f, v1,
+       1.0f,  1.0f, 1.0f, v1,
+  };
+
+  glBindBuffer(GL_ARRAY_BUFFER, comp_vbo);
+  glBufferData(GL_ARRAY_BUFFER, sizeof(quad_verts), quad_verts,
+               GL_DYNAMIC_DRAW);
+  GLint pos_attr = glGetAttribLocation(comp_prog, "a_pos");
+  GLint uv_attr = glGetAttribLocation(comp_prog, "a_texcoord");
+  glEnableVertexAttribArray(pos_attr);
+  glVertexAttribPointer(pos_attr, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+                        (void *)0);
+  glEnableVertexAttribArray(uv_attr);
+  glVertexAttribPointer(uv_attr, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+                        (void *)(2 * sizeof(float)));
+
+  glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+  glDisableVertexAttribArray(pos_attr);
+  glDisableVertexAttribArray(uv_attr);
+
+  PLAT_glSwap();
+
+  // Re-bind core FBO for next frame
+  glBindFramebuffer(GL_FRAMEBUFFER, hw_fbo);
+  glViewport(0, 0, hw_fbo_w, hw_fbo_h);
+}
 
 static struct Core {
   int initialized;
@@ -2405,6 +2764,33 @@ static bool environment_callback(unsigned cmd,
     break;
   }
 
+  case RETRO_ENVIRONMENT_SET_HW_RENDER: { /* 14 */
+    struct retro_hw_render_callback *cb =
+        (struct retro_hw_render_callback *)data;
+    if (!cb)
+      return false;
+    if (cb->context_type != RETRO_HW_CONTEXT_OPENGLES2 &&
+        cb->context_type != RETRO_HW_CONTEXT_OPENGLES3 &&
+        cb->context_type != RETRO_HW_CONTEXT_OPENGL &&
+        cb->context_type != RETRO_HW_CONTEXT_OPENGL_CORE) {
+      LOG_info("minarch: unsupported HW render context type %u\n",
+               cb->context_type);
+      return false;
+    }
+    memcpy(&hw_render, cb, sizeof(hw_render));
+    hw_render.get_proc_address =
+        (retro_hw_get_proc_address_t)PLAT_getGLProcAddress;
+    hw_render.get_current_framebuffer = hw_get_current_framebuffer;
+    cb->get_proc_address = hw_render.get_proc_address;
+    cb->get_current_framebuffer = hw_render.get_current_framebuffer;
+    hw_render_enabled = 1;
+    LOG_info(
+        "minarch: HW render enabled: type=%u, v%u.%u, depth=%d, stencil=%d\n",
+        cb->context_type, cb->version_major, cb->version_minor, cb->depth,
+        cb->stencil);
+    return true;
+  }
+
   // TODO: this is called whether using variables or options
   case RETRO_ENVIRONMENT_GET_VARIABLE: { /* 15 */
     // puts("RETRO_ENVIRONMENT_GET_VARIABLE ");
@@ -3294,12 +3680,13 @@ static void selectScaler(int src_w, int src_h, int src_p) {
 }
 static void video_refresh_callback_main(const void *data, unsigned width,
                                         unsigned height, size_t pitch) {
-  // return;
+  if (hw_render_enabled) {
+    fps_ticks += 1;
+    hw_render_compositor_frame(width, height);
+    return;
+  }
 
   Special_render();
-
-  // static int tmp_frameskip = 0;
-  // if ((tmp_frameskip++)%2) return;
 
   static uint32_t last_flip_time = 0;
 
@@ -3383,6 +3770,11 @@ static void video_refresh_callback_main(const void *data, unsigned width,
 }
 static void video_refresh_callback(const void *data, unsigned width,
                                    unsigned height, size_t pitch) {
+  if (hw_render_enabled) {
+    video_refresh_callback_main(data, width, height, pitch);
+    return;
+  }
+
   if (!data)
     return;
 
@@ -3418,11 +3810,48 @@ static void audio_sample_callback(int16_t left, int16_t right) {
     SND_batchSamples(&(const SND_Frame){left, right}, 1);
 }
 static size_t audio_sample_batch_callback(const int16_t *data, size_t frames) {
-  if (!fast_forward && (!rewinding || rewind_cfg_audio))
-    return SND_batchSamples((const SND_Frame *)data, frames);
-  else
+  if (fast_forward || (rewinding && !rewind_cfg_audio))
     return frames;
-  // return frames;
+
+  if (core.sample_rate > 0 && core.sample_rate != 44100 &&
+      core.sample_rate != 48000) {
+    if (!audio_src_state) {
+      int error = 0;
+      audio_src_state = src_new(SRC_SINC_FASTEST, 2, &error);
+    }
+    if (audio_src_state) {
+      double ratio = (double)44100.0 / (double)core.sample_rate;
+      size_t out_max = (size_t)(frames * ratio + 32);
+      if (out_max > audio_src_out_cap) {
+        audio_src_out = realloc(audio_src_out, out_max * sizeof(float) * 2);
+        audio_src_out_cap = out_max;
+      }
+      if (frames > audio_src_in_cap) {
+        audio_src_in = realloc(audio_src_in, frames * sizeof(float) * 2);
+        audio_src_in_cap = frames;
+      }
+      if (audio_src_in && audio_src_out) {
+        src_short_to_float_array(data, audio_src_in, frames * 2);
+        SRC_DATA src_data = {
+            .data_in = audio_src_in,
+            .data_out = audio_src_out,
+            .input_frames = frames,
+            .output_frames = out_max,
+            .src_ratio = ratio,
+        };
+        src_process(audio_src_state, &src_data);
+        if (src_data.output_frames_gen > 0) {
+          int16_t *resampled_s16 = (int16_t *)audio_src_in;
+          src_float_to_short_array(audio_src_out, resampled_s16,
+                                   src_data.output_frames_gen * 2);
+          return SND_batchSamples((const SND_Frame *)resampled_s16,
+                                  src_data.output_frames_gen);
+        }
+      }
+    }
+  }
+
+  return SND_batchSamples((const SND_Frame *)data, frames);
 };
 
 ///////////////////////////////////////
@@ -3540,6 +3969,21 @@ void Core_load(void) {
 
   LOG_info("aspect_ratio: %f (%ix%i) fps: %f\n", a, av_info.geometry.base_width,
            av_info.geometry.base_height, core.fps);
+
+  if (hw_render_enabled) {
+    int gles = (hw_render.context_type == RETRO_HW_CONTEXT_OPENGLES2 ||
+                hw_render.context_type == RETRO_HW_CONTEXT_OPENGLES3);
+    int major = hw_render.version_major ? hw_render.version_major : 3;
+    PLAT_initGLContext(major, hw_render.version_minor, gles);
+    hw_init_compositor();
+    unsigned initial_w =
+        av_info.geometry.base_width ? av_info.geometry.base_width : 640;
+    unsigned initial_h =
+        av_info.geometry.base_height ? av_info.geometry.base_height : 480;
+    hw_resize_fbo(initial_w, initial_h);
+    if (hw_render.context_reset)
+      hw_render.context_reset();
+  }
 }
 void Core_reset(void) {
   core.reset();
@@ -3550,9 +3994,16 @@ void Core_quit(void) {
   if (core.initialized) {
     SRAM_write();
     RTC_write();
+    if (hw_render_enabled && hw_render.context_destroy)
+      hw_render.context_destroy();
     core.unload_game();
     core.deinit();
     core.initialized = 0;
+    if (hw_render_enabled) {
+      hw_destroy_compositor();
+      PLAT_destroyGLContext();
+      hw_render_enabled = 0;
+    }
   }
 }
 void Core_close(void) {
@@ -4281,16 +4732,22 @@ static void Menu_saveState(void) {
   }
 
   SDL_Surface *bitmap = menu.bitmap;
-  if (!bitmap)
-    bitmap =
-        SDL_CreateRGBSurfaceFrom(renderer.src, renderer.true_w, renderer.true_h,
-                                 FIXED_DEPTH, renderer.src_p, RGBA_MASK_565);
-  SDL_RWops *out = SDL_RWFromFile(menu.bmp_path, "wb");
-  SDL_SaveBMP_RW(bitmap, out, 1);
+  if (!bitmap) {
+    if (hw_render_enabled)
+      bitmap = hw_capture_fbo_surface();
+    else if (renderer.src)
+      bitmap =
+          SDL_CreateRGBSurfaceFrom(renderer.src, renderer.true_w, renderer.true_h,
+                                   FIXED_DEPTH, renderer.src_p, RGBA_MASK_565);
+  }
+  if (bitmap) {
+    SDL_RWops *out = SDL_RWFromFile(menu.bmp_path, "wb");
+    SDL_SaveBMP_RW(bitmap, out, 1);
+  }
 
   // LOG_info("%s %ix%i\n", menu.bmp_path, bitmap->w,bitmap->h);
 
-  if (bitmap != menu.bitmap)
+  if (bitmap && bitmap != menu.bitmap)
     SDL_FreeSurface(bitmap);
 
   state_slot = menu.slot;
@@ -4368,9 +4825,13 @@ static char *getAlias(char *path, char *alias) {
 }
 
 static void Menu_loop(void) {
-  menu.bitmap =
-      SDL_CreateRGBSurfaceFrom(renderer.src, renderer.true_w, renderer.true_h,
-                               FIXED_DEPTH, renderer.src_p, RGBA_MASK_565);
+  if (hw_render_enabled) {
+    menu.bitmap = hw_capture_fbo_surface();
+  } else if (renderer.src) {
+    menu.bitmap =
+        SDL_CreateRGBSurfaceFrom(renderer.src, renderer.true_w, renderer.true_h,
+                                 FIXED_DEPTH, renderer.src_p, RGBA_MASK_565);
+  }
   // LOG_info("Menu_loop:menu.bitmap %ix%i\n", menu.bitmap->w,menu.bitmap->h);
 
   SDL_Surface *backing = SDL_CreateRGBSurface(

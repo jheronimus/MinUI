@@ -18,6 +18,12 @@ extern int on_hdmi;
 int PLAT_is6Button(void);
 int PLAT_hasMenuButton(void);
 
+SDL_GLContext PLAT_initGLContext(int major, int minor, int gles);
+void PLAT_destroyGLContext(void);
+void PLAT_glSwap(void);
+void *PLAT_getGLProcAddress(const char *proc);
+void PLAT_setGLSwapInterval(int interval);
+
 ///////////////////////////////
 
 #define BUTTON_UP BUTTON_NA

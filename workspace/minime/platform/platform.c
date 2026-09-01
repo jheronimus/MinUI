@@ -471,6 +471,7 @@ static struct VID_Context {
     SDL_Texture *texture;
     SDL_Texture *target;
     SDL_Texture *effect;
+    SDL_GLContext gl_ctx;
 
     SDL_Surface *screen;
 
@@ -568,7 +569,7 @@ SDL_Surface *PLAT_initVideo(void) {
     SDL_ShowCursor(0);
 
     vid.window = SDL_CreateWindow("", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, w, h,
-                                  SDL_WINDOW_SHOWN);
+                                  SDL_WINDOW_SHOWN | SDL_WINDOW_OPENGL);
     if (!vid.window) {
         LOG_error("SDL window creation failed: %s\n", SDL_GetError());
         exit(1);
@@ -596,6 +597,7 @@ SDL_Surface *PLAT_initVideo(void) {
     vid.width = w;
     vid.height = h;
     vid.pitch = p;
+    vid.gl_ctx = NULL;
 
     device_width = w;
     device_height = h;
@@ -606,7 +608,59 @@ SDL_Surface *PLAT_initVideo(void) {
     return vid.screen;
 }
 
+SDL_GLContext PLAT_initGLContext(int major, int minor, int gles) {
+    if (vid.gl_ctx) {
+        return vid.gl_ctx;
+    }
+    if (gles) {
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, major > 0 ? major : 3);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, minor >= 0 ? minor : 0);
+    } else {
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, major > 0 ? major : 3);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, minor >= 0 ? minor : 0);
+    }
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+
+    vid.gl_ctx = SDL_GL_CreateContext(vid.window);
+    if (!vid.gl_ctx && gles && major > 2) {
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+        vid.gl_ctx = SDL_GL_CreateContext(vid.window);
+    }
+    if (vid.gl_ctx) {
+        SDL_GL_MakeCurrent(vid.window, vid.gl_ctx);
+        SDL_GL_SetSwapInterval(1);
+    }
+    return vid.gl_ctx;
+}
+
+void PLAT_destroyGLContext(void) {
+    if (vid.gl_ctx) {
+        SDL_GL_DeleteContext(vid.gl_ctx);
+        vid.gl_ctx = NULL;
+    }
+}
+
+void PLAT_glSwap(void) {
+    if (vid.window) {
+        SDL_GL_SwapWindow(vid.window);
+    }
+}
+
+void *PLAT_getGLProcAddress(const char *proc) {
+    return SDL_GL_GetProcAddress(proc);
+}
+
+void PLAT_setGLSwapInterval(int interval) {
+    SDL_GL_SetSwapInterval(interval);
+}
+
 void PLAT_quitVideo(void) {
+    PLAT_destroyGLContext();
     SDL_FreeSurface(vid.screen);
     if (vid.target)
         SDL_DestroyTexture(vid.target);
