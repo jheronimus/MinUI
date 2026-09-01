@@ -2898,8 +2898,6 @@ static void OptionList_setOptionValue(OptionList *list, const char *key,
     list->changed = 1;
     LOG_info("\tSET %s (%s) TO %s (%s)\n", item->name, item->key,
              item->labels[item->value], item->values[item->value]);
-    if (list->on_set)
-      list->on_set(list, key);
 
     if (exactMatch((char *)core.tag, "GB") &&
         containsString(item->key, "palette"))
