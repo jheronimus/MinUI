@@ -154,8 +154,6 @@ enum {
 
 SDL_Surface* GFX_init(int mode);
 #define GFX_resize PLAT_resizeVideo // (int w, int h, int pitch);
-#define GFX_setScaleClip PLAT_setVideoScaleClip // (int x, int y, int width, int height)
-#define GFX_setNearestNeighbor PLAT_setNearestNeighbor // (int enabled)
 #define GFX_setSharpness PLAT_setSharpness // (int sharpness)
 #define GFX_setEffectColor PLAT_setEffectColor // (int color)
 #define GFX_setEffect PLAT_setEffect // (int effect)
@@ -357,8 +355,6 @@ void PLAT_clearVideo(SDL_Surface* screen);
 void PLAT_clearAll(void);
 void PLAT_setVsync(int vsync);
 SDL_Surface* PLAT_resizeVideo(int w, int h, int pitch);
-void PLAT_setVideoScaleClip(int x, int y, int width, int height);
-void PLAT_setNearestNeighbor(int enabled);
 void PLAT_setSharpness(int sharpness);
 void PLAT_setEffectColor(int color);
 void PLAT_setEffect(int effect);

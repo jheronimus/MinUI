@@ -633,17 +633,6 @@ SDL_Surface* PLAT_resizeVideo(int w, int h, int p) {
 	return vid.screen;
 }
 
-void PLAT_setVideoScaleClip(int x, int y, int width, int height) {
-	(void)x;
-	(void)y;
-	(void)width;
-	(void)height;
-}
-
-void PLAT_setNearestNeighbor(int enabled) {
-	(void)enabled;
-}
-
 void PLAT_setSharpness(int sharpness) {
 	if (vid.sharpness == sharpness) return;
 	int p = vid.pitch;
@@ -794,30 +783,26 @@ void PLAT_blitRenderer(GFX_Renderer* renderer) {
 
 void (*plat_custom_flip)(SDL_Surface* surface) = NULL;
 
-void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
-	if (plat_custom_flip && vid.screen) {
-		plat_custom_flip(vid.screen);
-		return;
+static void renderCopy(SDL_Texture* texture, const SDL_Rect* src, const SDL_Rect* dst) {
+	if (rotate && !on_hdmi) {
+		int oy = (device_width - device_height) / 2;
+		int ox = -oy;
+		SDL_Rect target = dst ? (SDL_Rect){ox + dst->x, oy + dst->y, dst->w, dst->h}
+							  : (SDL_Rect){ox, oy, device_width, device_height};
+		SDL_RenderCopyEx(vid.renderer, texture, src, &target, rotate * 90, NULL, SDL_FLIP_NONE);
+	} else {
+		SDL_RenderCopy(vid.renderer, texture, src, dst);
 	}
+}
 
-	on_hdmi = GetHDMI();
+static void flipUI(void) {
+	resizeVideo(device_width, device_height, FIXED_PITCH);
+	SDL_UpdateTexture(vid.texture, NULL, vid.screen->pixels, vid.screen->pitch);
+	renderCopy(vid.texture, NULL, NULL);
+	SDL_RenderPresent(vid.renderer);
+}
 
-	if (!vid.blit) {
-		resizeVideo(device_width, device_height, FIXED_PITCH);
-		SDL_UpdateTexture(vid.texture, NULL, vid.screen->pixels, vid.screen->pitch);
-		if (rotate && !on_hdmi) {
-			int ox = (device_height - device_width) / 2;
-			int oy = (device_width - device_height) / 2;
-			SDL_RenderCopyEx(vid.renderer, vid.texture, NULL,
-							 &(SDL_Rect){ox, oy, device_width, device_height}, rotate * 90, NULL,
-							 SDL_FLIP_NONE);
-		} else {
-			SDL_RenderCopy(vid.renderer, vid.texture, NULL, NULL);
-		}
-		SDL_RenderPresent(vid.renderer);
-		return;
-	}
-
+static void flipGame(void) {
 	SDL_UpdateTexture(vid.texture, NULL, vid.blit->src, vid.blit->src_p);
 
 	SDL_Texture* target = vid.texture;
@@ -825,6 +810,7 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 	int y = vid.blit->src_y;
 	int w = vid.blit->src_w;
 	int h = vid.blit->src_h;
+
 	if (vid.sharpness == SHARPNESS_CRISP) {
 		SDL_SetRenderTarget(vid.renderer, vid.target);
 		SDL_RenderCopy(vid.renderer, vid.texture, NULL, NULL);
@@ -840,32 +826,28 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 	SDL_Rect dst_rect = {0, 0, device_width, device_height};
 	PLAT_computeRendererRects(vid.blit, &src_rect, &dst_rect);
 
-	int ox, oy;
-	oy = (device_width - device_height) / 2;
-	ox = -oy;
-	if (rotate && !on_hdmi) {
-		SDL_RenderCopyEx(vid.renderer, target, &src_rect,
-						 &(SDL_Rect){ox + dst_rect.x, oy + dst_rect.y, dst_rect.w, dst_rect.h},
-						 rotate * 90, NULL, SDL_FLIP_NONE);
-	} else {
-		SDL_RenderCopy(vid.renderer, target, &src_rect, &dst_rect);
-	}
+	renderCopy(target, &src_rect, &dst_rect);
 
 	updateEffect();
 	if (vid.blit && effect.type != EFFECT_NONE && vid.effect) {
-		if (rotate && !on_hdmi) {
-			SDL_RenderCopyEx(
-				vid.renderer, vid.effect, &(SDL_Rect){0, 0, dst_rect.w, dst_rect.h},
-				&(SDL_Rect){ox + dst_rect.x, oy + dst_rect.y, dst_rect.w, dst_rect.h},
-				rotate * 90, NULL, SDL_FLIP_NONE);
-		} else {
-			SDL_RenderCopy(vid.renderer, vid.effect, &(SDL_Rect){0, 0, dst_rect.w, dst_rect.h},
-						   &dst_rect);
-		}
+		renderCopy(vid.effect, &(SDL_Rect){0, 0, dst_rect.w, dst_rect.h}, &dst_rect);
 	}
 
 	SDL_RenderPresent(vid.renderer);
 	vid.blit = NULL;
+}
+
+void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
+	if (plat_custom_flip && vid.screen) {
+		plat_custom_flip(vid.screen);
+		return;
+	}
+
+	on_hdmi = GetHDMI();
+	if (!vid.blit)
+		flipUI();
+	else
+		flipGame();
 }
 
 int PLAT_supportsOverscan(void) {
