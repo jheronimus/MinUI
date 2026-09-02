@@ -6,6 +6,10 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include "utils.h"
+#include <sys/ioctl.h>
+#include <linux/input.h>
 
 #include <msettings.h>
 
@@ -36,19 +40,33 @@ static pthread_t hdmi_pt;
 static pthread_t power_pt;
 static pthread_t bt_pt;
 
+static int isHDMIConnected(void) {
+	if (!MINIME_traitAvailable(gpu_hdmi_state_path))
+		return 0;
+	char status[16] = "";
+	getFile(gpu_hdmi_state_path, status, sizeof(status));
+	if (status[0] != '\0') {
+		if (prefixMatch("connected", status))
+			return 1;
+		if (prefixMatch("disconnected", status) || prefixMatch("unknown", status))
+			return 0;
+	}
+	return getInt(gpu_hdmi_state_path);
+}
+
 static void* watchHDMI(void* arg) {
 	int has_hdmi, had_hdmi;
 
-	has_hdmi = had_hdmi = MINIME_videoHDMIConnected();
+	has_hdmi = had_hdmi = isHDMIConnected();
 	SetHDMI(has_hdmi);
 
-	if (!MINIME_videoHasHDMI())
+	if (!MINIME_traitAvailable(gpu_hdmi_state_path))
 		return 0;
 
 	while (1) {
 		sleep(2);
 
-		has_hdmi = MINIME_videoHDMIConnected();
+		has_hdmi = isHDMIConnected();
 		if (had_hdmi != has_hdmi) {
 			had_hdmi = has_hdmi;
 			SetHDMI(has_hdmi);
@@ -58,12 +76,36 @@ static void* watchHDMI(void* arg) {
 	return 0;
 }
 
+static int getBatteryStatus(int* charging, int* capacity) {
+	if (!MINIME_traitAvailable(power_battery_sysfs) || !charging || !capacity)
+		return -1;
+
+	char path[MINIME_TRAIT_PATH_MAX + 32];
+	snprintf(path, sizeof(path), "%s/capacity", power_battery_sysfs);
+	*capacity = getInt(path);
+
+	if (MINIME_traitAvailable(power_charger_online_path)) {
+		*charging = getInt(power_charger_online_path);
+		return 0;
+	}
+
+	snprintf(path, sizeof(path), "%s/status", power_battery_sysfs);
+	FILE* f = fopen(path, "r");
+	if (!f)
+		return -1;
+	char status[32] = "";
+	(void)fgets(status, sizeof(status), f);
+	fclose(f);
+	*charging = (!strncmp(status, "Charging", 8) || !strncmp(status, "Full", 4));
+	return 0;
+}
+
 static void* watchPower(void* arg) {
 	while (1) {
 		int charging = 0;
 		int battery = 0;
 
-		MINIME_powerGetBattery(&charging, &battery);
+		getBatteryStatus(&charging, &battery);
 		SetCharging(charging);
 		SetBattery(battery);
 		sleep(2);
@@ -133,6 +175,26 @@ static void* watchBT(void* arg) {
 	return 0;
 }
 
+static int openInputDevice(const char* name_or_path) {
+	if (!MINIME_traitAvailable(name_or_path))
+		return -1;
+	int fd = open(name_or_path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+	if (fd >= 0)
+		return fd;
+	char name[256];
+	char path[64];
+	for (int i = 0; i < 32; i++) {
+		snprintf(path, sizeof(path), "/dev/input/event%d", i);
+		fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+		if (fd < 0)
+			continue;
+		if (ioctl(fd, EVIOCGNAME(sizeof(name)), name) >= 0 && !strcmp(name, name_or_path))
+			return fd;
+		close(fd);
+	}
+	return -1;
+}
+
 int main(int argc, char* argv[]) {
 
 	(void)argc;
@@ -144,11 +206,21 @@ int main(int argc, char* argv[]) {
 	pthread_create(&power_pt, NULL, &watchPower, NULL);
 	pthread_create(&bt_pt, NULL, &watchBT, NULL);
 
-	input_count =
-		MINIME_inputOpenShortcutDevices(input_fds, sizeof(input_fds) / sizeof(input_fds[0]));
-	int jack_fd = MINIME_audioOpenJackDevice();
-	if (jack_fd >= 0 && input_count < (int)(sizeof(input_fds) / sizeof(input_fds[0]))) {
-		input_fds[input_count++] = jack_fd;
+	const char* dev_names[] = {
+		input_gamepad,
+		input_stick,
+		input_power,
+		input_volume,
+		input_menu,
+		audio_jack_device_name,
+	};
+	input_count = 0;
+	for (size_t i = 0; i < sizeof(dev_names) / sizeof(dev_names[0]) &&
+					   (size_t)input_count < (sizeof(input_fds) / sizeof(input_fds[0]));
+		 i++) {
+		int fd = openInputDevice(dev_names[i]);
+		if (fd >= 0)
+			input_fds[input_count++] = fd;
 	}
 
 	int menu_code = (button_keycodes[BTN_ID_MENU] >= 0 ? button_keycodes[BTN_ID_MENU] : button_keycodes[BTN_ID_SELECT]);

@@ -10,6 +10,9 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <sys/ioctl.h>
+#include <linux/input.h>
+#include "utils.h"
 
 #include "msettings.h"
 #include "settings.h"
@@ -33,6 +36,34 @@ static SharedSettings* shared = NULL;
 static int shm_fd = -1;
 static int is_host = 0;
 
+static int isAudioJackConnected(void) {
+	if (!MINIME_traitAvailable(audio_jack_device_name))
+		return 0;
+	int fd = open(audio_jack_device_name, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+	if (fd < 0) {
+		char name[256];
+		char path[64];
+		for (int i = 0; i < 32; i++) {
+			snprintf(path, sizeof(path), "/dev/input/event%d", i);
+			fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+			if (fd < 0) continue;
+			if (ioctl(fd, EVIOCGNAME(sizeof(name)), name) >= 0 && !strcmp(name, audio_jack_device_name))
+				break;
+			close(fd);
+			fd = -1;
+		}
+	}
+	if (fd < 0)
+		return 0;
+	unsigned char switches[1] = {0};
+	int connected = 0;
+	if (ioctl(fd, EVIOCGSW(sizeof(switches)), switches) >= 0) {
+		connected = (switches[0] & (1 << SW_HEADPHONE_INSERT)) ? 1 : 0;
+	}
+	close(fd);
+	return connected;
+}
+
 void InitSettings(void) {
 	shm_fd = shm_open("/SharedSettings", O_RDWR | O_CREAT, 0666);
 	if (shm_fd < 0)
@@ -54,7 +85,7 @@ void InitSettings(void) {
 	} else {
 		is_host = 0;
 	}
-	SetJack(MINIME_audioJackConnected());
+	SetJack(isAudioJackConnected());
 }
 
 void QuitSettings(void) {
@@ -84,6 +115,11 @@ int GetMute(void) {
 	return shared ? shared->mute : 0;
 }
 
+void SetRawBrightness(int value) {
+	if (MINIME_traitAvailable(screen_backlight_path))
+		putInt(screen_backlight_path, value);
+}
+
 void SetBrightness(int value) {
 	if (!shared)
 		return;
@@ -97,11 +133,18 @@ void SetBrightness(int value) {
 	int raw = (value * max) / BRIGHTNESS_MAX;
 	if (value > 0 && raw == 0)
 		raw = 1;
-	MINIME_videoSetBacklight(raw);
+	SetRawBrightness(raw);
 }
 
-void SetRawBrightness(int value) {
-	MINIME_videoSetBacklight(value);
+void SetRawVolume(int value) {
+	char card_flag[32] = "";
+	if (strcmp(audio_card, "default") != 0) {
+		snprintf(card_flag, sizeof(card_flag), "-c '%s' ", audio_card);
+	}
+	char command[256];
+	snprintf(command, sizeof(command), "amixer -q %ssset '%s' %d%% unmute >/dev/null 2>&1",
+			 card_flag, audio_mixer, value);
+	(void)system(command);
 }
 
 void SetVolume(int value) {
@@ -114,11 +157,7 @@ void SetVolume(int value) {
 	shared->volume = value;
 
 	int raw = (value == 0) ? 0 : 60 + ((value - 1) * 40) / (VOLUME_MAX - 1);
-	MINIME_audioSetRawVolume(raw);
-}
-
-void SetRawVolume(int value) {
-	MINIME_audioSetRawVolume(value);
+	SetRawVolume(raw);
 }
 
 void SetJack(int value) {

@@ -7,6 +7,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #include <msettings.h>
 
@@ -53,10 +54,72 @@ static inline void ensure_traits(void) {
 	}
 }
 
+static int openInputByName(const char* expected) {
+	if (!MINIME_traitAvailable(expected))
+		return -1;
+	char name[256];
+	char path[64];
+	for (int i = 0; i < 32; i++) {
+		snprintf(path, sizeof(path), "/dev/input/event%d", i);
+		int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+		if (fd < 0)
+			continue;
+		if (ioctl(fd, EVIOCGNAME(sizeof(name)), name) >= 0 && !strcmp(name, expected))
+			return fd;
+		close(fd);
+	}
+	return -1;
+}
+
+static int openShortcutDevices(int* fds, size_t max_fds) {
+	if (!fds)
+		return 0;
+	const char* names[] = {
+		input_gamepad,
+		input_stick,
+		input_power,
+		input_volume,
+		input_menu,
+	};
+	int count = 0;
+	for (size_t i = 0; i < sizeof(names) / sizeof(names[0]) && (size_t)count < max_fds; i++) {
+		int fd = openInputByName(names[i]);
+		if (fd >= 0)
+			fds[count++] = fd;
+	}
+	return count;
+}
+
+static int normalizeAxis(int value, int invert) {
+	if (axis_min >= axis_center || axis_center >= axis_max)
+		return 0;
+	int normalized;
+	if (value < axis_center) {
+		normalized = -((axis_center - value) * 32767) / (axis_center - axis_min);
+	} else {
+		normalized = ((value - axis_center) * 32767) / (axis_max - axis_center);
+	}
+	return invert ? -normalized : normalized;
+}
+
+static int isHDMIConnected(void) {
+	if (!MINIME_traitAvailable(gpu_hdmi_state_path))
+		return 0;
+	char status[16] = "";
+	getFile(gpu_hdmi_state_path, status, sizeof(status));
+	if (status[0] != '\0') {
+		if (prefixMatch("connected", status))
+			return 1;
+		if (prefixMatch("disconnected", status) || prefixMatch("unknown", status))
+			return 0;
+	}
+	return getInt(gpu_hdmi_state_path);
+}
+
 static void load_traits(void) {
 	if (MINIME_traitsInit() != 0) exit(1);
 	screen_rotation_step = screen_rotation / 90;
-	plat_has_hdmi = MINIME_videoHasHDMI();
+	plat_has_hdmi = MINIME_traitAvailable(gpu_hdmi_state_path);
 }
 
 char* PLAT_getModel(void) {
@@ -93,7 +156,7 @@ static void drainAllInputs(void) {
 
 void PLAT_initInput(void) {
 	for (int i = 0; i < INPUT_COUNT; i++) inputs[i] = -1;
-	MINIME_inputOpenShortcutDevices(inputs, INPUT_COUNT);
+	openShortcutDevices(inputs, INPUT_COUNT);
 	drainAllInputs();
 }
 
@@ -124,15 +187,15 @@ static void handleHatEvent(int code, int value, uint32_t tick) {
 
 static void handleStickAxisEvent(int code, int value, uint32_t tick) {
 	if (code == axis_lx) {
-		pad.laxis.x = MINIME_inputNormalizeAxis(value, axis_lx_invert);
+		pad.laxis.x = normalizeAxis(value, axis_lx_invert);
 		PAD_setAnalog(BTN_ID_ANALOG_LEFT, BTN_ID_ANALOG_RIGHT, pad.laxis.x, tick + PAD_REPEAT_DELAY);
 	} else if (code == axis_ly) {
-		pad.laxis.y = MINIME_inputNormalizeAxis(value, axis_ly_invert);
+		pad.laxis.y = normalizeAxis(value, axis_ly_invert);
 		PAD_setAnalog(BTN_ID_ANALOG_UP, BTN_ID_ANALOG_DOWN, pad.laxis.y, tick + PAD_REPEAT_DELAY);
 	} else if (code == axis_rx) {
-		pad.raxis.x = MINIME_inputNormalizeAxis(value, axis_rx_invert);
+		pad.raxis.x = normalizeAxis(value, axis_rx_invert);
 	} else if (code == axis_ry) {
-		pad.raxis.y = MINIME_inputNormalizeAxis(value, axis_ry_invert);
+		pad.raxis.y = normalizeAxis(value, axis_ry_invert);
 	}
 }
 
@@ -265,7 +328,7 @@ int PLAT_hasLid(void) {
 
 void PLAT_initLid(void) {
 	ensure_traits();
-	lid_fd = MINIME_inputOpenByName(input_lid);
+	lid_fd = openInputByName(input_lid);
 	lid.has_lid = lid_fd >= 0;
 	if (lid.has_lid) {
 		unsigned long sw[SW_MAX / 8 / sizeof(unsigned long) + 1] = {0};
@@ -376,7 +439,7 @@ SDL_Surface* PLAT_initVideo(void) {
 	int w = FIXED_WIDTH;
 	int h = FIXED_HEIGHT;
 	int p = FIXED_PITCH;
-	if (MINIME_videoHDMIConnected()) {
+	if (isHDMIConnected()) {
 		w = HDMI_WIDTH;
 		h = HDMI_HEIGHT;
 		p = HDMI_PITCH;
@@ -898,13 +961,17 @@ void PLAT_getBatteryStatus(int* is_charging, int* charge) {
 
 void PLAT_enableBacklight(int enable) {
 	if (enable) {
-		MINIME_videoBlank(0);
+		if (MINIME_traitAvailable(screen_blank_path))
+			putInt(screen_blank_path, 0);
 		SetBrightness(GetBrightness());
-		MINIME_powerSetLED(0);
+		if (MINIME_traitAvailable(power_led_path))
+			putInt(power_led_path, 0);
 	} else {
-		MINIME_videoBlank(1);
+		if (MINIME_traitAvailable(screen_blank_path))
+			putInt(screen_blank_path, 4);
 		SetRawBrightness(0);
-		MINIME_powerSetLED(1);
+		if (MINIME_traitAvailable(power_led_path))
+			putInt(power_led_path, 1);
 	}
 }
 
@@ -914,7 +981,8 @@ void PLAT_powerOff(void) {
 
 	SetRawVolume(MUTE_VOLUME_RAW);
 	PLAT_enableBacklight(0);
-	MINIME_powerSetLED(1);
+	if (MINIME_traitAvailable(power_led_path))
+		putInt(power_led_path, 1);
 	SND_quit();
 	VIB_quit();
 	PWR_quit();
@@ -926,13 +994,57 @@ void PLAT_powerOff(void) {
 ///////////////////////////////
 // CPU Governor & Haptics
 
+static void setGpuClock(int speed) {
+	int gpu_clock = (speed >= 3) ? gpu_clock_max : gpu_clock_min;
+	if (MINIME_traitAvailable(gpu_devfreq_path) && gpu_clock > 0)
+		putInt(gpu_devfreq_path, gpu_clock);
+}
+
 void PLAT_setCPUSpeed(int speed) {
-	MINIME_powerSetCPUSpeed(speed);
+	const char* governor = (speed >= 3) ? "performance" : "schedutil";
+	int clock = -1;
+	if (speed <= 0)
+		clock = cpu_clock_menu;
+	else if (speed == 1)
+		clock = cpu_clock_powersave;
+	else if (speed == 2)
+		clock = cpu_clock_normal;
+	else
+		clock = cpu_clock_performance;
+
+	if (MINIME_traitAvailable(cpu_governor_path))
+		putFile(cpu_governor_path, (char*)governor);
+
+	if (MINIME_traitAvailable(cpu_clock_path) && clock > 0)
+		putInt(cpu_clock_path, clock);
+
+	setGpuClock(speed);
 }
 
 void PLAT_setRumble(int strength) {
-	if (GetHDMI()) return;
-	MINIME_powerSetRumble(strength ? 1 : 0);
+	if (GetHDMI())
+		return;
+	if (!MINIME_traitAvailable(input_rumble))
+		return;
+
+	int fd = openInputByName(input_rumble);
+	if (fd < 0)
+		return;
+
+	struct ff_effect effect;
+	memset(&effect, 0, sizeof(effect));
+	effect.type = FF_RUMBLE;
+	effect.id = -1;
+	if (strength > 0) {
+		effect.u.rumble.strong_magnitude = 0xffff;
+		effect.u.rumble.weak_magnitude = 0xffff;
+	}
+	if (ioctl(fd, EVIOCSFF, &effect) < 0 && strength > 0) {
+		if (errno != ENODEV)
+			close(fd);
+		return;
+	}
+	close(fd);
 }
 
 ///////////////////////////////

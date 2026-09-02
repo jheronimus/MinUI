@@ -1,26 +1,20 @@
 #include <ctype.h>
 #include <errno.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "defines.h"
 #include "traits.h"
 #include "utils.h"
-#include <fcntl.h>
-#include <glob.h>
-#include <linux/input.h>
-#include <stdint.h>
-#include <sys/ioctl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
 
 #define TRAITS_PATH "/mnt/sdcard/.minime/traits"
 #define NA "na"
 
-// Resolved global hardware traits
+// Canonical hardware global variables
 char device_id[MINIME_TRAIT_NAME_MAX] = "";
-char device_model[MINIME_TRAIT_PATH_MAX] = "Minime Handheld";
+char device_model[MINIME_TRAIT_PATH_MAX] = "";
 
 int screen_width = 640;
 int screen_height = 480;
@@ -29,10 +23,36 @@ int screen_padding = 10;
 int screen_row_count = 6;
 MinimeScreenAspect screen_aspect = MINIME_ASPECT_4x3;
 int screen_refresh_rate = 60;
+char screen_backlight_path[MINIME_TRAIT_PATH_MAX] = "";
 int screen_backlight_max = 255;
+char screen_blank_path[MINIME_TRAIT_PATH_MAX] = "";
 
+char gpu_device[MINIME_TRAIT_PATH_MAX] = "";
+char gpu_hdmi_state_path[MINIME_TRAIT_PATH_MAX] = "";
 int gpu_hdmi_width = 1280;
 int gpu_hdmi_height = 720;
+char gpu_devfreq_path[MINIME_TRAIT_PATH_MAX] = "";
+int gpu_clock_min = -1;
+int gpu_clock_max = -1;
+
+char cpu_governor_path[MINIME_TRAIT_PATH_MAX] = "";
+char cpu_clock_path[MINIME_TRAIT_PATH_MAX] = "";
+int cpu_clock_menu = -1;
+int cpu_clock_powersave = -1;
+int cpu_clock_normal = -1;
+int cpu_clock_performance = -1;
+int cpu_undervolt_supported = 0;
+
+char audio_card[MINIME_TRAIT_NAME_MAX] = "default";
+char audio_mixer[MINIME_TRAIT_NAME_MAX] = "Master";
+char audio_jack_device_name[MINIME_TRAIT_NAME_MAX] = "";
+
+char power_battery_sysfs[MINIME_TRAIT_PATH_MAX] = "";
+char power_charger_online_path[MINIME_TRAIT_PATH_MAX] = "";
+char power_led_path[MINIME_TRAIT_PATH_MAX] = "";
+
+char wifi_interface[MINIME_TRAIT_NAME_MAX] = "";
+char bluetooth_interface[MINIME_TRAIT_NAME_MAX] = "";
 
 int button_keycodes[BTN_ID_COUNT];
 int axis_lx = -1;
@@ -41,15 +61,137 @@ int axis_rx = -1;
 int axis_ry = -1;
 int axis_hat_x = 16;
 int axis_hat_y = 17;
+int axis_min = -1;
+int axis_center = -1;
+int axis_max = -1;
 int axis_lx_invert = 0;
 int axis_ly_invert = 0;
 int axis_rx_invert = 0;
 int axis_ry_invert = 0;
+char input_gamepad[MINIME_TRAIT_NAME_MAX] = "";
+char input_stick[MINIME_TRAIT_NAME_MAX] = "";
+char input_power[MINIME_TRAIT_NAME_MAX] = "";
+char input_volume[MINIME_TRAIT_NAME_MAX] = "";
+char input_menu[MINIME_TRAIT_NAME_MAX] = "";
+char input_rumble[MINIME_TRAIT_NAME_MAX] = "";
 char input_lid[MINIME_TRAIT_NAME_MAX] = "";
 
-int cpu_undervolt_supported = 0;
-char wifi_interface[MINIME_TRAIT_NAME_MAX] = "";
-char bluetooth_interface[MINIME_TRAIT_NAME_MAX] = "";
+typedef struct {
+	char device_id[MINIME_TRAIT_NAME_MAX];
+	char device_model[MINIME_TRAIT_PATH_MAX];
+	int screen_width;
+	int screen_height;
+	int screen_rotation;
+	int screen_rotation_kernel;
+	MinimeScreenAspect screen_aspect;
+	int screen_refresh_rate;
+	char screen_backlight_path[MINIME_TRAIT_PATH_MAX];
+	int screen_backlight_max;
+	char screen_blank_path[MINIME_TRAIT_PATH_MAX];
+	int ui_padding;
+	int ui_row_count;
+	int screen2_width;
+	int screen2_height;
+	int screen2_rotation;
+	MinimeScreenAspect screen2_aspect;
+	int screen2_refresh_rate;
+	char screen2_backlight_path[MINIME_TRAIT_PATH_MAX];
+	char screen2_blank_path[MINIME_TRAIT_PATH_MAX];
+	int screen2_touch;
+	char screen2_touch_device_name[MINIME_TRAIT_NAME_MAX];
+
+	char cpu_governor_path[MINIME_TRAIT_PATH_MAX];
+	char cpu_clock_path[MINIME_TRAIT_PATH_MAX];
+	int cpu_clock_menu;
+	int cpu_clock_powersave;
+	int cpu_clock_normal;
+	int cpu_clock_performance;
+	int cpu_undervolt_supported;
+	char cpu_thermal_path[MINIME_TRAIT_PATH_MAX];
+
+	char gpu_device[MINIME_TRAIT_PATH_MAX];
+	char gpu_device2[MINIME_TRAIT_PATH_MAX];
+	char gpu_hdmi_connector[MINIME_TRAIT_NAME_MAX];
+	char gpu_hdmi_state_path[MINIME_TRAIT_PATH_MAX];
+	char gpu_driver[MINIME_TRAIT_NAME_MAX];
+	int gpu_clock_min;
+	int gpu_clock_max;
+	int gpu_hdmi_width;
+	int gpu_hdmi_height;
+	char gpu_devfreq_path[MINIME_TRAIT_PATH_MAX];
+
+	char audio_card[MINIME_TRAIT_NAME_MAX];
+	char audio_mixer[MINIME_TRAIT_NAME_MAX];
+	char audio_jack_device_name[MINIME_TRAIT_NAME_MAX];
+	int audio_mic;
+
+	char input_gamepad[MINIME_TRAIT_NAME_MAX];
+	char input_stick[MINIME_TRAIT_NAME_MAX];
+	char input_power[MINIME_TRAIT_NAME_MAX];
+	char input_volume[MINIME_TRAIT_NAME_MAX];
+	char input_menu[MINIME_TRAIT_NAME_MAX];
+	char input_lid[MINIME_TRAIT_NAME_MAX];
+	char input_rumble_device_name[MINIME_TRAIT_NAME_MAX];
+	int input_touch;
+	char input_touch_device_name[MINIME_TRAIT_NAME_MAX];
+
+	int key_up;
+	int key_down;
+	int key_left;
+	int key_right;
+	int key_a;
+	int key_b;
+	int key_c;
+	int key_x;
+	int key_y;
+	int key_z;
+	int key_l1;
+	int key_r1;
+	int key_l2;
+	int key_r2;
+	int key_l3;
+	int key_r3;
+	int key_start;
+	int key_select;
+	int key_menu;
+	int key_power;
+	int key_vol_up;
+	int key_vol_down;
+
+	int axis_lx;
+	int axis_ly;
+	int axis_rx;
+	int axis_ry;
+	int axis_min;
+	int axis_center;
+	int axis_max;
+	int axis_lx_invert;
+	int axis_ly_invert;
+	int axis_rx_invert;
+	int axis_ry_invert;
+	int axis_hat_x;
+	int axis_hat_y;
+
+	char wifi_interface[MINIME_TRAIT_NAME_MAX];
+	char bluetooth_interface[MINIME_TRAIT_NAME_MAX];
+
+	char power_battery_sysfs[MINIME_TRAIT_PATH_MAX];
+	char power_charger_online_path[MINIME_TRAIT_PATH_MAX];
+	char power_led_path[MINIME_TRAIT_PATH_MAX];
+
+	int usb_otg;
+	int usb_host_ports;
+	int usb_device_mode;
+	int usb_controller_mode;
+
+	char storage_sd_node[MINIME_TRAIT_PATH_MAX];
+	char storage_sd2_node[MINIME_TRAIT_PATH_MAX];
+	char storage_emmc_node[MINIME_TRAIT_PATH_MAX];
+} TraitParserState;
+
+static TraitParserState traits;
+static int initialized = 0;
+static int valid = 0;
 
 typedef enum {
 	TYPE_STRING,
@@ -63,18 +205,13 @@ typedef struct {
 	size_t offset;
 } TraitField;
 
-#define FIELD(type, name) {#name, type, offsetof(MinimeTraits, name)}
+#define FIELD(type, name) {#name, type, offsetof(TraitParserState, name)}
 #define STR_FIELD(name) FIELD(TYPE_STRING, name)
 #define INT_FIELD(name) FIELD(TYPE_INT, name)
 #define ASPECT_FIELD(name) FIELD(TYPE_ASPECT, name)
-// Entry where the file key differs from the struct field name. The traits
-// file is the source of truth for key names; struct fields may be shorter.
-#define KEYED_STR(key, name) {key, TYPE_STRING, offsetof(MinimeTraits, name)}
-#define KEYED_INT(key, name) {key, TYPE_INT, offsetof(MinimeTraits, name)}
+#define KEYED_STR(key, name) {key, TYPE_STRING, offsetof(TraitParserState, name)}
+#define KEYED_INT(key, name) {key, TYPE_INT, offsetof(TraitParserState, name)}
 
-// Schema table: the single list of keys the parser understands. Anything not
-// in this table is an error, so schema drift fails loudly instead of being
-// silently ignored. Strings that are not present or are "na" remain empty.
 static const TraitField TRAIT_FIELDS[] = {
 	STR_FIELD(device_id),
 	STR_FIELD(device_model),
@@ -115,6 +252,7 @@ static const TraitField TRAIT_FIELDS[] = {
 	INT_FIELD(gpu_clock_max),
 	INT_FIELD(gpu_hdmi_width),
 	INT_FIELD(gpu_hdmi_height),
+	STR_FIELD(gpu_devfreq_path),
 	STR_FIELD(audio_card),
 	STR_FIELD(audio_mixer),
 	STR_FIELD(audio_jack_device_name),
@@ -161,8 +299,8 @@ static const TraitField TRAIT_FIELDS[] = {
 	KEYED_INT("input_axis_ly_invert", axis_ly_invert),
 	KEYED_INT("input_axis_rx_invert", axis_rx_invert),
 	KEYED_INT("input_axis_ry_invert", axis_ry_invert),
-	KEYED_INT("input_axis_hat_x", axis_hat_x),
-	KEYED_INT("input_axis_hat_y", axis_hat_y),
+	INT_FIELD(axis_hat_x),
+	INT_FIELD(axis_hat_y),
 	STR_FIELD(wifi_interface),
 	STR_FIELD(bluetooth_interface),
 	STR_FIELD(power_battery_sysfs),
@@ -178,10 +316,6 @@ static const TraitField TRAIT_FIELDS[] = {
 };
 
 #define TRAIT_FIELD_COUNT (sizeof(TRAIT_FIELDS) / sizeof(TRAIT_FIELDS[0]))
-
-static MinimeTraits traits;
-static int initialized;
-static int valid;
 
 static void copyText(char* dst, size_t size, const char* src) {
 	if (!dst || !size)
@@ -216,8 +350,6 @@ static MinimeScreenAspect parseAspect(const char* value) {
 	return MINIME_ASPECT_UNKNOWN;
 }
 
-// Apply a single key=value line to the struct. Returns 0 on success, -1 on
-// unknown key, malformed int, or out-of-range value.
 static int setValue(const char* key, const char* value) {
 	const TraitField* field = findField(key);
 	if (!field) {
@@ -295,10 +427,36 @@ static void exportResolvedTraits(void) {
 	screen_row_count = traits.ui_row_count;
 	screen_aspect = traits.screen_aspect;
 	screen_refresh_rate = traits.screen_refresh_rate;
+	copyText(screen_backlight_path, sizeof(screen_backlight_path), traits.screen_backlight_path);
 	screen_backlight_max = (traits.screen_backlight_max > 0) ? traits.screen_backlight_max : 255;
+	copyText(screen_blank_path, sizeof(screen_blank_path), traits.screen_blank_path);
 
-	gpu_hdmi_width = traits.gpu_hdmi_width;
-	gpu_hdmi_height = traits.gpu_hdmi_height;
+	copyText(gpu_device, sizeof(gpu_device), traits.gpu_device);
+	copyText(gpu_hdmi_state_path, sizeof(gpu_hdmi_state_path), traits.gpu_hdmi_state_path);
+	gpu_hdmi_width = (traits.gpu_hdmi_width > 0) ? traits.gpu_hdmi_width : 1280;
+	gpu_hdmi_height = (traits.gpu_hdmi_height > 0) ? traits.gpu_hdmi_height : 720;
+	copyText(gpu_devfreq_path, sizeof(gpu_devfreq_path), traits.gpu_devfreq_path);
+	gpu_clock_min = traits.gpu_clock_min;
+	gpu_clock_max = traits.gpu_clock_max;
+
+	copyText(cpu_governor_path, sizeof(cpu_governor_path), traits.cpu_governor_path);
+	copyText(cpu_clock_path, sizeof(cpu_clock_path), traits.cpu_clock_path);
+	cpu_clock_menu = traits.cpu_clock_menu;
+	cpu_clock_powersave = traits.cpu_clock_powersave;
+	cpu_clock_normal = traits.cpu_clock_normal;
+	cpu_clock_performance = traits.cpu_clock_performance;
+	cpu_undervolt_supported = traits.cpu_undervolt_supported;
+
+	copyText(audio_card, sizeof(audio_card), traits.audio_card);
+	copyText(audio_mixer, sizeof(audio_mixer), traits.audio_mixer);
+	copyText(audio_jack_device_name, sizeof(audio_jack_device_name), traits.audio_jack_device_name);
+
+	copyText(power_battery_sysfs, sizeof(power_battery_sysfs), traits.power_battery_sysfs);
+	copyText(power_charger_online_path, sizeof(power_charger_online_path), traits.power_charger_online_path);
+	copyText(power_led_path, sizeof(power_led_path), traits.power_led_path);
+
+	copyText(wifi_interface, sizeof(wifi_interface), traits.wifi_interface);
+	copyText(bluetooth_interface, sizeof(bluetooth_interface), traits.bluetooth_interface);
 
 	for (int i = 0; i < BTN_ID_COUNT; i++) button_keycodes[i] = -1;
 	button_keycodes[BTN_ID_DPAD_UP] = traits.key_up;
@@ -328,17 +486,23 @@ static void exportResolvedTraits(void) {
 	axis_ly = traits.axis_ly;
 	axis_rx = traits.axis_rx;
 	axis_ry = traits.axis_ry;
+	axis_min = traits.axis_min;
+	axis_center = traits.axis_center;
+	axis_max = traits.axis_max;
 	axis_hat_x = traits.axis_hat_x;
 	axis_hat_y = traits.axis_hat_y;
 	axis_lx_invert = traits.axis_lx_invert;
 	axis_ly_invert = traits.axis_ly_invert;
 	axis_rx_invert = traits.axis_rx_invert;
 	axis_ry_invert = traits.axis_ry_invert;
-	copyText(input_lid, sizeof(input_lid), traits.input_lid);
 
-	cpu_undervolt_supported = traits.cpu_undervolt_supported;
-	copyText(wifi_interface, sizeof(wifi_interface), traits.wifi_interface);
-	copyText(bluetooth_interface, sizeof(bluetooth_interface), traits.bluetooth_interface);
+	copyText(input_gamepad, sizeof(input_gamepad), traits.input_gamepad);
+	copyText(input_stick, sizeof(input_stick), traits.input_stick);
+	copyText(input_power, sizeof(input_power), traits.input_power);
+	copyText(input_volume, sizeof(input_volume), traits.input_volume);
+	copyText(input_menu, sizeof(input_menu), traits.input_menu);
+	copyText(input_rumble, sizeof(input_rumble), traits.input_rumble_device_name);
+	copyText(input_lid, sizeof(input_lid), traits.input_lid);
 }
 
 static void initTraitDefaults(void) {
@@ -399,292 +563,9 @@ int MINIME_traitsInit(void) {
 
 	deriveFallbacks();
 
-	valid = validate() == 0;
+	valid = (validate() == 0);
 	if (valid) {
 		exportResolvedTraits();
 	}
 	return valid ? 0 : -1;
-}
-
-const MinimeTraits* MINIME_traits(void) {
-	return MINIME_traitsInit() == 0 ? &traits : NULL;
-}
-
-int MINIME_audioJackConnected(void) {
-	const MinimeTraits* traits = MINIME_traits();
-	int fd;
-	unsigned char switches[1] = {0};
-
-	if (!traits || !MINIME_traitAvailable(traits->audio_jack_device_name))
-		return 0;
-	fd = MINIME_inputOpenByNameOrPath(traits->audio_jack_device_name);
-	if (fd < 0)
-		return 0;
-	// The codec exposes the jack as a switch input device; read its current
-	// state once so the initial SetJack at startup reflects reality instead
-	// of always reporting a headphone.
-	if (ioctl(fd, EVIOCGSW(sizeof(switches)), switches) >= 0) {
-		close(fd);
-		return (switches[0] & (1 << SW_HEADPHONE_INSERT)) ? 1 : 0;
-	}
-	close(fd);
-	return 0;
-}
-
-int MINIME_inputOpenByNameOrPath(const char* name_or_path) {
-	if (!name_or_path || !MINIME_traitAvailable(name_or_path))
-		return -1;
-	if (name_or_path[0] == '/')
-		return open(name_or_path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-	return MINIME_inputOpenByName(name_or_path);
-}
-
-void MINIME_audioSetRawVolume(int value) {
-	const MinimeTraits* traits = MINIME_traits();
-	char card_flag[64] = "";
-	char command[512];
-
-	if (!traits)
-		return;
-	// audio_mixer is the ALSA simple-mixer control (e.g. "Line Out").
-	// Codec init quirks (DAC pswitch unmute, Playback Mux / jack routing)
-	// are owned by the firmware ui init.d, not the UI.
-	if (strcmp(traits->audio_card, "default") != 0) {
-		snprintf(card_flag, sizeof(card_flag), "-c '%s' ", traits->audio_card);
-	}
-	snprintf(command, sizeof(command), "amixer -q %ssset '%s' %d%% unmute >/dev/null 2>&1",
-			 card_flag, traits->audio_mixer, value);
-	(void)system(command);
-}
-
-int MINIME_videoHasHDMI(void) {
-	const MinimeTraits* traits = MINIME_traits();
-	return traits && MINIME_traitAvailable(traits->gpu_hdmi_state_path);
-}
-
-int MINIME_audioOpenJackDevice(void) {
-	const MinimeTraits* traits = MINIME_traits();
-	if (!traits || !MINIME_traitAvailable(traits->audio_jack_device_name))
-		return -1;
-	return MINIME_inputOpenByNameOrPath(traits->audio_jack_device_name);
-}
-
-int MINIME_videoHDMIConnected(void) {
-	const MinimeTraits* traits = MINIME_traits();
-
-	if (!traits || !MINIME_traitAvailable(traits->gpu_hdmi_state_path))
-		return 0;
-
-	// DRM connector status files ("/sys/class/drm/cardN-<connector>/status")
-	// contain text ("connected"/"disconnected"), not an integer. Parse the
-	// text first, then fall back to numeric paths for non-DRM backends.
-	char status[16] = "";
-	getFile((char*)traits->gpu_hdmi_state_path, status, sizeof(status));
-	if (status[0] != '\0') {
-		if (prefixMatch("connected", status))
-			return 1;
-		if (prefixMatch("disconnected", status) || prefixMatch("unknown", status))
-			return 0;
-	}
-	return getInt((char*)traits->gpu_hdmi_state_path);
-}
-
-void MINIME_videoSetBacklight(int value) {
-	const MinimeTraits* traits = MINIME_traits();
-
-	if (traits && MINIME_traitAvailable(traits->screen_backlight_path))
-		putInt((char*)traits->screen_backlight_path, value);
-}
-
-void MINIME_videoBlank(int blank) {
-	const MinimeTraits* traits = MINIME_traits();
-
-	if (traits && MINIME_traitAvailable(traits->screen_blank_path))
-		putInt((char*)traits->screen_blank_path, blank ? 4 : 0);
-}
-
-#define INPUT_EVENT_LIMIT 32
-
-int MINIME_inputOpenByName(const char* expected) {
-	char name[256];
-	char path[64];
-
-	if (!MINIME_traitAvailable(expected))
-		return -1;
-	for (int i = 0; i < INPUT_EVENT_LIMIT; i++) {
-		int fd;
-
-		snprintf(path, sizeof(path), "/dev/input/event%d", i);
-		fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-		if (fd < 0)
-			continue;
-		memset(name, 0, sizeof(name));
-		if (ioctl(fd, EVIOCGNAME(sizeof(name)), name) >= 0 && !strcmp(name, expected))
-			return fd;
-		close(fd);
-	}
-	return -1;
-}
-
-int MINIME_inputOpenShortcutDevices(int* fds, size_t max_fds) {
-	const MinimeTraits* traits = MINIME_traits();
-	if (!traits || !fds)
-		return 0;
-	// Data-driven device list: add a device by adding a trait field + one
-	// element here — sizeof keeps the loop in sync (no separate count to
-	// forget to bump). Empty/unset names are skipped by MINIME_inputOpenByName.
-	const char* names[] = {
-		traits->input_gamepad,
-		traits->input_stick,
-		traits->input_power,
-		traits->input_volume,
-		traits->input_menu,
-	};
-	int count = 0;
-	for (size_t i = 0; i < sizeof(names) / sizeof(names[0]) && (size_t)count < max_fds; i++) {
-		int fd = MINIME_inputOpenByName(names[i]);
-
-		if (fd >= 0)
-			fds[count++] = fd;
-	}
-	return count;
-}
-
-int MINIME_inputNormalizeAxis(int value, int invert) {
-	const MinimeTraits* traits = MINIME_traits();
-	int normalized;
-
-	if (!traits || traits->axis_min >= traits->axis_center ||
-		traits->axis_center >= traits->axis_max)
-		return 0;
-	if (value < traits->axis_center) {
-		normalized =
-			-((traits->axis_center - value) * 32767) / (traits->axis_center - traits->axis_min);
-	} else {
-		normalized =
-			((value - traits->axis_center) * 32767) / (traits->axis_max - traits->axis_center);
-	}
-	return invert ? -normalized : normalized;
-}
-
-static int readCapacity(const char* root, int* capacity) {
-	char path[MINIME_TRAIT_PATH_MAX + 32];
-
-	snprintf(path, sizeof(path), "%s/capacity", root);
-	if (!MINIME_traitAvailable(path) || !capacity)
-		return -1;
-	*capacity = getInt(path);
-	return 0;
-}
-
-static int readCharging(const MinimeTraits* traits, int* charging) {
-	char path[MINIME_TRAIT_PATH_MAX + 32];
-	char status[32];
-	FILE* file;
-
-	if (MINIME_traitAvailable(traits->power_charger_online_path)) {
-		*charging = getInt((char*)traits->power_charger_online_path);
-		return 0;
-	}
-	if (!MINIME_traitAvailable(traits->power_battery_sysfs))
-		return -1;
-	snprintf(path, sizeof(path), "%s/status", traits->power_battery_sysfs);
-	file = fopen(path, "r");
-	if (!file)
-		return -1;
-	status[0] = '\0';
-	(void)fgets(status, sizeof(status), file);
-	fclose(file);
-	*charging = !strncmp(status, "Charging", 8) || !strncmp(status, "Full", 4);
-	return 0;
-}
-
-int MINIME_powerGetBattery(int* charging, int* capacity) {
-	const MinimeTraits* traits = MINIME_traits();
-
-	if (!traits || !charging || !capacity || !MINIME_traitAvailable(traits->power_battery_sysfs))
-		return -1;
-	if (readCapacity(traits->power_battery_sysfs, capacity) != 0)
-		return -1;
-	if (readCharging(traits, charging) != 0)
-		*charging = 0;
-	return 0;
-}
-
-void MINIME_powerSetLED(int enabled) {
-	const MinimeTraits* traits = MINIME_traits();
-
-	if (traits && MINIME_traitAvailable(traits->power_led_path))
-		putInt((char*)traits->power_led_path, enabled);
-}
-
-void MINIME_powerSetRumble(int enabled) {
-	const MinimeTraits* traits = MINIME_traits();
-	int fd;
-	struct ff_effect effect;
-
-	if (!traits || !MINIME_traitAvailable(traits->input_rumble_device_name))
-		return;
-
-	// The rumble motor is exposed as an input device with FF_RUMBLE
-	// (e.g. "pwm-vibrator"). Upload an effect with the desired magnitude;
-	// the memless FF layer replays it until it is removed or replaced.
-	fd = MINIME_inputOpenByName(traits->input_rumble_device_name);
-	if (fd < 0)
-		return;
-
-	memset(&effect, 0, sizeof(effect));
-	effect.type = FF_RUMBLE;
-	effect.id = -1;
-	if (enabled) {
-		effect.u.rumble.strong_magnitude = 0xffff;
-		effect.u.rumble.weak_magnitude = 0xffff;
-	}
-	if (ioctl(fd, EVIOCSFF, &effect) < 0 && enabled) {
-		// No effect was ever uploaded; an explicit stop has nothing to remove.
-		if (errno != ENODEV)
-			close(fd);
-		return;
-	}
-	close(fd);
-}
-
-static void setGpuClock(int speed) {
-	const MinimeTraits* traits = MINIME_traits();
-	if (!traits) return;
-
-	int gpu_clock = (speed >= 3) ? traits->gpu_clock_max : traits->gpu_clock_min;
-	if (gpu_clock <= 0) return;
-
-	glob_t gl;
-	if (glob("/sys/class/devfreq/*gpu*/min_freq", 0, NULL, &gl) == 0) {
-		for (size_t i = 0; i < gl.gl_pathc; i++) {
-			putInt(gl.gl_pathv[i], gpu_clock);
-		}
-		globfree(&gl);
-	}
-}
-
-void MINIME_powerSetCPUSpeed(int speed) {
-	const MinimeTraits* traits = MINIME_traits();
-	if (!traits) return;
-
-	const char* governor = (speed >= 3) ? "performance" : "schedutil";
-	int clock = -1;
-	if (speed <= 0)
-		clock = traits->cpu_clock_menu;
-	else if (speed == 1)
-		clock = traits->cpu_clock_powersave;
-	else if (speed == 2)
-		clock = traits->cpu_clock_normal;
-	else
-		clock = traits->cpu_clock_performance;
-
-	if (MINIME_traitAvailable(traits->cpu_governor_path))
-		putFile((char*)traits->cpu_governor_path, (char*)governor);
-
-	if (MINIME_traitAvailable(traits->cpu_clock_path) && clock > 0)
-		putInt((char*)traits->cpu_clock_path, clock);
-
-	setGpuClock(speed);
 }
