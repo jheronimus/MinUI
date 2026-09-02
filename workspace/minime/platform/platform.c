@@ -38,6 +38,9 @@ struct input_event {
 	int value;
 };
 
+///////////////////////////////
+// Platform Lifecycle & Device Traits
+
 int plat_fixed_width = 640;
 int plat_fixed_height = 480;
 int plat_has_hdmi = 0;
@@ -119,7 +122,22 @@ static void load_traits(void) {
 	}
 }
 
+char* PLAT_getModel(void) {
+	return traits ? (char*)traits->device_model : "Minime Handheld";
+}
+
+int PLAT_getScreenRotation(void) {
+	if (!traits) load_traits();
+	return (plat_screen_rotation > 0) ? plat_screen_rotation : 0;
+}
+
+int PLAT_hasUndervolt(void) {
+	if (!traits) load_traits();
+	return traits && traits->cpu_undervolt_supported > 0;
+}
+
 ///////////////////////////////
+// Input Handling & Gamepad
 
 #define RAW_HATY 17
 #define RAW_HATX 16
@@ -131,6 +149,7 @@ static int inputs[INPUT_COUNT];
 #define kVolumeIndex 2
 #define kMenuIndex 3
 #define kStickIndex 4
+
 static void drainInputFd(int input);
 static void drainAllInputs(void);
 
@@ -151,97 +170,17 @@ static void updateButtonState(int btn, int pressed, int id, uint32_t tick) {
 	}
 }
 
-static int lid_fd = -1;
-
-int PLAT_is6Button(void) {
-	if (!traits) load_traits();
-	return (traits && traits->key_c >= 0 && traits->key_z >= 0);
-}
-
-int PLAT_hasMenuButton(void) {
-	if (!traits) load_traits();
-	return (traits && traits->key_menu >= 0);
-}
-
-int PLAT_hasL3(void) {
-	if (!traits) load_traits();
-	return (traits && traits->key_l3 >= 0);
-}
-
-int PLAT_hasR3(void) {
-	if (!traits) load_traits();
-	return (traits && traits->key_r3 >= 0);
-}
-
-int PLAT_hasLeftStick(void) {
-	if (!traits) load_traits();
-	return (traits && traits->axis_lx >= 0);
-}
-
-int PLAT_hasRightStick(void) {
-	if (!traits) load_traits();
-	return (traits && traits->axis_rx >= 0);
-}
-
-int PLAT_getScreenRotation(void) {
-	if (!traits) load_traits();
-	return (plat_screen_rotation > 0) ? plat_screen_rotation : 0;
-}
-
-int PLAT_hasBluetooth(void) {
-	char path[256];
-	if (!traits) load_traits();
-	if (!traits || !traits->bluetooth_interface[0] || strcmp(traits->bluetooth_interface, "na") == 0)
-		return 0;
-	snprintf(path, sizeof(path), "/sys/class/bluetooth/%s", traits->bluetooth_interface);
-	return access(path, F_OK) == 0;
-}
-
-int PLAT_hasWifi(void) {
-	if (!traits) load_traits();
-	return traits && traits->wifi_interface[0] && strcmp(traits->wifi_interface, "na") != 0;
-}
-
-const char* PLAT_getWifiInterface(void) {
-	if (!traits) load_traits();
-	return PLAT_hasWifi() ? traits->wifi_interface : "wlan0";
-}
-
-int PLAT_hasUndervolt(void) {
-	if (!traits) load_traits();
-	return traits && traits->cpu_undervolt_supported > 0;
-}
-
-int PLAT_hasLid(void) {
-	if (!traits) load_traits();
-	return traits && MINIME_traitAvailable(traits->input_lid);
-}
-
-void PLAT_initLid(void) {
-	if (!traits) load_traits();
-	lid_fd = MINIME_inputOpenByName(traits->input_lid);
-	lid.has_lid = lid_fd >= 0;
-	if (lid.has_lid) {
-		unsigned long sw[SW_MAX / 8 / sizeof(unsigned long) + 1] = {0};
-		if (ioctl(lid_fd, EVIOCGSW(sizeof(sw)), sw) >= 0)
-			lid.is_open = !((sw[0] >> SW_LID) & 1);
-	}
-}
-
-int PLAT_lidChanged(int* state) {
-	if (!lid.has_lid) return 0;
+static void drainInputFd(int input) {
 	struct input_event event;
-	while (read(lid_fd, &event, sizeof(event)) == sizeof(event)) {
-		if (event.type == EV_SW && event.code == SW_LID) {
-			int lid_open = !event.value;
-			if (lid_open != lid.is_open) {
-				lid.is_open = lid_open;
-				if (state) *state = lid_open;
-				return 1;
-			}
-		}
+	if (input < 0) return;
+	while (read(input, &event, sizeof(event)) == sizeof(event)) {
 	}
-	return 0;
+}
+
+static void drainAllInputs(void) {
+	for (int i = 0; i < INPUT_COUNT; i++) {
+		drainInputFd(inputs[i]);
+	}
 }
 
 void PLAT_initInput(void) {
@@ -257,24 +196,6 @@ void PLAT_quitInput(void) {
 	for (int i = 0; i < INPUT_COUNT; i++) {
 		if (inputs[i] >= 0) close(inputs[i]);
 	}
-	if (lid_fd >= 0) {
-		close(lid_fd);
-		lid_fd = -1;
-	}
-}
-
-static void drainInputFd(int input) {
-	struct input_event event;
-	if (input < 0) return;
-	while (read(input, &event, sizeof(event)) == sizeof(event)) {
-	}
-}
-
-static void drainAllInputs(void) {
-	for (int i = 0; i < INPUT_COUNT; i++) {
-		drainInputFd(inputs[i]);
-	}
-	if (lid_fd >= 0) drainInputFd(lid_fd);
 }
 
 static void handleAbsEvent(int code, int value, uint32_t tick) {
@@ -382,9 +303,76 @@ int PLAT_shouldWake(void) {
 	return 0;
 }
 
-///////////////////////////////
+int PLAT_is6Button(void) {
+	if (!traits) load_traits();
+	return (traits && traits->key_c >= 0 && traits->key_z >= 0);
+}
 
-// KMS/GLES video backend
+int PLAT_hasMenuButton(void) {
+	if (!traits) load_traits();
+	return (traits && traits->key_menu >= 0);
+}
+
+int PLAT_hasL3(void) {
+	if (!traits) load_traits();
+	return (traits && traits->key_l3 >= 0);
+}
+
+int PLAT_hasR3(void) {
+	if (!traits) load_traits();
+	return (traits && traits->key_r3 >= 0);
+}
+
+int PLAT_hasLeftStick(void) {
+	if (!traits) load_traits();
+	return (traits && traits->axis_lx >= 0);
+}
+
+int PLAT_hasRightStick(void) {
+	if (!traits) load_traits();
+	return (traits && traits->axis_rx >= 0);
+}
+
+///////////////////////////////
+// Clamshell Lid Sensor
+
+static int lid_fd = -1;
+
+int PLAT_hasLid(void) {
+	if (!traits) load_traits();
+	return traits && MINIME_traitAvailable(traits->input_lid);
+}
+
+void PLAT_initLid(void) {
+	if (!traits) load_traits();
+	lid_fd = MINIME_inputOpenByName(traits->input_lid);
+	lid.has_lid = lid_fd >= 0;
+	if (lid.has_lid) {
+		unsigned long sw[SW_MAX / 8 / sizeof(unsigned long) + 1] = {0};
+		if (ioctl(lid_fd, EVIOCGSW(sizeof(sw)), sw) >= 0)
+			lid.is_open = !((sw[0] >> SW_LID) & 1);
+	}
+}
+
+int PLAT_lidChanged(int* state) {
+	if (!lid.has_lid) return 0;
+	struct input_event event;
+	while (read(lid_fd, &event, sizeof(event)) == sizeof(event)) {
+		if (event.type == EV_SW && event.code == SW_LID) {
+			int lid_open = !event.value;
+			if (lid_open != lid.is_open) {
+				lid.is_open = lid_open;
+				if (state) *state = lid_open;
+				return 1;
+			}
+		}
+	}
+	return 0;
+}
+
+///////////////////////////////
+// Video Pipeline (KMSDRM & Scaler)
+
 static struct VID_Context {
 	SDL_Window* window;
 	SDL_Renderer* renderer;
@@ -523,50 +511,6 @@ SDL_Surface* PLAT_initVideo(void) {
 	return vid.screen;
 }
 
-SDL_GLContext PLAT_initGLContext(int major, int minor, int gles) {
-	if (vid.gl_ctx) {
-		SDL_GL_MakeCurrent(vid.window, vid.gl_ctx);
-		return vid.gl_ctx;
-	}
-
-	int profile = gles ? SDL_GL_CONTEXT_PROFILE_ES : SDL_GL_CONTEXT_PROFILE_CORE;
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, profile);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, major > 0 ? major : 3);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, minor >= 0 ? minor : 0);
-	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-	SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
-
-	vid.gl_ctx = SDL_GL_CreateContext(vid.window);
-	if (!vid.gl_ctx && gles && major > 2) {
-		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
-		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-		vid.gl_ctx = SDL_GL_CreateContext(vid.window);
-	}
-	if (vid.gl_ctx) {
-		SDL_GL_MakeCurrent(vid.window, vid.gl_ctx);
-		SDL_GL_SetSwapInterval(0);
-	}
-	return vid.gl_ctx;
-}
-
-void PLAT_quitGLContext(void) {
-	if (vid.gl_ctx) {
-		SDL_GL_DeleteContext(vid.gl_ctx);
-		vid.gl_ctx = NULL;
-	}
-}
-
-void PLAT_swapGL(void) {
-	if (vid.window) {
-		SDL_GL_SwapWindow(vid.window);
-	}
-}
-
-void* PLAT_getGLProcAddress(const char* proc) {
-	return SDL_GL_GetProcAddress(proc);
-}
-
 void PLAT_quitVideo(void) {
 	PLAT_quitGLContext();
 	SDL_FreeSurface(vid.screen);
@@ -644,6 +588,8 @@ void PLAT_setSharpness(int sharpness) {
 	vid.sharpness = sharpness;
 	resizeVideo(vid.tex_w, vid.tex_h, p);
 }
+
+// Video Effects & Scanlines
 
 static struct FX_Context {
 	int scale;
@@ -785,6 +731,8 @@ void PLAT_blitRenderer(GFX_Renderer* renderer) {
 	resizeVideo(vid.blit->true_w, vid.blit->true_h, vid.blit->src_p);
 }
 
+// Screen Presentation & Rotation
+
 void (*plat_custom_flip)(SDL_Surface* surface) = NULL;
 
 static void renderCopy(SDL_Texture* texture, const SDL_Rect* src, const SDL_Rect* dst) {
@@ -865,6 +813,54 @@ int PLAT_supportsOverscan(void) {
 }
 
 ///////////////////////////////
+// Hardware Acceleration (EGL / OpenGL ES)
+
+SDL_GLContext PLAT_initGLContext(int major, int minor, int gles) {
+	if (vid.gl_ctx) {
+		SDL_GL_MakeCurrent(vid.window, vid.gl_ctx);
+		return vid.gl_ctx;
+	}
+
+	int profile = gles ? SDL_GL_CONTEXT_PROFILE_ES : SDL_GL_CONTEXT_PROFILE_CORE;
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, profile);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, major > 0 ? major : 3);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, minor >= 0 ? minor : 0);
+	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+	SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+
+	vid.gl_ctx = SDL_GL_CreateContext(vid.window);
+	if (!vid.gl_ctx && gles && major > 2) {
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+		vid.gl_ctx = SDL_GL_CreateContext(vid.window);
+	}
+	if (vid.gl_ctx) {
+		SDL_GL_MakeCurrent(vid.window, vid.gl_ctx);
+		SDL_GL_SetSwapInterval(0);
+	}
+	return vid.gl_ctx;
+}
+
+void PLAT_quitGLContext(void) {
+	if (vid.gl_ctx) {
+		SDL_GL_DeleteContext(vid.gl_ctx);
+		vid.gl_ctx = NULL;
+	}
+}
+
+void PLAT_swapGL(void) {
+	if (vid.window) {
+		SDL_GL_SwapWindow(vid.window);
+	}
+}
+
+void* PLAT_getGLProcAddress(const char* proc) {
+	return SDL_GL_GetProcAddress(proc);
+}
+
+///////////////////////////////
+// UI Overlay
 
 #define OVERLAY_WIDTH PILL_SIZE
 #define OVERLAY_HEIGHT PILL_SIZE
@@ -891,9 +887,20 @@ void PLAT_enableOverlay(int enable) {
 }
 
 ///////////////////////////////
+// Wireless Networking (Wi-Fi & Bluetooth)
 
 static int online = 0;
 static int bt_up = 0;
+
+int PLAT_hasWifi(void) {
+	if (!traits) load_traits();
+	return traits && traits->wifi_interface[0] && strcmp(traits->wifi_interface, "na") != 0;
+}
+
+const char* PLAT_getWifiInterface(void) {
+	if (!traits) load_traits();
+	return PLAT_hasWifi() ? traits->wifi_interface : "wlan0";
+}
 
 static void updateWifiStatus(void) {
 	if (MINIME_traitAvailable(traits->wifi_interface)) {
@@ -907,6 +914,19 @@ static void updateWifiStatus(void) {
 	}
 }
 
+int PLAT_isOnline(void) {
+	return online;
+}
+
+int PLAT_hasBluetooth(void) {
+	char path[256];
+	if (!traits) load_traits();
+	if (!traits || !traits->bluetooth_interface[0] || strcmp(traits->bluetooth_interface, "na") == 0)
+		return 0;
+	snprintf(path, sizeof(path), "/sys/class/bluetooth/%s", traits->bluetooth_interface);
+	return access(path, F_OK) == 0;
+}
+
 static void updateBluetoothStatus(void) {
 	if (MINIME_traitAvailable(traits->bluetooth_interface)) {
 		char path[256];
@@ -916,6 +936,13 @@ static void updateBluetoothStatus(void) {
 		bt_up = 0;
 	}
 }
+
+int PLAT_isBluetoothUp(void) {
+	return bt_up;
+}
+
+///////////////////////////////
+// Power, Battery & Thermal Management
 
 void PLAT_getBatteryStatus(int* is_charging, int* charge) {
 	int i = GetBattery();
@@ -967,8 +994,6 @@ void PLAT_powerOff(void) {
 	exit(0);
 }
 
-///////////////////////////////
-
 void PLAT_setCPUSpeed(int speed) {
 	MINIME_powerSetCPUSpeed(speed);
 }
@@ -978,18 +1003,9 @@ void PLAT_setRumble(int strength) {
 	MINIME_powerSetRumble(strength ? 1 : 0);
 }
 
+///////////////////////////////
+// Audio
+
 int PLAT_pickSampleRate(int requested, int max) {
 	return MIN(requested, max);
-}
-
-char* PLAT_getModel(void) {
-	return traits ? (char*)traits->device_model : "Minime Handheld";
-}
-
-int PLAT_isOnline(void) {
-	return online;
-}
-
-int PLAT_isBluetoothUp(void) {
-	return bt_up;
 }
