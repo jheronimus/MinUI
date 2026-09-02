@@ -3,7 +3,7 @@
 
 ///////////////////////////////
 
-#include "sdl.h"
+#include <SDL2/SDL.h>
 
 ///////////////////////////////
 // Display (Native panel & layout)

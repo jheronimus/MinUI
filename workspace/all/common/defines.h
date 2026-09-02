@@ -80,15 +80,12 @@
 
 ///////////////////////////////
 
-#define HAS_POWER_BUTTON 1
-#define HAS_POWEROFF_BUTTON 0
-#define HAS_MENU_BUTTON PLAT_hasMenuButton()
-#define HAS_SKINNY_SCREEN (FIXED_WIDTH<320)
-#define AXIS_LX	AXIS_NA
-#define AXIS_LY	AXIS_NA
-#define AXIS_RX	AXIS_NA
-#define AXIS_RY	AXIS_NA
-#endif 
+#define HAS_POWER_BUTTON	1
+#define HAS_POWEROFF_BUTTON	0
+#define HAS_MENU_BUTTON		PLAT_hasMenuButton()
+#define HAS_SKINNY_SCREEN	(FIXED_WIDTH<320)
+
+///////////////////////////////
 
 #ifndef HAS_HDMI
 #define HDMI_WIDTH	FIXED_WIDTH
