@@ -26,6 +26,7 @@ extern int screen_padding;
 extern int screen_row_count;
 extern MinimeScreenAspect screen_aspect;
 extern int screen_refresh_rate;
+extern int screen_backlight_max;
 
 extern int gpu_hdmi_width;
 extern int gpu_hdmi_height;
@@ -184,7 +185,9 @@ int MINIME_traitAvailable(const char* value);
 int MINIME_audioJackConnected(void);
 void MINIME_audioSetRawVolume(int value);
 
+int MINIME_videoHasHDMI(void);
 int MINIME_videoHDMIConnected(void);
+int MINIME_audioOpenJackDevice(void);
 void MINIME_videoSetBacklight(int value);
 void MINIME_videoBlank(int blank);
 

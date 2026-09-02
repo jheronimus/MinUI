@@ -56,7 +56,7 @@ static inline void ensure_traits(void) {
 static void load_traits(void) {
 	if (MINIME_traitsInit() != 0) exit(1);
 	screen_rotation_step = screen_rotation / 90;
-	plat_has_hdmi = MINIME_videoHDMIConnected();
+	plat_has_hdmi = MINIME_videoHasHDMI();
 }
 
 char* PLAT_getModel(void) {

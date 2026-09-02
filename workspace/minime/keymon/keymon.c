@@ -37,13 +37,12 @@ static pthread_t power_pt;
 static pthread_t bt_pt;
 
 static void* watchHDMI(void* arg) {
-	const MinimeTraits* traits = MINIME_traits();
 	int has_hdmi, had_hdmi;
 
 	has_hdmi = had_hdmi = MINIME_videoHDMIConnected();
 	SetHDMI(has_hdmi);
 
-	if (!traits || !MINIME_traitAvailable(traits->gpu_hdmi_state_path))
+	if (!MINIME_videoHasHDMI())
 		return 0;
 
 	while (1) {
@@ -135,13 +134,11 @@ static void* watchBT(void* arg) {
 }
 
 int main(int argc, char* argv[]) {
-	const MinimeTraits* traits;
 
 	(void)argc;
 	(void)argv;
 	if (MINIME_traitsInit() != 0)
 		return 1;
-	traits = MINIME_traits();
 	InitSettings();
 	pthread_create(&hdmi_pt, NULL, &watchHDMI, NULL);
 	pthread_create(&power_pt, NULL, &watchPower, NULL);
@@ -149,12 +146,9 @@ int main(int argc, char* argv[]) {
 
 	input_count =
 		MINIME_inputOpenShortcutDevices(input_fds, sizeof(input_fds) / sizeof(input_fds[0]));
-	if (traits && MINIME_traitAvailable(traits->audio_jack_device_name) &&
-		input_count < (int)(sizeof(input_fds) / sizeof(input_fds[0]))) {
-		int fd = MINIME_inputOpenByNameOrPath(traits->audio_jack_device_name);
-
-		if (fd >= 0)
-			input_fds[input_count++] = fd;
+	int jack_fd = MINIME_audioOpenJackDevice();
+	if (jack_fd >= 0 && input_count < (int)(sizeof(input_fds) / sizeof(input_fds[0]))) {
+		input_fds[input_count++] = jack_fd;
 	}
 
 	int menu_code = (button_keycodes[BTN_ID_MENU] >= 0 ? button_keycodes[BTN_ID_MENU] : button_keycodes[BTN_ID_SELECT]);

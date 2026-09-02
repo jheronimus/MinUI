@@ -93,8 +93,7 @@ void SetBrightness(int value) {
 		value = BRIGHTNESS_MAX;
 	shared->brightness = value;
 
-	const MinimeTraits* traits = MINIME_traits();
-	int max = (traits && traits->screen_backlight_max > 0) ? traits->screen_backlight_max : 255;
+	int max = (screen_backlight_max > 0) ? screen_backlight_max : 255;
 	int raw = (value * max) / BRIGHTNESS_MAX;
 	if (value > 0 && raw == 0)
 		raw = 1;

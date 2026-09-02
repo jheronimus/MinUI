@@ -30,6 +30,7 @@ int screen_padding = 10;
 int screen_row_count = 6;
 MinimeScreenAspect screen_aspect = MINIME_ASPECT_4x3;
 int screen_refresh_rate = 60;
+int screen_backlight_max = 255;
 
 int gpu_hdmi_width = 1280;
 int gpu_hdmi_height = 720;
@@ -332,6 +333,7 @@ static void exportResolvedTraits(void) {
 	screen_row_count = traits.ui_row_count;
 	screen_aspect = traits.screen_aspect;
 	screen_refresh_rate = traits.screen_refresh_rate;
+	screen_backlight_max = (traits.screen_backlight_max > 0) ? traits.screen_backlight_max : 255;
 
 	gpu_hdmi_width = traits.gpu_hdmi_width;
 	gpu_hdmi_height = traits.gpu_hdmi_height;
@@ -497,6 +499,18 @@ void MINIME_audioSetRawVolume(int value) {
 	snprintf(command, sizeof(command), "amixer -q %ssset '%s' %d%% unmute >/dev/null 2>&1",
 			 card_flag, traits->audio_mixer, value);
 	(void)system(command);
+}
+
+int MINIME_videoHasHDMI(void) {
+	const MinimeTraits* traits = MINIME_traits();
+	return traits && MINIME_traitAvailable(traits->gpu_hdmi_state_path);
+}
+
+int MINIME_audioOpenJackDevice(void) {
+	const MinimeTraits* traits = MINIME_traits();
+	if (!traits || !MINIME_traitAvailable(traits->audio_jack_device_name))
+		return -1;
+	return MINIME_inputOpenByNameOrPath(traits->audio_jack_device_name);
 }
 
 int MINIME_videoHDMIConnected(void) {
