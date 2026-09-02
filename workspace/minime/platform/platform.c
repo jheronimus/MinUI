@@ -476,7 +476,7 @@ SDL_Surface* PLAT_initVideo(void) {
 	vid.width = w;
 	vid.height = h;
 	vid.pitch = p;
-	vid.sharpness = SHARPNESS_OFF;
+	vid.sharpness = SHARPNESS_SOFT;
 
 	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
 	vid.texture =
