@@ -206,6 +206,23 @@ static const TraitField* findField(const char* key) {
 	return NULL;
 }
 
+static MinimeScreenAspect deriveAspect(int w, int h) {
+	if (w <= 0 || h <= 0) return MINIME_ASPECT_UNKNOWN;
+	if (w * 3 == h * 4) return MINIME_ASPECT_4x3;
+	if (w * 2 == h * 3) return MINIME_ASPECT_3x2;
+	if (w * 9 == h * 16) return MINIME_ASPECT_16x9;
+	if (w == h) return MINIME_ASPECT_1x1;
+	return MINIME_ASPECT_UNKNOWN;
+}
+
+static MinimeScreenAspect parseAspect(const char* value) {
+	int w = 0, h = 0;
+	if (sscanf(value, "%d:%d", &w, &h) == 2) {
+		return deriveAspect(w, h);
+	}
+	return MINIME_ASPECT_UNKNOWN;
+}
+
 // Apply a single key=value line to the struct. Returns 0 on success, -1 on
 // unknown key, malformed int, or out-of-range value.
 static int setValue(const char* key, const char* value) {
@@ -221,21 +238,7 @@ static int setValue(const char* key, const char* value) {
 	}
 
 	if (field->type == TYPE_ASPECT) {
-		// Value is "W:H" (e.g. "4:3"); maps to the aspect enum. Missing/na
-		// stays UNKNOWN and the init derive step fills it from dimensions.
-		MinimeScreenAspect aspect = MINIME_ASPECT_UNKNOWN;
-		int w = 0, h = 0;
-		if (sscanf(value, "%d:%d", &w, &h) == 2 && w > 0 && h > 0) {
-			if (w * 3 == h * 4)
-				aspect = MINIME_ASPECT_4x3;
-			else if (w * 2 == h * 3)
-				aspect = MINIME_ASPECT_3x2;
-			else if (w * 9 == h * 16)
-				aspect = MINIME_ASPECT_16x9;
-			else if (w == h)
-				aspect = MINIME_ASPECT_1x1;
-		}
-		*(MinimeScreenAspect*)((char*)&traits + field->offset) = aspect;
+		*(MinimeScreenAspect*)((char*)&traits + field->offset) = parseAspect(value);
 		return 0;
 	}
 
@@ -282,17 +285,36 @@ static void resolveHdmiConnector(void) {
 	closedir(dir);
 }
 
+static int validateRequiredKeys(void) {
+	const int required[] = {
+		traits.key_up, traits.key_down, traits.key_left, traits.key_right,
+		traits.key_a, traits.key_b, traits.key_x, traits.key_y,
+		traits.key_start, traits.key_select, traits.key_menu,
+		traits.key_power, traits.key_vol_up, traits.key_vol_down};
+	for (size_t i = 0; i < sizeof(required) / sizeof(required[0]); i++) {
+		if (required[i] < 0) return 0;
+	}
+	return 1;
+}
+
+static int validateDisplay(void) {
+	return (traits.screen_width > 0 && traits.screen_height > 0 &&
+			traits.screen_rotation >= 0 &&
+			MINIME_traitAvailable(traits.gpu_device) &&
+			MINIME_traitAvailable(traits.screen_backlight_path) &&
+			traits.screen_backlight_max > 0);
+}
+
+static int validateInputs(void) {
+	return (MINIME_traitAvailable(traits.input_gamepad) &&
+			MINIME_traitAvailable(traits.input_power) &&
+			MINIME_traitAvailable(traits.input_volume) &&
+			validateRequiredKeys());
+}
+
 static int validate(void) {
 	if (!traits.device_id[0] || !traits.device_model[0] ||
-		!MINIME_traitAvailable(traits.gpu_device) || traits.screen_width <= 0 ||
-		traits.screen_height <= 0 || traits.screen_rotation < 0 ||
-		!MINIME_traitAvailable(traits.screen_backlight_path) || traits.screen_backlight_max <= 0 ||
-		!MINIME_traitAvailable(traits.input_gamepad) ||
-		!MINIME_traitAvailable(traits.input_power) || !MINIME_traitAvailable(traits.input_volume) ||
-		traits.key_up < 0 || traits.key_down < 0 || traits.key_left < 0 || traits.key_right < 0 ||
-		traits.key_a < 0 || traits.key_b < 0 || traits.key_x < 0 || traits.key_y < 0 ||
-		traits.key_start < 0 || traits.key_select < 0 || traits.key_menu < 0 ||
-		traits.key_power < 0 || traits.key_vol_up < 0 || traits.key_vol_down < 0) {
+		!validateDisplay() || !validateInputs()) {
 		fprintf(stderr, "Invalid required Minime traits in %s\n", TRAITS_PATH);
 		return -1;
 	}
@@ -300,8 +322,8 @@ static int validate(void) {
 }
 
 static void exportResolvedTraits(void) {
-	strncpy(device_id, traits.device_id, sizeof(device_id) - 1);
-	strncpy(device_model, traits.device_model, sizeof(device_model) - 1);
+	copyText(device_id, sizeof(device_id), traits.device_id);
+	copyText(device_model, sizeof(device_model), traits.device_model);
 
 	screen_width = traits.screen_width;
 	screen_height = traits.screen_height;
@@ -348,20 +370,14 @@ static void exportResolvedTraits(void) {
 	axis_ly_invert = traits.axis_ly_invert;
 	axis_rx_invert = traits.axis_rx_invert;
 	axis_ry_invert = traits.axis_ry_invert;
-	strncpy(input_lid, traits.input_lid, sizeof(input_lid) - 1);
+	copyText(input_lid, sizeof(input_lid), traits.input_lid);
 
 	cpu_undervolt_supported = traits.cpu_undervolt_supported;
-	strncpy(wifi_interface, traits.wifi_interface, sizeof(wifi_interface) - 1);
-	strncpy(bluetooth_interface, traits.bluetooth_interface, sizeof(bluetooth_interface) - 1);
+	copyText(wifi_interface, sizeof(wifi_interface), traits.wifi_interface);
+	copyText(bluetooth_interface, sizeof(bluetooth_interface), traits.bluetooth_interface);
 }
 
-int MINIME_traitsInit(void) {
-	FILE* file;
-	char line[512];
-
-	if (initialized)
-		return valid ? 0 : -1;
-	initialized = 1;
+static void initTraitDefaults(void) {
 	memset(&traits, 0, sizeof(traits));
 	traits.key_c = traits.key_z = -1;
 	traits.key_l1 = traits.key_r1 = -1;
@@ -374,20 +390,21 @@ int MINIME_traitsInit(void) {
 	traits.axis_hat_y = 17; // ABS_HAT0Y
 	traits.gpu_hdmi_width = 1280;
 	traits.gpu_hdmi_height = 720;
+}
 
-	file = fopen(TRAITS_PATH, "r");
+static int parseTraitsFile(const char* path) {
+	FILE* file = fopen(path, "r");
 	if (!file) {
-		fprintf(stderr, "Missing Minime traits: %s\n", TRAITS_PATH);
+		fprintf(stderr, "Missing Minime traits: %s\n", path);
 		return -1;
 	}
-	while (fgets(line, sizeof(line), file)) {
-		char* key;
-		char* value;
 
-		key = trimWhitespace(line);
+	char line[512];
+	while (fgets(line, sizeof(line), file)) {
+		char* key = trimWhitespace(line);
 		if (!key[0] || key[0] == '#' || key[0] == '[')
 			continue;
-		value = strchr(key, '=');
+		char* value = strchr(key, '=');
 		if (!value)
 			continue;
 		*value++ = '\0';
@@ -397,25 +414,30 @@ int MINIME_traitsInit(void) {
 		}
 	}
 	fclose(file);
+	return 0;
+}
 
+static void deriveFallbacks(void) {
 	if (traits.ui_padding <= 0)
 		traits.ui_padding = (traits.screen_width >= 720) ? 40 : 10;
 	if (traits.ui_row_count <= 0)
 		traits.ui_row_count = (traits.screen_width >= 720) ? 8 : 6;
 
-	// screen_aspect is parsed from the file when present; derive it from the
-	// panel dimensions only as a fallback so the emitted value is authoritative.
-	if (traits.screen_aspect == MINIME_ASPECT_UNKNOWN && traits.screen_width > 0 &&
-		traits.screen_height > 0) {
-		if (traits.screen_width * 3 == traits.screen_height * 4)
-			traits.screen_aspect = MINIME_ASPECT_4x3;
-		else if (traits.screen_width * 2 == traits.screen_height * 3)
-			traits.screen_aspect = MINIME_ASPECT_3x2;
-		else if (traits.screen_width * 9 == traits.screen_height * 16)
-			traits.screen_aspect = MINIME_ASPECT_16x9;
-		else if (traits.screen_width == traits.screen_height)
-			traits.screen_aspect = MINIME_ASPECT_1x1;
+	if (traits.screen_aspect == MINIME_ASPECT_UNKNOWN) {
+		traits.screen_aspect = deriveAspect(traits.screen_width, traits.screen_height);
 	}
+}
+
+int MINIME_traitsInit(void) {
+	if (initialized)
+		return valid ? 0 : -1;
+	initialized = 1;
+	initTraitDefaults();
+
+	if (parseTraitsFile(TRAITS_PATH) != 0)
+		return -1;
+
+	deriveFallbacks();
 
 	resolveHdmiConnector();
 
@@ -657,27 +679,36 @@ void MINIME_powerSetRumble(int enabled) {
 	close(fd);
 }
 
+static void setGpuClock(int speed) {
+	const MinimeTraits* traits = MINIME_traits();
+	if (!traits) return;
+
+	int gpu_clock = (speed >= 3) ? traits->gpu_clock_max : traits->gpu_clock_min;
+	if (gpu_clock <= 0) return;
+
+	glob_t gl;
+	if (glob("/sys/class/devfreq/*gpu*/min_freq", 0, NULL, &gl) == 0) {
+		for (size_t i = 0; i < gl.gl_pathc; i++) {
+			putInt(gl.gl_pathv[i], gpu_clock);
+		}
+		globfree(&gl);
+	}
+}
+
 void MINIME_powerSetCPUSpeed(int speed) {
 	const MinimeTraits* traits = MINIME_traits();
-	const char* governor;
+	if (!traits) return;
+
+	const char* governor = (speed >= 3) ? "performance" : "schedutil";
 	int clock = -1;
-
-	if (!traits)
-		return;
-
-	if (speed <= 0) {
-		governor = "schedutil";
+	if (speed <= 0)
 		clock = traits->cpu_clock_menu;
-	} else if (speed == 1) {
-		governor = "schedutil";
+	else if (speed == 1)
 		clock = traits->cpu_clock_powersave;
-	} else if (speed == 2) {
-		governor = "schedutil";
+	else if (speed == 2)
 		clock = traits->cpu_clock_normal;
-	} else {
-		governor = "performance";
+	else
 		clock = traits->cpu_clock_performance;
-	}
 
 	if (MINIME_traitAvailable(traits->cpu_governor_path))
 		putFile((char*)traits->cpu_governor_path, (char*)governor);
@@ -685,14 +716,5 @@ void MINIME_powerSetCPUSpeed(int speed) {
 	if (MINIME_traitAvailable(traits->cpu_clock_path) && clock > 0)
 		putInt((char*)traits->cpu_clock_path, clock);
 
-	int gpu_clock = (speed >= 3) ? traits->gpu_clock_max : traits->gpu_clock_min;
-	if (gpu_clock > 0) {
-		glob_t gl;
-		if (glob("/sys/class/devfreq/*gpu*/min_freq", 0, NULL, &gl) == 0) {
-			for (size_t i = 0; i < gl.gl_pathc; i++) {
-				putInt(gl.gl_pathv[i], gpu_clock);
-			}
-			globfree(&gl);
-		}
-	}
+	setGpuClock(speed);
 }
