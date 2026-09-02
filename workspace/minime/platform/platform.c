@@ -589,6 +589,7 @@ void PLAT_setSharpness(int sharpness) {
 	resizeVideo(vid.tex_w, vid.tex_h, p);
 }
 
+///////////////////////////////
 // Video Effects & Scanlines
 
 static struct FX_Context {
@@ -731,6 +732,7 @@ void PLAT_blitRenderer(GFX_Renderer* renderer) {
 	resizeVideo(vid.blit->true_w, vid.blit->true_h, vid.blit->src_p);
 }
 
+///////////////////////////////
 // Screen Presentation & Rotation
 
 void (*plat_custom_flip)(SDL_Surface* surface) = NULL;
@@ -993,6 +995,9 @@ void PLAT_powerOff(void) {
 
 	exit(0);
 }
+
+///////////////////////////////
+// CPU Governor & Haptics
 
 void PLAT_setCPUSpeed(int speed) {
 	MINIME_powerSetCPUSpeed(speed);
