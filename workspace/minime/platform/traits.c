@@ -299,6 +299,62 @@ static int validate(void) {
 	return 0;
 }
 
+static void exportResolvedTraits(void) {
+	strncpy(device_id, traits.device_id, sizeof(device_id) - 1);
+	strncpy(device_model, traits.device_model, sizeof(device_model) - 1);
+
+	screen_width = traits.screen_width;
+	screen_height = traits.screen_height;
+	screen_rotation = (traits.screen_rotation > 0) ? traits.screen_rotation : 0;
+	screen_padding = traits.ui_padding;
+	screen_row_count = traits.ui_row_count;
+	screen_aspect = traits.screen_aspect;
+	screen_refresh_rate = traits.screen_refresh_rate;
+
+	gpu_hdmi_width = traits.gpu_hdmi_width;
+	gpu_hdmi_height = traits.gpu_hdmi_height;
+
+	for (int i = 0; i < BTN_ID_COUNT; i++) button_keycodes[i] = -1;
+	button_keycodes[BTN_ID_DPAD_UP] = traits.key_up;
+	button_keycodes[BTN_ID_DPAD_DOWN] = traits.key_down;
+	button_keycodes[BTN_ID_DPAD_LEFT] = traits.key_left;
+	button_keycodes[BTN_ID_DPAD_RIGHT] = traits.key_right;
+	button_keycodes[BTN_ID_A] = traits.key_a;
+	button_keycodes[BTN_ID_B] = traits.key_b;
+	button_keycodes[BTN_ID_X] = traits.key_x;
+	button_keycodes[BTN_ID_Y] = traits.key_y;
+	button_keycodes[BTN_ID_C] = traits.key_c;
+	button_keycodes[BTN_ID_Z] = traits.key_z;
+	button_keycodes[BTN_ID_START] = traits.key_start;
+	button_keycodes[BTN_ID_SELECT] = traits.key_select;
+	button_keycodes[BTN_ID_MENU] = traits.key_menu;
+	button_keycodes[BTN_ID_L1] = traits.key_l1;
+	button_keycodes[BTN_ID_L2] = traits.key_l2;
+	button_keycodes[BTN_ID_L3] = traits.key_l3;
+	button_keycodes[BTN_ID_R1] = traits.key_r1;
+	button_keycodes[BTN_ID_R2] = traits.key_r2;
+	button_keycodes[BTN_ID_R3] = traits.key_r3;
+	button_keycodes[BTN_ID_PLUS] = traits.key_vol_up;
+	button_keycodes[BTN_ID_MINUS] = traits.key_vol_down;
+	button_keycodes[BTN_ID_POWER] = traits.key_power;
+
+	axis_lx = traits.axis_lx;
+	axis_ly = traits.axis_ly;
+	axis_rx = traits.axis_rx;
+	axis_ry = traits.axis_ry;
+	axis_hat_x = traits.axis_hat_x;
+	axis_hat_y = traits.axis_hat_y;
+	axis_lx_invert = traits.axis_lx_invert;
+	axis_ly_invert = traits.axis_ly_invert;
+	axis_rx_invert = traits.axis_rx_invert;
+	axis_ry_invert = traits.axis_ry_invert;
+	strncpy(input_lid, traits.input_lid, sizeof(input_lid) - 1);
+
+	cpu_undervolt_supported = traits.cpu_undervolt_supported;
+	strncpy(wifi_interface, traits.wifi_interface, sizeof(wifi_interface) - 1);
+	strncpy(bluetooth_interface, traits.bluetooth_interface, sizeof(bluetooth_interface) - 1);
+}
+
 int MINIME_traitsInit(void) {
 	FILE* file;
 	char line[512];
@@ -365,59 +421,7 @@ int MINIME_traitsInit(void) {
 
 	valid = validate() == 0;
 	if (valid) {
-		strncpy(device_id, traits.device_id, sizeof(device_id) - 1);
-		strncpy(device_model, traits.device_model, sizeof(device_model) - 1);
-
-		screen_width = traits.screen_width;
-		screen_height = traits.screen_height;
-		screen_rotation = (traits.screen_rotation > 0) ? traits.screen_rotation : 0;
-		screen_padding = traits.ui_padding;
-		screen_row_count = traits.ui_row_count;
-		screen_aspect = traits.screen_aspect;
-		screen_refresh_rate = traits.screen_refresh_rate;
-
-		gpu_hdmi_width = traits.gpu_hdmi_width;
-		gpu_hdmi_height = traits.gpu_hdmi_height;
-
-		for (int i = 0; i < BTN_ID_COUNT; i++) button_keycodes[i] = -1;
-		button_keycodes[BTN_ID_DPAD_UP] = traits.key_up;
-		button_keycodes[BTN_ID_DPAD_DOWN] = traits.key_down;
-		button_keycodes[BTN_ID_DPAD_LEFT] = traits.key_left;
-		button_keycodes[BTN_ID_DPAD_RIGHT] = traits.key_right;
-		button_keycodes[BTN_ID_A] = traits.key_a;
-		button_keycodes[BTN_ID_B] = traits.key_b;
-		button_keycodes[BTN_ID_X] = traits.key_x;
-		button_keycodes[BTN_ID_Y] = traits.key_y;
-		button_keycodes[BTN_ID_C] = traits.key_c;
-		button_keycodes[BTN_ID_Z] = traits.key_z;
-		button_keycodes[BTN_ID_START] = traits.key_start;
-		button_keycodes[BTN_ID_SELECT] = traits.key_select;
-		button_keycodes[BTN_ID_MENU] = traits.key_menu;
-		button_keycodes[BTN_ID_L1] = traits.key_l1;
-		button_keycodes[BTN_ID_L2] = traits.key_l2;
-		button_keycodes[BTN_ID_L3] = traits.key_l3;
-		button_keycodes[BTN_ID_R1] = traits.key_r1;
-		button_keycodes[BTN_ID_R2] = traits.key_r2;
-		button_keycodes[BTN_ID_R3] = traits.key_r3;
-		button_keycodes[BTN_ID_PLUS] = traits.key_vol_up;
-		button_keycodes[BTN_ID_MINUS] = traits.key_vol_down;
-		button_keycodes[BTN_ID_POWER] = traits.key_power;
-
-		axis_lx = traits.axis_lx;
-		axis_ly = traits.axis_ly;
-		axis_rx = traits.axis_rx;
-		axis_ry = traits.axis_ry;
-		axis_hat_x = traits.axis_hat_x;
-		axis_hat_y = traits.axis_hat_y;
-		axis_lx_invert = traits.axis_lx_invert;
-		axis_ly_invert = traits.axis_ly_invert;
-		axis_rx_invert = traits.axis_rx_invert;
-		axis_ry_invert = traits.axis_ry_invert;
-		strncpy(input_lid, traits.input_lid, sizeof(input_lid) - 1);
-
-		cpu_undervolt_supported = traits.cpu_undervolt_supported;
-		strncpy(wifi_interface, traits.wifi_interface, sizeof(wifi_interface) - 1);
-		strncpy(bluetooth_interface, traits.bluetooth_interface, sizeof(bluetooth_interface) - 1);
+		exportResolvedTraits();
 	}
 	return valid ? 0 : -1;
 }

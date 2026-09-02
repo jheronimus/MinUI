@@ -18,152 +18,152 @@
 #define AUDIO_SH "/usr/share/minime/scripts/audio.sh"
 
 typedef struct {
-    int brightness;
-    int volume;
-    int jack;
-    int hdmi;
-    int mute;
-    int charging;
-    int battery;
-    int bt;
-    int size;
+	int brightness;
+	int volume;
+	int jack;
+	int hdmi;
+	int mute;
+	int charging;
+	int battery;
+	int bt;
+	int size;
 } SharedSettings;
 
-static SharedSettings *shared = NULL;
+static SharedSettings* shared = NULL;
 static int shm_fd = -1;
 static int is_host = 0;
 
 void InitSettings(void) {
-    shm_fd = shm_open("/SharedSettings", O_RDWR | O_CREAT, 0666);
-    if (shm_fd < 0)
-        return;
+	shm_fd = shm_open("/SharedSettings", O_RDWR | O_CREAT, 0666);
+	if (shm_fd < 0)
+		return;
 
-    SharedSettings proto = {.size = sizeof(SharedSettings)};
-    ftruncate(shm_fd, sizeof(SharedSettings));
-    shared = mmap(NULL, sizeof(SharedSettings), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
-    if (shared == MAP_FAILED) {
-        shared = NULL;
-        return;
-    }
+	SharedSettings proto = {.size = sizeof(SharedSettings)};
+	ftruncate(shm_fd, sizeof(SharedSettings));
+	shared = mmap(NULL, sizeof(SharedSettings), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+	if (shared == MAP_FAILED) {
+		shared = NULL;
+		return;
+	}
 
-    if (shared->size == 0) {
-        is_host = 1;
-        memcpy(shared, &proto, sizeof(SharedSettings));
-        SetBrightness(5);
-        SetVolume(10);
-    } else {
-        is_host = 0;
-    }
-    SetJack(MINIME_audioJackConnected());
+	if (shared->size == 0) {
+		is_host = 1;
+		memcpy(shared, &proto, sizeof(SharedSettings));
+		SetBrightness(5);
+		SetVolume(10);
+	} else {
+		is_host = 0;
+	}
+	SetJack(MINIME_audioJackConnected());
 }
 
 void QuitSettings(void) {
-    if (shared) {
-        munmap(shared, sizeof(SharedSettings));
-        shared = NULL;
-    }
-    if (shm_fd >= 0) {
-        close(shm_fd);
-        shm_fd = -1;
-    }
+	if (shared) {
+		munmap(shared, sizeof(SharedSettings));
+		shared = NULL;
+	}
+	if (shm_fd >= 0) {
+		close(shm_fd);
+		shm_fd = -1;
+	}
 }
 
 int GetBrightness(void) {
-    return shared ? shared->brightness : 5;
+	return shared ? shared->brightness : 5;
 }
 int GetVolume(void) {
-    return shared ? shared->volume : 10;
+	return shared ? shared->volume : 10;
 }
 int GetJack(void) {
-    return shared ? shared->jack : 0;
+	return shared ? shared->jack : 0;
 }
 int GetHDMI(void) {
-    return shared ? shared->hdmi : 0;
+	return shared ? shared->hdmi : 0;
 }
 int GetMute(void) {
-    return shared ? shared->mute : 0;
+	return shared ? shared->mute : 0;
 }
 
 void SetBrightness(int value) {
-    if (!shared)
-        return;
-    if (value < BRIGHTNESS_MIN)
-        value = BRIGHTNESS_MIN;
-    if (value > BRIGHTNESS_MAX)
-        value = BRIGHTNESS_MAX;
-    shared->brightness = value;
+	if (!shared)
+		return;
+	if (value < BRIGHTNESS_MIN)
+		value = BRIGHTNESS_MIN;
+	if (value > BRIGHTNESS_MAX)
+		value = BRIGHTNESS_MAX;
+	shared->brightness = value;
 
-    const MinimeTraits *traits = MINIME_traits();
-    int max = (traits && traits->screen_backlight_max > 0) ? traits->screen_backlight_max : 255;
-    int raw = (value * max) / BRIGHTNESS_MAX;
-    if (value > 0 && raw == 0)
-        raw = 1;
-    MINIME_videoSetBacklight(raw);
+	const MinimeTraits* traits = MINIME_traits();
+	int max = (traits && traits->screen_backlight_max > 0) ? traits->screen_backlight_max : 255;
+	int raw = (value * max) / BRIGHTNESS_MAX;
+	if (value > 0 && raw == 0)
+		raw = 1;
+	MINIME_videoSetBacklight(raw);
 }
 
 void SetRawBrightness(int value) {
-    MINIME_videoSetBacklight(value);
+	MINIME_videoSetBacklight(value);
 }
 
 void SetVolume(int value) {
-    if (!shared)
-        return;
-    if (value < VOLUME_MIN)
-        value = VOLUME_MIN;
-    if (value > VOLUME_MAX)
-        value = VOLUME_MAX;
-    shared->volume = value;
+	if (!shared)
+		return;
+	if (value < VOLUME_MIN)
+		value = VOLUME_MIN;
+	if (value > VOLUME_MAX)
+		value = VOLUME_MAX;
+	shared->volume = value;
 
-    int raw = (value == 0) ? 0 : 60 + ((value - 1) * 40) / (VOLUME_MAX - 1);
-    MINIME_audioSetRawVolume(raw);
+	int raw = (value == 0) ? 0 : 60 + ((value - 1) * 40) / (VOLUME_MAX - 1);
+	MINIME_audioSetRawVolume(raw);
 }
 
 void SetRawVolume(int value) {
-    MINIME_audioSetRawVolume(value);
+	MINIME_audioSetRawVolume(value);
 }
 
 void SetJack(int value) {
-    if (shared)
-        shared->jack = value;
-    char cmd[256];
-    snprintf(cmd, sizeof(cmd), "%s start-interface %s >/dev/null 2>&1", AUDIO_SH,
-             value ? "headphones" : "speakers");
-    (void)system(cmd);
+	if (shared)
+		shared->jack = value;
+	char cmd[256];
+	snprintf(cmd, sizeof(cmd), "%s start-interface %s >/dev/null 2>&1", AUDIO_SH,
+			 value ? "headphones" : "speakers");
+	(void)system(cmd);
 }
 void SetHDMI(int value) {
-    if (shared)
-        shared->hdmi = value;
-    char cmd[256];
-    if (value) {
-        snprintf(cmd, sizeof(cmd), "%s start-interface hdmi >/dev/null 2>&1", AUDIO_SH);
-    } else {
-        snprintf(cmd, sizeof(cmd), "%s start-interface %s >/dev/null 2>&1", AUDIO_SH,
-                 (shared && shared->jack) ? "headphones" : "speakers");
-    }
-    (void)system(cmd);
+	if (shared)
+		shared->hdmi = value;
+	char cmd[256];
+	if (value) {
+		snprintf(cmd, sizeof(cmd), "%s start-interface hdmi >/dev/null 2>&1", AUDIO_SH);
+	} else {
+		snprintf(cmd, sizeof(cmd), "%s start-interface %s >/dev/null 2>&1", AUDIO_SH,
+				 (shared && shared->jack) ? "headphones" : "speakers");
+	}
+	(void)system(cmd);
 }
 void SetMute(int value) {
-    if (shared)
-        shared->mute = value;
+	if (shared)
+		shared->mute = value;
 }
 int GetCharging(void) {
-    return shared ? shared->charging : 0;
+	return shared ? shared->charging : 0;
 }
 void SetCharging(int value) {
-    if (shared)
-        shared->charging = value;
+	if (shared)
+		shared->charging = value;
 }
 int GetBattery(void) {
-    return shared ? shared->battery : 0;
+	return shared ? shared->battery : 0;
 }
 void SetBattery(int value) {
-    if (shared)
-        shared->battery = value;
+	if (shared)
+		shared->battery = value;
 }
 int GetBT(void) {
-    return shared ? shared->bt : 0;
+	return shared ? shared->bt : 0;
 }
 void SetBT(int value) {
-    if (shared)
-        shared->bt = value;
+	if (shared)
+		shared->bt = value;
 }
