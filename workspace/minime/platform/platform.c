@@ -198,28 +198,26 @@ void PLAT_quitInput(void) {
 	}
 }
 
-static void handleAbsEvent(int code, int value, uint32_t tick) {
-	if (code == RAW_HATY || code == RAW_HATX) {
-		if (value > 1) return; // ignore repeats
+static void handleHatEvent(int code, int value, uint32_t tick) {
+	if (value > 1) return;
 
-		int hats[4] = {-1, -1, -1, -1}; // up, down, left, right
-		if (code == RAW_HATY) {
-			hats[0] = value == -1; // up
-			hats[1] = value == 1;  // down
-		} else if (code == RAW_HATX) {
-			hats[2] = value == -1; // left
-			hats[3] = value == 1;  // right
-		}
-
-		for (int id = 0; id < 4; id++) {
-			int state = hats[id];
-			if (state == -1) continue;
-			int btn = 1 << id;
-			updateButtonState(btn, state, id, tick);
-		}
-		return;
+	int hats[4] = {-1, -1, -1, -1}; // up, down, left, right
+	if (code == RAW_HATY) {
+		hats[0] = (value == -1);
+		hats[1] = (value == 1);
+	} else if (code == RAW_HATX) {
+		hats[2] = (value == -1);
+		hats[3] = (value == 1);
 	}
 
+	for (int id = 0; id < 4; id++) {
+		if (hats[id] != -1) {
+			updateButtonState(1 << id, hats[id], id, tick);
+		}
+	}
+}
+
+static void handleStickAxisEvent(int code, int value, uint32_t tick) {
 	if (code == traits->axis_lx) {
 		pad.laxis.x = MINIME_inputNormalizeAxis(value, traits->axis_lx_invert);
 		PAD_setAnalog(BTN_ID_ANALOG_LEFT, BTN_ID_ANALOG_RIGHT, pad.laxis.x, tick + PAD_REPEAT_DELAY);
@@ -230,6 +228,14 @@ static void handleAbsEvent(int code, int value, uint32_t tick) {
 		pad.raxis.x = MINIME_inputNormalizeAxis(value, traits->axis_rx_invert);
 	} else if (code == traits->axis_ry) {
 		pad.raxis.y = MINIME_inputNormalizeAxis(value, traits->axis_ry_invert);
+	}
+}
+
+static void handleAbsEvent(int code, int value, uint32_t tick) {
+	if (code == RAW_HATY || code == RAW_HATX) {
+		handleHatEvent(code, value, tick);
+	} else {
+		handleStickAxisEvent(code, value, tick);
 	}
 }
 
@@ -250,13 +256,7 @@ static void handleKeyEvent(int code, int value, uint32_t tick) {
 	}
 }
 
-void PLAT_pollInput(void) {
-	// reset transient state
-	pad.just_pressed = BTN_NONE;
-	pad.just_released = BTN_NONE;
-	pad.just_repeated = BTN_NONE;
-
-	uint32_t tick = SDL_GetTicks();
+static void updateButtonRepeats(uint32_t tick) {
 	for (int i = 0; i < BTN_ID_COUNT; i++) {
 		int btn = 1 << i;
 		if ((pad.is_pressed & btn) && (tick >= pad.repeat_at[i])) {
@@ -264,11 +264,12 @@ void PLAT_pollInput(void) {
 			pad.repeat_at[i] += PAD_REPEAT_INTERVAL;
 		}
 	}
+}
 
-	int input;
+static void pollInputEvents(uint32_t tick) {
 	static struct input_event event;
 	for (int i = 0; i < INPUT_COUNT; i++) {
-		input = inputs[i];
+		int input = inputs[i];
 		if (input < 0) continue;
 		while (read(input, &event, sizeof(event)) == sizeof(event)) {
 			if (event.type == EV_KEY) {
@@ -278,26 +279,40 @@ void PLAT_pollInput(void) {
 			}
 		}
 	}
+}
+
+void PLAT_pollInput(void) {
+	pad.just_pressed = BTN_NONE;
+	pad.just_released = BTN_NONE;
+	pad.just_repeated = BTN_NONE;
+
+	uint32_t tick = SDL_GetTicks();
+	updateButtonRepeats(tick);
+	pollInputEvents(tick);
 
 	if (lid.has_lid && PLAT_lidChanged(NULL) && !lid.is_open) {
 		PWR_requestLidAction();
 	}
 }
 
+static int checkPowerRelease(int input_fd) {
+	struct input_event event;
+	while (read(input_fd, &event, sizeof(event)) == sizeof(event)) {
+		if (event.type == EV_KEY && event.code == traits->key_power && event.value == 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
 int PLAT_shouldWake(void) {
 	int lid_open = 1;
 	if (lid.has_lid && PLAT_lidChanged(&lid_open) && lid_open) return 1;
 
-	int input;
-	static struct input_event event;
 	for (int i = 0; i < INPUT_COUNT; i++) {
-		input = inputs[i];
-		if (input < 0) continue;
-		while (read(input, &event, sizeof(event)) == sizeof(event)) {
-			if (event.type == EV_KEY && event.code == traits->key_power && event.value == 0) {
-				if (lid.has_lid && !lid.is_open) return 0;
-				return 1;
-			}
+		if (inputs[i] >= 0 && checkPowerRelease(inputs[i])) {
+			if (lid.has_lid && !lid.is_open) return 0;
+			return 1;
 		}
 	}
 	return 0;
@@ -620,51 +635,90 @@ static void rgb565_to_rgb888(uint32_t rgb565, uint8_t* r, uint8_t* g, uint8_t* b
 	*b = (blue << 3) | (blue >> 2);
 }
 
-static const char* getEffectPath(int type, int scale, int* opacity) {
-	if (type == EFFECT_LINE) {
-		*opacity = 128;
-		if (scale < 3) return RES_PATH "/line-2.png";
-		if (scale < 4) return RES_PATH "/line-3.png";
-		if (scale < 5) return RES_PATH "/line-4.png";
-		if (scale < 6) return RES_PATH "/line-5.png";
-		if (scale < 8) return RES_PATH "/line-6.png";
-		return RES_PATH "/line-8.png";
-	}
-	if (type == EFFECT_GRID) {
-		if (scale < 3) {
-			*opacity = 64;
-			return RES_PATH "/grid-2.png";
+typedef struct {
+	int max_scale;
+	int opacity;
+	const char* path;
+} EffectEntry;
+
+static const char* lookupEffect(const EffectEntry* table, size_t count, int scale, int* opacity) {
+	for (size_t i = 0; i < count; i++) {
+		if (scale < table[i].max_scale || table[i].max_scale == 0) {
+			*opacity = table[i].opacity;
+			return table[i].path;
 		}
-		if (scale < 4) {
-			*opacity = 112;
-			return RES_PATH "/grid-3.png";
-		}
-		if (scale < 5) {
-			*opacity = 144;
-			return RES_PATH "/grid-4.png";
-		}
-		if (scale < 6) {
-			*opacity = 160;
-			return RES_PATH "/grid-5.png";
-		}
-		if (scale < 8) {
-			*opacity = 112;
-			return RES_PATH "/grid-6.png";
-		}
-		if (scale < 11) {
-			*opacity = 144;
-			return RES_PATH "/grid-8.png";
-		}
-		*opacity = 136;
-		return RES_PATH "/grid-11.png";
 	}
 	return NULL;
 }
 
+static const char* getEffectPath(int type, int scale, int* opacity) {
+	static const EffectEntry line_effects[] = {
+		{3, 128, RES_PATH "/line-2.png"},
+		{4, 128, RES_PATH "/line-3.png"},
+		{5, 128, RES_PATH "/line-4.png"},
+		{6, 128, RES_PATH "/line-5.png"},
+		{8, 128, RES_PATH "/line-6.png"},
+		{0, 128, RES_PATH "/line-8.png"},
+	};
+	static const EffectEntry grid_effects[] = {
+		{3, 64, RES_PATH "/grid-2.png"},
+		{4, 112, RES_PATH "/grid-3.png"},
+		{5, 144, RES_PATH "/grid-4.png"},
+		{6, 160, RES_PATH "/grid-5.png"},
+		{8, 112, RES_PATH "/grid-6.png"},
+		{11, 144, RES_PATH "/grid-8.png"},
+		{0, 136, RES_PATH "/grid-11.png"},
+	};
+
+	if (type == EFFECT_LINE)
+		return lookupEffect(line_effects, sizeof(line_effects) / sizeof(line_effects[0]), scale, opacity);
+	if (type == EFFECT_GRID)
+		return lookupEffect(grid_effects, sizeof(grid_effects) / sizeof(grid_effects[0]), scale, opacity);
+	return NULL;
+}
+
+static void recolorGridSurface(SDL_Surface* surface, uint16_t rgb565) {
+	uint8_t r, g, b;
+	rgb565_to_rgb888(rgb565, &r, &g, &b);
+
+	uint32_t* pixels = (uint32_t*)surface->pixels;
+	int total_pixels = surface->w * surface->h;
+	for (int i = 0; i < total_pixels; i++) {
+		uint8_t a = (pixels[i] >> 24) & 0xFF;
+		pixels[i] = (a << 24) | (r << 16) | (g << 8) | b;
+	}
+}
+
+static void applyEffectTexture(const char* effect_path, int opacity) {
+	SDL_Surface* tmp = IMG_Load(effect_path);
+	if (!tmp) return;
+
+	if (effect.type == EFFECT_GRID && effect.color) {
+		recolorGridSurface(tmp, effect.color);
+	}
+
+	if (vid.effect) SDL_DestroyTexture(vid.effect);
+	SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "0", SDL_HINT_OVERRIDE);
+	vid.effect = SDL_CreateTextureFromSurface(vid.renderer, tmp);
+	SDL_SetTextureBlendMode(vid.effect, SDL_BLENDMODE_BLEND);
+	SDL_SetTextureAlphaMod(vid.effect, opacity);
+	SDL_FreeSurface(tmp);
+
+	effect.live_type = effect.type;
+}
+
+static inline int effectStateMatches(void) {
+	return effect.next_scale == effect.scale && effect.next_type == effect.type &&
+		   effect.next_color == effect.color;
+}
+
+static inline int effectMatchesLive(int live_scale, int live_color) {
+	return effect.type == effect.live_type && effect.scale == live_scale &&
+		   effect.color == live_color;
+}
+
 static void updateEffect(void) {
-	if (effect.next_scale == effect.scale && effect.next_type == effect.type &&
-		effect.next_color == effect.color)
-		return;
+	if (effectStateMatches()) return;
 
 	int live_scale = effect.scale;
 	int live_color = effect.color;
@@ -672,40 +726,12 @@ static void updateEffect(void) {
 	effect.type = effect.next_type;
 	effect.color = effect.next_color;
 
-	if (effect.type == EFFECT_NONE) return;
-	if (effect.type == effect.live_type && effect.scale == live_scale && effect.color == live_color)
-		return;
+	if (effect.type == EFFECT_NONE || effectMatchesLive(live_scale, live_color)) return;
 
 	int opacity = 128;
 	const char* effect_path = getEffectPath(effect.type, effect.scale, &opacity);
-	if (!effect_path) return;
-
-	SDL_Surface* tmp = IMG_Load(effect_path);
-	if (tmp) {
-		if (effect.type == EFFECT_GRID && effect.color) {
-			uint8_t r, g, b;
-			rgb565_to_rgb888(effect.color, &r, &g, &b);
-
-			uint32_t* pixels = (uint32_t*)tmp->pixels;
-			int width = tmp->w;
-			int height = tmp->h;
-			for (int y = 0; y < height; ++y) {
-				for (int x = 0; x < width; ++x) {
-					uint32_t pixel = pixels[y * width + x];
-					uint8_t a = (pixel >> 24) & 0xFF;
-					pixels[y * width + x] = (a << 24) | (r << 16) | (g << 8) | b;
-				}
-			}
-		}
-
-		if (vid.effect) SDL_DestroyTexture(vid.effect);
-		SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "0", SDL_HINT_OVERRIDE);
-		vid.effect = SDL_CreateTextureFromSurface(vid.renderer, tmp);
-		SDL_SetTextureBlendMode(vid.effect, SDL_BLENDMODE_BLEND);
-		SDL_SetTextureAlphaMod(vid.effect, opacity);
-		SDL_FreeSurface(tmp);
-
-		effect.live_type = effect.type;
+	if (effect_path) {
+		applyEffectTexture(effect_path, opacity);
 	}
 }
 
