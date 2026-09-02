@@ -200,7 +200,7 @@ int getInt(char* path) {
 	return i;
 }
 void putInt(char* path, int value) {
-	char buffer[8];
+	char buffer[32];
 	sprintf(buffer, "%d", value);
 	putFile(path, buffer);
 }
