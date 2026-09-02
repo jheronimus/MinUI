@@ -41,76 +41,37 @@ struct input_event {
 ///////////////////////////////
 // Platform Lifecycle & Device Traits
 
-int screen_width = 640;
-int screen_height = 480;
 int screen_pitch = 640 * 2;
-int screen_padding = 10;
-int screen_row_count = 6;
 int plat_has_hdmi = 0;
-static int screen_rotation = -1;
 int on_hdmi = 0;
 static int screen_rotation_step = 0;
-static const MinimeTraits* traits;
 
-static int button_keycodes[BTN_ID_COUNT];
+static void load_traits(void);
 
-static void initKeyMap(void) {
-	for (int i = 0; i < BTN_ID_COUNT; i++) button_keycodes[i] = -1;
-
-	button_keycodes[BTN_ID_DPAD_UP] = traits->key_up;
-	button_keycodes[BTN_ID_DPAD_DOWN] = traits->key_down;
-	button_keycodes[BTN_ID_DPAD_LEFT] = traits->key_left;
-	button_keycodes[BTN_ID_DPAD_RIGHT] = traits->key_right;
-	button_keycodes[BTN_ID_A] = traits->key_a;
-	button_keycodes[BTN_ID_B] = traits->key_b;
-	button_keycodes[BTN_ID_X] = traits->key_x;
-	button_keycodes[BTN_ID_Y] = traits->key_y;
-	button_keycodes[BTN_ID_C] = traits->key_c;
-	button_keycodes[BTN_ID_Z] = traits->key_z;
-	button_keycodes[BTN_ID_START] = traits->key_start;
-	button_keycodes[BTN_ID_SELECT] = traits->key_select;
-	button_keycodes[BTN_ID_MENU] = traits->key_menu;
-	button_keycodes[BTN_ID_L1] = traits->key_l1;
-	button_keycodes[BTN_ID_L2] = traits->key_l2;
-	button_keycodes[BTN_ID_L3] = traits->key_l3;
-	button_keycodes[BTN_ID_R1] = traits->key_r1;
-	button_keycodes[BTN_ID_R2] = traits->key_r2;
-	button_keycodes[BTN_ID_R3] = traits->key_r3;
-	button_keycodes[BTN_ID_PLUS] = traits->key_vol_up;
-	button_keycodes[BTN_ID_MINUS] = traits->key_vol_down;
-	button_keycodes[BTN_ID_POWER] = traits->key_power;
+static inline void ensure_traits(void) {
+	if (device_id[0] == '\0') {
+		load_traits();
+	}
 }
 
 static void load_traits(void) {
 	if (MINIME_traitsInit() != 0) exit(1);
-	traits = MINIME_traits();
-	screen_width = traits->screen_width;
-	screen_height = traits->screen_height;
 	screen_pitch = screen_width * 2;
-	screen_rotation = traits->screen_rotation;
-	plat_has_hdmi = MINIME_traitAvailable(traits->gpu_hdmi_state_path);
-
-	initKeyMap();
-
-	screen_padding = traits->ui_padding;
-	screen_row_count = traits->ui_row_count;
-	if (screen_rotation != -1) {
-		screen_rotation_step = screen_rotation / 90;
-	}
+	screen_rotation_step = screen_rotation / 90;
+	plat_has_hdmi = MINIME_videoHDMIConnected();
 }
 
 char* PLAT_getModel(void) {
-	return traits ? (char*)traits->device_model : "Minime Handheld";
+	ensure_traits();
+	return device_model;
 }
 
 int PLAT_getScreenRotation(void) {
-	if (!traits) load_traits();
-	return (screen_rotation > 0) ? screen_rotation : 0;
+	return screen_rotation;
 }
 
 int PLAT_hasUndervolt(void) {
-	if (!traits) load_traits();
-	return traits && traits->cpu_undervolt_supported > 0;
+	return cpu_undervolt_supported > 0;
 }
 
 ///////////////////////////////
@@ -119,34 +80,9 @@ int PLAT_hasUndervolt(void) {
 #define INPUT_COUNT 5
 static int inputs[INPUT_COUNT];
 
-#define kRawIndex 1
-#define kVolumeIndex 2
-#define kMenuIndex 3
-#define kStickIndex 4
-
-static void drainInputFd(int input);
-static void drainAllInputs(void);
-
-static void updateButtonState(int btn, int pressed, int id, uint32_t tick) {
-	if (btn == BTN_NONE || id < 0 || id >= BTN_ID_COUNT) return;
-
-	if (pressed) {
-		if ((pad.is_pressed & btn) == BTN_NONE) {
-			pad.just_pressed |= btn;
-			pad.just_repeated |= btn;
-			pad.is_pressed |= btn;
-			pad.repeat_at[id] = tick + PAD_REPEAT_DELAY;
-		}
-	} else if (pad.is_pressed & btn) {
-		pad.is_pressed &= ~btn;
-		pad.just_released |= btn;
-		pad.just_repeated &= ~btn;
-	}
-}
-
 static void drainInputFd(int input) {
-	struct input_event event;
 	if (input < 0) return;
+	struct input_event event;
 	while (read(input, &event, sizeof(event)) == sizeof(event)) {
 	}
 }
@@ -158,11 +94,8 @@ static void drainAllInputs(void) {
 }
 
 void PLAT_initInput(void) {
-	inputs[0] = MINIME_inputOpenByName(traits->input_power);
-	inputs[kRawIndex] = MINIME_inputOpenByName(traits->input_gamepad);
-	inputs[kVolumeIndex] = MINIME_inputOpenByName(traits->input_volume);
-	inputs[kMenuIndex] = MINIME_inputOpenByName(traits->input_menu);
-	inputs[kStickIndex] = MINIME_inputOpenByName(traits->input_stick);
+	for (int i = 0; i < INPUT_COUNT; i++) inputs[i] = -1;
+	MINIME_inputOpenShortcutDevices(inputs, INPUT_COUNT);
 	drainAllInputs();
 }
 
@@ -176,10 +109,10 @@ static void handleHatEvent(int code, int value, uint32_t tick) {
 	if (value > 1) return;
 
 	int hats[4] = {-1, -1, -1, -1}; // up, down, left, right
-	if (code == traits->axis_hat_y) {
+	if (code == axis_hat_y) {
 		hats[0] = (value == -1);
 		hats[1] = (value == 1);
-	} else if (code == traits->axis_hat_x) {
+	} else if (code == axis_hat_x) {
 		hats[2] = (value == -1);
 		hats[3] = (value == 1);
 	}
@@ -192,21 +125,21 @@ static void handleHatEvent(int code, int value, uint32_t tick) {
 }
 
 static void handleStickAxisEvent(int code, int value, uint32_t tick) {
-	if (code == traits->axis_lx) {
-		pad.laxis.x = MINIME_inputNormalizeAxis(value, traits->axis_lx_invert);
+	if (code == axis_lx) {
+		pad.laxis.x = MINIME_inputNormalizeAxis(value, axis_lx_invert);
 		PAD_setAnalog(BTN_ID_ANALOG_LEFT, BTN_ID_ANALOG_RIGHT, pad.laxis.x, tick + PAD_REPEAT_DELAY);
-	} else if (code == traits->axis_ly) {
-		pad.laxis.y = MINIME_inputNormalizeAxis(value, traits->axis_ly_invert);
+	} else if (code == axis_ly) {
+		pad.laxis.y = MINIME_inputNormalizeAxis(value, axis_ly_invert);
 		PAD_setAnalog(BTN_ID_ANALOG_UP, BTN_ID_ANALOG_DOWN, pad.laxis.y, tick + PAD_REPEAT_DELAY);
-	} else if (code == traits->axis_rx) {
-		pad.raxis.x = MINIME_inputNormalizeAxis(value, traits->axis_rx_invert);
-	} else if (code == traits->axis_ry) {
-		pad.raxis.y = MINIME_inputNormalizeAxis(value, traits->axis_ry_invert);
+	} else if (code == axis_rx) {
+		pad.raxis.x = MINIME_inputNormalizeAxis(value, axis_rx_invert);
+	} else if (code == axis_ry) {
+		pad.raxis.y = MINIME_inputNormalizeAxis(value, axis_ry_invert);
 	}
 }
 
 static void handleAbsEvent(int code, int value, uint32_t tick) {
-	if (code == traits->axis_hat_y || code == traits->axis_hat_x) {
+	if (code == axis_hat_y || code == axis_hat_x) {
 		handleHatEvent(code, value, tick);
 	} else {
 		handleStickAxisEvent(code, value, tick);
@@ -225,7 +158,7 @@ static void handleKeyEvent(int code, int value, uint32_t tick) {
 	}
 
 	// On devices without a dedicated F/Menu button, SELECT doubles as MENU modifier
-	if (code == traits->key_select && traits->key_menu < 0) {
+	if (code == button_keycodes[BTN_ID_SELECT] && button_keycodes[BTN_ID_MENU] < 0) {
 		updateButtonState(BTN_MENU, pressed, BTN_ID_MENU, tick);
 	}
 }
@@ -272,7 +205,7 @@ void PLAT_pollInput(void) {
 static int checkPowerRelease(int input_fd) {
 	struct input_event event;
 	while (read(input_fd, &event, sizeof(event)) == sizeof(event)) {
-		if (event.type == EV_KEY && event.code == traits->key_power && event.value == 0) {
+		if (event.type == EV_KEY && event.code == button_keycodes[BTN_ID_POWER] && event.value == 0) {
 			return 1;
 		}
 	}
@@ -293,33 +226,33 @@ int PLAT_shouldWake(void) {
 }
 
 int PLAT_is6Button(void) {
-	if (!traits) load_traits();
-	return (traits && traits->key_c >= 0 && traits->key_z >= 0);
+	ensure_traits();
+	return (button_keycodes[BTN_ID_C] >= 0 && button_keycodes[BTN_ID_Z] >= 0);
 }
 
 int PLAT_hasMenuButton(void) {
-	if (!traits) load_traits();
-	return (traits && traits->key_menu >= 0);
+	ensure_traits();
+	return button_keycodes[BTN_ID_MENU] >= 0;
 }
 
 int PLAT_hasL3(void) {
-	if (!traits) load_traits();
-	return (traits && traits->key_l3 >= 0);
+	ensure_traits();
+	return button_keycodes[BTN_ID_L3] >= 0;
 }
 
 int PLAT_hasR3(void) {
-	if (!traits) load_traits();
-	return (traits && traits->key_r3 >= 0);
+	ensure_traits();
+	return button_keycodes[BTN_ID_R3] >= 0;
 }
 
 int PLAT_hasLeftStick(void) {
-	if (!traits) load_traits();
-	return (traits && traits->axis_lx >= 0);
+	ensure_traits();
+	return axis_lx >= 0;
 }
 
 int PLAT_hasRightStick(void) {
-	if (!traits) load_traits();
-	return (traits && traits->axis_rx >= 0);
+	ensure_traits();
+	return axis_rx >= 0;
 }
 
 ///////////////////////////////
@@ -328,13 +261,13 @@ int PLAT_hasRightStick(void) {
 static int lid_fd = -1;
 
 int PLAT_hasLid(void) {
-	if (!traits) load_traits();
-	return traits && MINIME_traitAvailable(traits->input_lid);
+	ensure_traits();
+	return MINIME_traitAvailable(input_lid);
 }
 
 void PLAT_initLid(void) {
-	if (!traits) load_traits();
-	lid_fd = MINIME_inputOpenByName(traits->input_lid);
+	ensure_traits();
+	lid_fd = MINIME_inputOpenByName(input_lid);
 	lid.has_lid = lid_fd >= 0;
 	if (lid.has_lid) {
 		unsigned long sw[SW_MAX / 8 / sizeof(unsigned long) + 1] = {0};
@@ -378,11 +311,11 @@ static struct VID_Context {
 } vid;
 
 static inline int getScreenWidth(void) {
-	return on_hdmi ? (traits ? traits->gpu_hdmi_width : HDMI_WIDTH) : screen_width;
+	return on_hdmi ? gpu_hdmi_width : screen_width;
 }
 
 static inline int getScreenHeight(void) {
-	return on_hdmi ? (traits ? traits->gpu_hdmi_height : HDMI_HEIGHT) : screen_height;
+	return on_hdmi ? gpu_hdmi_height : screen_height;
 }
 
 static void PLAT_computeRendererRects(const GFX_Renderer* renderer, SDL_Rect* src_rect,
@@ -811,7 +744,7 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
 }
 
 int PLAT_supportsOverscan(void) {
-	return traits && traits->screen_aspect == MINIME_ASPECT_1x1;
+	return screen_aspect == MINIME_ASPECT_1x1;
 }
 
 ///////////////////////////////
@@ -895,20 +828,20 @@ static int online = 0;
 static int bt_up = 0;
 
 int PLAT_hasWifi(void) {
-	if (!traits) load_traits();
-	return traits && traits->wifi_interface[0] && strcmp(traits->wifi_interface, "na") != 0;
+	ensure_traits();
+	return wifi_interface[0] && strcmp(wifi_interface, "na") != 0;
 }
 
 const char* PLAT_getWifiInterface(void) {
-	if (!traits) load_traits();
-	return PLAT_hasWifi() ? traits->wifi_interface : "wlan0";
+	ensure_traits();
+	return PLAT_hasWifi() ? wifi_interface : "wlan0";
 }
 
 static void updateWifiStatus(void) {
-	if (MINIME_traitAvailable(traits->wifi_interface)) {
+	if (MINIME_traitAvailable(wifi_interface)) {
 		char path[256];
 		char status[16] = "";
-		snprintf(path, sizeof(path), "/sys/class/net/%s/operstate", traits->wifi_interface);
+		snprintf(path, sizeof(path), "/sys/class/net/%s/operstate", wifi_interface);
 		getFile(path, status, sizeof(status));
 		online = prefixMatch("up", status);
 	} else {
@@ -921,14 +854,14 @@ int PLAT_isOnline(void) {
 }
 
 int PLAT_hasBluetooth(void) {
-	if (!traits) load_traits();
-	return traits && MINIME_traitAvailable(traits->bluetooth_interface);
+	ensure_traits();
+	return MINIME_traitAvailable(bluetooth_interface);
 }
 
 static void updateBluetoothStatus(void) {
-	if (MINIME_traitAvailable(traits->bluetooth_interface)) {
+	if (MINIME_traitAvailable(bluetooth_interface)) {
 		char path[256];
-		snprintf(path, sizeof(path), "/sys/class/bluetooth/%s", traits->bluetooth_interface);
+		snprintf(path, sizeof(path), "/sys/class/bluetooth/%s", bluetooth_interface);
 		bt_up = (access(path, F_OK) == 0 && access("/run/bluetoothd.pid", F_OK) == 0);
 	} else {
 		bt_up = 0;

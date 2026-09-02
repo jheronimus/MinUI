@@ -27,21 +27,27 @@
 #define RESUME_SLOT_PATH "/tmp/resume_slot.txt"
 #define NOUI_PATH "/tmp/noui"
 
-#define TRIAD_WHITE 		0xff,0xff,0xff
-#define TRIAD_BLACK 		0x00,0x00,0x00
-#define TRIAD_LIGHT_GRAY 	0x7f,0x7f,0x7f
-#define TRIAD_GRAY 			0x99,0x99,0x99
-#define TRIAD_DARK_GRAY 	0x26,0x26,0x26
+#define TRIAD_WHITE 0xff, 0xff, 0xff
+#define TRIAD_BLACK 0x00, 0x00, 0x00
+#define TRIAD_LIGHT_GRAY 0x7f, 0x7f, 0x7f
+#define TRIAD_GRAY 0x99, 0x99, 0x99
+#define TRIAD_DARK_GRAY 0x26, 0x26, 0x26
 
-#define TRIAD_LIGHT_TEXT 	0xcc,0xcc,0xcc
-#define TRIAD_DARK_TEXT 	0x66,0x66,0x66
+#define TRIAD_LIGHT_TEXT 0xcc, 0xcc, 0xcc
+#define TRIAD_DARK_TEXT 0x66, 0x66, 0x66
 
-#define COLOR_WHITE			(SDL_Color){TRIAD_WHITE}
-#define COLOR_GRAY			(SDL_Color){TRIAD_GRAY}
-#define COLOR_BLACK			(SDL_Color){TRIAD_BLACK}
-#define COLOR_LIGHT_TEXT	(SDL_Color){TRIAD_LIGHT_TEXT}
-#define COLOR_DARK_TEXT		(SDL_Color){TRIAD_DARK_TEXT}
-#define COLOR_BUTTON_TEXT	(SDL_Color){TRIAD_GRAY}
+#define COLOR_WHITE \
+	(SDL_Color) { TRIAD_WHITE }
+#define COLOR_GRAY \
+	(SDL_Color) { TRIAD_GRAY }
+#define COLOR_BLACK \
+	(SDL_Color) { TRIAD_BLACK }
+#define COLOR_LIGHT_TEXT \
+	(SDL_Color) { TRIAD_LIGHT_TEXT }
+#define COLOR_DARK_TEXT \
+	(SDL_Color) { TRIAD_DARK_TEXT }
+#define COLOR_BUTTON_TEXT \
+	(SDL_Color) { TRIAD_GRAY }
 
 // all before scale
 #define PILL_SIZE 30
@@ -59,10 +65,10 @@
 #define PADDING 10 // PILL_SIZE / 3 (or non-integer part of the previous calculatiom divided by three)
 #endif
 
-#define FONT_LARGE 16 	// menu
-#define FONT_MEDIUM 14 	// single char button label
-#define FONT_SMALL 12 	// button hint
-#define FONT_TINY 10  	// multi char button label
+#define FONT_LARGE 16  // menu
+#define FONT_MEDIUM 14 // single char button label
+#define FONT_SMALL 12  // button hint
+#define FONT_TINY 10   // multi char button label
 
 ///////////////////////////////
 
@@ -71,31 +77,29 @@
 
 #define MAX(a, b) (a) > (b) ? (a) : (b)
 #define MIN(a, b) (a) < (b) ? (a) : (b)
-#define CEIL_DIV(a,b) ((a) + (b) - 1) / (b)
+#define CEIL_DIV(a, b) ((a) + (b) - 1) / (b)
 
-#define SCALE1(a) ((a)*FIXED_SCALE)
-#define SCALE2(a,b) ((a)*FIXED_SCALE),((b)*FIXED_SCALE)
-#define SCALE3(a,b,c) ((a)*FIXED_SCALE),((b)*FIXED_SCALE),((c)*FIXED_SCALE)
-#define SCALE4(a,b,c,d) ((a)*FIXED_SCALE),((b)*FIXED_SCALE),((c)*FIXED_SCALE),((d)*FIXED_SCALE)
+#define SCALE1(a) ((a) * FIXED_SCALE)
+#define SCALE2(a, b) ((a) * FIXED_SCALE), ((b) * FIXED_SCALE)
+#define SCALE3(a, b, c) ((a) * FIXED_SCALE), ((b) * FIXED_SCALE), ((c) * FIXED_SCALE)
+#define SCALE4(a, b, c, d) ((a) * FIXED_SCALE), ((b) * FIXED_SCALE), ((c) * FIXED_SCALE), ((d) * FIXED_SCALE)
 
 ///////////////////////////////
 
-#define HAS_POWER_BUTTON	1
-#define HAS_POWEROFF_BUTTON	0
-#define HAS_MENU_BUTTON		PLAT_hasMenuButton()
-#define HAS_SKINNY_SCREEN	(FIXED_WIDTH<320)
+#define HAS_POWER_BUTTON 1
+#define HAS_POWEROFF_BUTTON 0
+#define HAS_MENU_BUTTON PLAT_hasMenuButton()
+#define HAS_SKINNY_SCREEN (FIXED_WIDTH < 320)
 
 ///////////////////////////////
 
 #ifndef HAS_HDMI
-#define HDMI_WIDTH	FIXED_WIDTH
-#define HDMI_HEIGHT	FIXED_HEIGHT
-#define HDMI_PITCH	FIXED_PITCH
-#define HDMI_SIZE	FIXED_SIZE
+#define HDMI_WIDTH FIXED_WIDTH
+#define HDMI_HEIGHT FIXED_HEIGHT
+#define HDMI_PITCH FIXED_PITCH
+#define HDMI_SIZE FIXED_SIZE
 #endif
 
-#ifndef BTN_A // prevent collisions with input.h in keymon
-// TODO: doesn't this belong in api.h? it's meaningless without PAD_*
 enum {
 	BTN_ID_NONE = -1,
 	BTN_ID_DPAD_UP,
@@ -119,7 +123,7 @@ enum {
 	BTN_ID_MENU,
 	BTN_ID_PLUS,
 	BTN_ID_MINUS,
-	BTN_ID_POWER,	
+	BTN_ID_POWER,
 	BTN_ID_POWEROFF,
 
 	BTN_ID_ANALOG_UP,
@@ -129,41 +133,44 @@ enum {
 
 	BTN_ID_COUNT,
 };
-enum {
-	BTN_NONE		= 0,
-	BTN_DPAD_UP 	= 1 << BTN_ID_DPAD_UP,
-	BTN_DPAD_DOWN	= 1 << BTN_ID_DPAD_DOWN,
-	BTN_DPAD_LEFT	= 1 << BTN_ID_DPAD_LEFT,
-	BTN_DPAD_RIGHT	= 1 << BTN_ID_DPAD_RIGHT,
-	BTN_A			= 1 << BTN_ID_A,
-	BTN_B			= 1 << BTN_ID_B,
-	BTN_C			= 1 << BTN_ID_C,
-	BTN_X			= 1 << BTN_ID_X,
-	BTN_Y			= 1 << BTN_ID_Y,
-	BTN_Z			= 1 << BTN_ID_Z,
-	BTN_START		= 1 << BTN_ID_START,
-	BTN_SELECT		= 1 << BTN_ID_SELECT,
-	BTN_L1			= 1 << BTN_ID_L1,
-	BTN_R1			= 1 << BTN_ID_R1,
-	BTN_L2			= 1 << BTN_ID_L2,
-	BTN_R2			= 1 << BTN_ID_R2,
-	BTN_L3			= 1 << BTN_ID_L3,
-	BTN_R3			= 1 << BTN_ID_R3,
-	BTN_MENU		= 1 << BTN_ID_MENU,
-	BTN_PLUS		= 1 << BTN_ID_PLUS,
-	BTN_MINUS		= 1 << BTN_ID_MINUS,
-	BTN_POWER		= 1 << BTN_ID_POWER,
-	BTN_POWEROFF	= 1 << BTN_ID_POWEROFF,
 
-	BTN_ANALOG_UP 	= 1 << BTN_ID_ANALOG_UP,
-	BTN_ANALOG_DOWN	= 1 << BTN_ID_ANALOG_DOWN,
-	BTN_ANALOG_LEFT	= 1 << BTN_ID_ANALOG_LEFT,
-	BTN_ANALOG_RIGHT= 1 << BTN_ID_ANALOG_RIGHT,
-	
-	BTN_UP 		= BTN_DPAD_UP | BTN_ANALOG_UP,
-	BTN_DOWN 	= BTN_DPAD_DOWN | BTN_ANALOG_DOWN,
-	BTN_LEFT	= BTN_DPAD_LEFT | BTN_ANALOG_LEFT,
-	BTN_RIGHT	= BTN_DPAD_RIGHT | BTN_ANALOG_RIGHT,
+#ifndef BTN_A // prevent collisions with input.h in keymon
+// TODO: doesn't this belong in api.h? it's meaningless without PAD_*
+enum {
+	BTN_NONE = 0,
+	BTN_DPAD_UP = 1 << BTN_ID_DPAD_UP,
+	BTN_DPAD_DOWN = 1 << BTN_ID_DPAD_DOWN,
+	BTN_DPAD_LEFT = 1 << BTN_ID_DPAD_LEFT,
+	BTN_DPAD_RIGHT = 1 << BTN_ID_DPAD_RIGHT,
+	BTN_A = 1 << BTN_ID_A,
+	BTN_B = 1 << BTN_ID_B,
+	BTN_C = 1 << BTN_ID_C,
+	BTN_X = 1 << BTN_ID_X,
+	BTN_Y = 1 << BTN_ID_Y,
+	BTN_Z = 1 << BTN_ID_Z,
+	BTN_START = 1 << BTN_ID_START,
+	BTN_SELECT = 1 << BTN_ID_SELECT,
+	BTN_L1 = 1 << BTN_ID_L1,
+	BTN_R1 = 1 << BTN_ID_R1,
+	BTN_L2 = 1 << BTN_ID_L2,
+	BTN_R2 = 1 << BTN_ID_R2,
+	BTN_L3 = 1 << BTN_ID_L3,
+	BTN_R3 = 1 << BTN_ID_R3,
+	BTN_MENU = 1 << BTN_ID_MENU,
+	BTN_PLUS = 1 << BTN_ID_PLUS,
+	BTN_MINUS = 1 << BTN_ID_MINUS,
+	BTN_POWER = 1 << BTN_ID_POWER,
+	BTN_POWEROFF = 1 << BTN_ID_POWEROFF,
+
+	BTN_ANALOG_UP = 1 << BTN_ID_ANALOG_UP,
+	BTN_ANALOG_DOWN = 1 << BTN_ID_ANALOG_DOWN,
+	BTN_ANALOG_LEFT = 1 << BTN_ID_ANALOG_LEFT,
+	BTN_ANALOG_RIGHT = 1 << BTN_ID_ANALOG_RIGHT,
+
+	BTN_UP = BTN_DPAD_UP | BTN_ANALOG_UP,
+	BTN_DOWN = BTN_DPAD_DOWN | BTN_ANALOG_DOWN,
+	BTN_LEFT = BTN_DPAD_LEFT | BTN_ANALOG_LEFT,
+	BTN_RIGHT = BTN_DPAD_RIGHT | BTN_ANALOG_RIGHT,
 };
 #endif
 

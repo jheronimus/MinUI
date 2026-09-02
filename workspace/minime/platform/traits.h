@@ -2,6 +2,7 @@
 #define MINIME_TRAITS_H
 
 #include <stddef.h>
+#include "defines.h"
 
 #define MINIME_TRAIT_PATH_MAX 256
 #define MINIME_TRAIT_NAME_MAX 64
@@ -13,6 +14,38 @@ typedef enum {
 	MINIME_ASPECT_1x1,
 	MINIME_ASPECT_UNKNOWN,
 } MinimeScreenAspect;
+
+// Resolved hardware trait variables (owned and exported by traits.c)
+extern char device_id[MINIME_TRAIT_NAME_MAX];
+extern char device_model[MINIME_TRAIT_PATH_MAX];
+
+extern int screen_width;
+extern int screen_height;
+extern int screen_rotation;
+extern int screen_padding;
+extern int screen_row_count;
+extern MinimeScreenAspect screen_aspect;
+extern int screen_refresh_rate;
+
+extern int gpu_hdmi_width;
+extern int gpu_hdmi_height;
+
+extern int button_keycodes[BTN_ID_COUNT];
+extern int axis_lx;
+extern int axis_ly;
+extern int axis_rx;
+extern int axis_ry;
+extern int axis_hat_x;
+extern int axis_hat_y;
+extern int axis_lx_invert;
+extern int axis_ly_invert;
+extern int axis_rx_invert;
+extern int axis_ry_invert;
+extern char input_lid[MINIME_TRAIT_NAME_MAX];
+
+extern int cpu_undervolt_supported;
+extern char wifi_interface[MINIME_TRAIT_NAME_MAX];
+extern char bluetooth_interface[MINIME_TRAIT_NAME_MAX];
 
 typedef struct MinimeTraits {
 	// [device]
