@@ -92,9 +92,8 @@ static void load_traits(void) {
 
 	initKeyMap();
 
-	// Derive layout properties from resolved traits.
-	screen_padding = (screen_width >= 720) ? 40 : 10;
-	screen_row_count = (screen_width >= 720) ? 8 : 6;
+	screen_padding = traits->ui_padding;
+	screen_row_count = traits->ui_row_count;
 	if (screen_rotation != -1) {
 		screen_rotation_step = screen_rotation / 90;
 	}
@@ -116,9 +115,6 @@ int PLAT_hasUndervolt(void) {
 
 ///////////////////////////////
 // Input Handling & Gamepad
-
-#define RAW_HATY 17
-#define RAW_HATX 16
 
 #define INPUT_COUNT 5
 static int inputs[INPUT_COUNT];
@@ -180,10 +176,10 @@ static void handleHatEvent(int code, int value, uint32_t tick) {
 	if (value > 1) return;
 
 	int hats[4] = {-1, -1, -1, -1}; // up, down, left, right
-	if (code == RAW_HATY) {
+	if (code == traits->axis_hat_y) {
 		hats[0] = (value == -1);
 		hats[1] = (value == 1);
-	} else if (code == RAW_HATX) {
+	} else if (code == traits->axis_hat_x) {
 		hats[2] = (value == -1);
 		hats[3] = (value == 1);
 	}
@@ -210,7 +206,7 @@ static void handleStickAxisEvent(int code, int value, uint32_t tick) {
 }
 
 static void handleAbsEvent(int code, int value, uint32_t tick) {
-	if (code == RAW_HATY || code == RAW_HATX) {
+	if (code == traits->axis_hat_y || code == traits->axis_hat_x) {
 		handleHatEvent(code, value, tick);
 	} else {
 		handleStickAxisEvent(code, value, tick);
@@ -382,11 +378,11 @@ static struct VID_Context {
 } vid;
 
 static inline int getScreenWidth(void) {
-	return on_hdmi ? HDMI_WIDTH : screen_width;
+	return on_hdmi ? (traits ? traits->gpu_hdmi_width : HDMI_WIDTH) : screen_width;
 }
 
 static inline int getScreenHeight(void) {
-	return on_hdmi ? HDMI_HEIGHT : screen_height;
+	return on_hdmi ? (traits ? traits->gpu_hdmi_height : HDMI_HEIGHT) : screen_height;
 }
 
 static void PLAT_computeRendererRects(const GFX_Renderer* renderer, SDL_Rect* src_rect,
@@ -925,12 +921,8 @@ int PLAT_isOnline(void) {
 }
 
 int PLAT_hasBluetooth(void) {
-	char path[256];
 	if (!traits) load_traits();
-	if (!traits || !traits->bluetooth_interface[0] || strcmp(traits->bluetooth_interface, "na") == 0)
-		return 0;
-	snprintf(path, sizeof(path), "/sys/class/bluetooth/%s", traits->bluetooth_interface);
-	return access(path, F_OK) == 0;
+	return traits && MINIME_traitAvailable(traits->bluetooth_interface);
 }
 
 static void updateBluetoothStatus(void) {
