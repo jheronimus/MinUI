@@ -48,7 +48,6 @@ SDL_GLContext PLAT_initGLContext(int major, int minor, int gles);
 void PLAT_quitGLContext(void);
 void PLAT_swapGL(void);
 void* PLAT_getGLProcAddress(const char* proc);
-void PLAT_setGLSwapInterval(int interval);
 
 ///////////////////////////////
 // Gamepad & Button Mapping
