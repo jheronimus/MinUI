@@ -17,8 +17,8 @@
 #include <GLES2/gl2ext.h>
 #include <samplerate.h>
 
-#include "defines.h"
 #include "api.h"
+#include "defines.h"
 #include "libretro.h"
 #include "menu.h"
 #include "scaler.h"
@@ -174,15 +174,15 @@ static GLint menu_u_tex = -1;
 static GLint menu_a_pos = -1;
 static GLint menu_a_texcoord = -1;
 
+static GLuint hud_vbo = 0;
+
 static SRC_STATE *audio_src_state = NULL;
 static float *audio_src_in = NULL;
 static float *audio_src_out = NULL;
 static size_t audio_src_in_cap = 0;
 static size_t audio_src_out_cap = 0;
 
-static uintptr_t hw_get_current_framebuffer(void) {
-  return (uintptr_t)hw_fbo;
-}
+static uintptr_t hw_get_current_framebuffer(void) { return (uintptr_t)hw_fbo; }
 
 static GLuint hw_compile_shader(GLenum type, const char *src) {
   GLuint shader = glCreateShader(type);
@@ -229,16 +229,15 @@ static void hw_init_compositor(void) {
   if (comp_prog)
     return;
 
-  const char *vsrc =
-      "#version 100\n"
-      "precision mediump float;\n"
-      "attribute vec2 a_pos;\n"
-      "attribute vec2 a_texcoord;\n"
-      "varying vec2 v_texcoord;\n"
-      "void main() {\n"
-      "  gl_Position = vec4(a_pos, 0.0, 1.0);\n"
-      "  v_texcoord = a_texcoord;\n"
-      "}\n";
+  const char *vsrc = "#version 100\n"
+                     "precision mediump float;\n"
+                     "attribute vec2 a_pos;\n"
+                     "attribute vec2 a_texcoord;\n"
+                     "varying vec2 v_texcoord;\n"
+                     "void main() {\n"
+                     "  gl_Position = vec4(a_pos, 0.0, 1.0);\n"
+                     "  v_texcoord = a_texcoord;\n"
+                     "}\n";
 
   const char *fsrc =
       "#version 100\n"
@@ -283,16 +282,16 @@ static void hw_init_compositor(void) {
     comp_a_pos = glGetAttribLocation(comp_prog, "a_pos");
     comp_a_texcoord = glGetAttribLocation(comp_prog, "a_texcoord");
     glGenBuffers(1, &comp_vbo);
+    glGenBuffers(1, &hud_vbo);
   }
 
-  const char *menu_fsrc =
-      "#version 100\n"
-      "precision mediump float;\n"
-      "varying vec2 v_texcoord;\n"
-      "uniform sampler2D u_tex;\n"
-      "void main() {\n"
-      "  gl_FragColor = texture2D(u_tex, v_texcoord);\n"
-      "}\n";
+  const char *menu_fsrc = "#version 100\n"
+                          "precision mediump float;\n"
+                          "varying vec2 v_texcoord;\n"
+                          "uniform sampler2D u_tex;\n"
+                          "void main() {\n"
+                          "  gl_FragColor = texture2D(u_tex, v_texcoord);\n"
+                          "}\n";
 
   menu_prog = hw_create_program(vsrc, menu_fsrc);
   if (menu_prog) {
@@ -421,21 +420,15 @@ static void hw_render_menu_surface(SDL_Surface *surface) {
   glUniform1i(menu_u_tex, 0);
 
 #define ROT_X(lx, ly)                                                          \
-  ((rot == 90)    ? (ly)                                                       \
-   : (rot == 180) ? -(lx)                                                      \
-   : (rot == 270) ? -(ly)                                                      \
-                  : (lx))
+  ((rot == 90) ? (ly) : (rot == 180) ? -(lx) : (rot == 270) ? -(ly) : (lx))
 #define ROT_Y(lx, ly)                                                          \
-  ((rot == 90)    ? -(lx)                                                      \
-   : (rot == 180) ? -(ly)                                                      \
-   : (rot == 270) ? (lx)                                                       \
-                  : (ly))
+  ((rot == 90) ? -(lx) : (rot == 180) ? -(ly) : (rot == 270) ? (lx) : (ly))
 
   float quad_verts[] = {
       ROT_X(-1.0f, -1.0f), ROT_Y(-1.0f, -1.0f), 0.0f, 1.0f,
-      ROT_X( 1.0f, -1.0f), ROT_Y( 1.0f, -1.0f), 1.0f, 1.0f,
-      ROT_X(-1.0f,  1.0f), ROT_Y(-1.0f,  1.0f), 0.0f, 0.0f,
-      ROT_X( 1.0f,  1.0f), ROT_Y( 1.0f,  1.0f), 1.0f, 0.0f,
+      ROT_X(1.0f, -1.0f),  ROT_Y(1.0f, -1.0f),  1.0f, 1.0f,
+      ROT_X(-1.0f, 1.0f),  ROT_Y(-1.0f, 1.0f),  0.0f, 0.0f,
+      ROT_X(1.0f, 1.0f),   ROT_Y(1.0f, 1.0f),   1.0f, 0.0f,
   };
 #undef ROT_X
 #undef ROT_Y
@@ -447,8 +440,8 @@ static void hw_render_menu_surface(SDL_Surface *surface) {
   glVertexAttribPointer(menu_a_pos, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
                         (void *)0);
   glEnableVertexAttribArray(menu_a_texcoord);
-  glVertexAttribPointer(menu_a_texcoord, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
-                        (void *)(2 * sizeof(float)));
+  glVertexAttribPointer(menu_a_texcoord, 2, GL_FLOAT, GL_FALSE,
+                        4 * sizeof(float), (void *)(2 * sizeof(float)));
 
   glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
@@ -733,8 +726,8 @@ static void hw_draw_hud(void) {
     return;
 
   if (!hw_hud_surf) {
-    hw_hud_surf = SDL_CreateRGBSurfaceWithFormat(
-        0, DEVICE_WIDTH, DEVICE_HEIGHT, 32, SDL_PIXELFORMAT_RGBA32);
+    hw_hud_surf = SDL_CreateRGBSurfaceWithFormat(0, DEVICE_WIDTH, DEVICE_HEIGHT,
+                                                 32, SDL_PIXELFORMAT_RGBA32);
     if (!hw_hud_surf)
       return;
   }
@@ -752,9 +745,9 @@ static void hw_draw_hud(void) {
 
   static double prev_fps = -1.0, prev_cpu = -1.0, prev_use = -1.0;
   static unsigned prev_fw = 0, prev_fh = 0;
-  int hud_changed = (fps_double != prev_fps || cpu_double != prev_cpu ||
-                     use_double != prev_use || hw_fbo_w != prev_fw ||
-                     hw_fbo_h != prev_fh);
+  int hud_changed =
+      (fps_double != prev_fps || cpu_double != prev_cpu ||
+       use_double != prev_use || hw_fbo_w != prev_fw || hw_fbo_h != prev_fh);
   if (hud_changed) {
     prev_fps = fps_double;
     prev_cpu = cpu_double;
@@ -797,21 +790,15 @@ static void hw_draw_hud(void) {
   int rot = plat_screen_rotation > 0 ? plat_screen_rotation : 0;
 
 #define ROT_X(lx, ly)                                                          \
-  ((rot == 90)    ? (ly)                                                       \
-   : (rot == 180) ? -(lx)                                                      \
-   : (rot == 270) ? -(ly)                                                      \
-                  : (lx))
+  ((rot == 90) ? (ly) : (rot == 180) ? -(lx) : (rot == 270) ? -(ly) : (lx))
 #define ROT_Y(lx, ly)                                                          \
-  ((rot == 90)    ? -(lx)                                                      \
-   : (rot == 180) ? -(ly)                                                      \
-   : (rot == 270) ? (lx)                                                       \
-                  : (ly))
+  ((rot == 90) ? -(lx) : (rot == 180) ? -(ly) : (rot == 270) ? (lx) : (ly))
 
   float hud_verts[] = {
       ROT_X(-1.0f, -1.0f), ROT_Y(-1.0f, -1.0f), 0.0f, 1.0f,
-      ROT_X( 1.0f, -1.0f), ROT_Y( 1.0f, -1.0f), 1.0f, 1.0f,
-      ROT_X(-1.0f,  1.0f), ROT_Y(-1.0f,  1.0f), 0.0f, 0.0f,
-      ROT_X( 1.0f,  1.0f), ROT_Y( 1.0f,  1.0f), 1.0f, 0.0f,
+      ROT_X(1.0f, -1.0f),  ROT_Y(1.0f, -1.0f),  1.0f, 1.0f,
+      ROT_X(-1.0f, 1.0f),  ROT_Y(-1.0f, 1.0f),  0.0f, 0.0f,
+      ROT_X(1.0f, 1.0f),   ROT_Y(1.0f, 1.0f),   1.0f, 0.0f,
   };
 #undef ROT_X
 #undef ROT_Y
@@ -836,7 +823,7 @@ static void hw_draw_hud(void) {
   GLint pos_attr = menu_prog ? menu_a_pos : comp_a_pos;
   GLint uv_attr = menu_prog ? menu_a_texcoord : comp_a_texcoord;
 
-  glBindBuffer(GL_ARRAY_BUFFER, comp_vbo);
+  glBindBuffer(GL_ARRAY_BUFFER, hud_vbo);
   glBufferData(GL_ARRAY_BUFFER, sizeof(hud_verts), hud_verts, GL_DYNAMIC_DRAW);
   glEnableVertexAttribArray(pos_attr);
   glVertexAttribPointer(pos_attr, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
@@ -884,6 +871,10 @@ static void hw_destroy_compositor(void) {
     glDeleteBuffers(1, &comp_vbo);
     comp_vbo = 0;
   }
+  if (hud_vbo) {
+    glDeleteBuffers(1, &hud_vbo);
+    hud_vbo = 0;
+  }
   if (menu_prog) {
     glDeleteProgram(menu_prog);
     menu_prog = 0;
@@ -916,8 +907,8 @@ static void hw_render_compositor_frame(unsigned width, unsigned height) {
   hw_resize_fbo(width, height);
 
   int dst_x = 0, dst_y = 0, dst_w = DEVICE_WIDTH, dst_h = DEVICE_HEIGHT;
-  double aspect =
-      core.aspect_ratio > 0.0 ? core.aspect_ratio : ((double)width / (double)height);
+  double aspect = core.aspect_ratio > 0.0 ? core.aspect_ratio
+                                          : ((double)width / (double)height);
   if (screen_scaling == SCALE_ASPECT) {
     dst_h = DEVICE_HEIGHT;
     dst_w = (int)(dst_h * aspect);
@@ -972,15 +963,9 @@ static void hw_render_compositor_frame(unsigned width, unsigned height) {
   float p_tr_x = x1, p_tr_y = y1;
 
 #define ROT_X(lx, ly)                                                          \
-  ((rot == 90)    ? (ly)                                                       \
-   : (rot == 180) ? -(lx)                                                      \
-   : (rot == 270) ? -(ly)                                                      \
-                  : (lx))
+  ((rot == 90) ? (ly) : (rot == 180) ? -(lx) : (rot == 270) ? -(ly) : (lx))
 #define ROT_Y(lx, ly)                                                          \
-  ((rot == 90)    ? -(lx)                                                      \
-   : (rot == 180) ? -(ly)                                                      \
-   : (rot == 270) ? (lx)                                                       \
-                  : (ly))
+  ((rot == 90) ? -(lx) : (rot == 180) ? -(ly) : (rot == 270) ? (lx) : (ly))
 
   float quad_verts[] = {
       ROT_X(p_bl_x, p_bl_y), ROT_Y(p_bl_x, p_bl_y), 0.0f, v0,
@@ -994,17 +979,19 @@ static void hw_render_compositor_frame(unsigned width, unsigned height) {
   glBindBuffer(GL_ARRAY_BUFFER, comp_vbo);
   static float prev_quad[16] = {0};
   static int quad_initialized = 0;
-  if (!quad_initialized || memcmp(prev_quad, quad_verts, sizeof(quad_verts)) != 0) {
+  if (!quad_initialized ||
+      memcmp(prev_quad, quad_verts, sizeof(quad_verts)) != 0) {
     memcpy(prev_quad, quad_verts, sizeof(quad_verts));
-    glBufferData(GL_ARRAY_BUFFER, sizeof(quad_verts), quad_verts, GL_DYNAMIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(quad_verts), quad_verts,
+                 GL_DYNAMIC_DRAW);
     quad_initialized = 1;
   }
   glEnableVertexAttribArray(comp_a_pos);
   glVertexAttribPointer(comp_a_pos, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
                         (void *)0);
   glEnableVertexAttribArray(comp_a_texcoord);
-  glVertexAttribPointer(comp_a_texcoord, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
-                        (void *)(2 * sizeof(float)));
+  glVertexAttribPointer(comp_a_texcoord, 2, GL_FLOAT, GL_FALSE,
+                        4 * sizeof(float), (void *)(2 * sizeof(float)));
 
   glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
@@ -1647,47 +1634,47 @@ typedef struct ButtonMapping {
   int ignore;
 } ButtonMapping;
 
-static ButtonMapping default_button_mapping[] =
-    { // used if pak.cfg doesn't exist or doesn't have bindings
-        {"Up", RETRO_DEVICE_ID_JOYPAD_UP, BTN_ID_DPAD_UP},
-        {"Down", RETRO_DEVICE_ID_JOYPAD_DOWN, BTN_ID_DPAD_DOWN},
-        {"Left", RETRO_DEVICE_ID_JOYPAD_LEFT, BTN_ID_DPAD_LEFT},
-        {"Right", RETRO_DEVICE_ID_JOYPAD_RIGHT, BTN_ID_DPAD_RIGHT},
-        {"A Button", RETRO_DEVICE_ID_JOYPAD_A, BTN_ID_A},
-        {"B Button", RETRO_DEVICE_ID_JOYPAD_B, BTN_ID_B},
-        {"X Button", RETRO_DEVICE_ID_JOYPAD_X, BTN_ID_X},
-        {"Y Button", RETRO_DEVICE_ID_JOYPAD_Y, BTN_ID_Y},
-        {"Start", RETRO_DEVICE_ID_JOYPAD_START, BTN_ID_START},
-        {"Select", RETRO_DEVICE_ID_JOYPAD_SELECT, BTN_ID_SELECT},
-        {"L1 Button", RETRO_DEVICE_ID_JOYPAD_L, BTN_ID_L1},
-        {"R1 Button", RETRO_DEVICE_ID_JOYPAD_R, BTN_ID_R1},
-        {"L2 Button", RETRO_DEVICE_ID_JOYPAD_L2, BTN_ID_L2},
-        {"R2 Button", RETRO_DEVICE_ID_JOYPAD_R2, BTN_ID_R2},
-        {"L3 Button", RETRO_DEVICE_ID_JOYPAD_L3, BTN_ID_L3},
-        {"R3 Button", RETRO_DEVICE_ID_JOYPAD_R3, BTN_ID_R3},
-        {NULL, 0, 0}};
-static ButtonMapping button_label_mapping[] =
-    { // used to lookup the retro_id and local btn_id from button name
-        {"NONE", -1, BTN_ID_NONE},
-        {"UP", RETRO_DEVICE_ID_JOYPAD_UP, BTN_ID_DPAD_UP},
-        {"DOWN", RETRO_DEVICE_ID_JOYPAD_DOWN, BTN_ID_DPAD_DOWN},
-        {"LEFT", RETRO_DEVICE_ID_JOYPAD_LEFT, BTN_ID_DPAD_LEFT},
-        {"RIGHT", RETRO_DEVICE_ID_JOYPAD_RIGHT, BTN_ID_DPAD_RIGHT},
-        {"A", RETRO_DEVICE_ID_JOYPAD_A, BTN_ID_A},
-        {"B", RETRO_DEVICE_ID_JOYPAD_B, BTN_ID_B},
-        {"C", RETRO_DEVICE_ID_JOYPAD_X, BTN_ID_C},
-        {"X", RETRO_DEVICE_ID_JOYPAD_X, BTN_ID_X},
-        {"Y", RETRO_DEVICE_ID_JOYPAD_Y, BTN_ID_Y},
-        {"Z", RETRO_DEVICE_ID_JOYPAD_Y, BTN_ID_Z},
-        {"START", RETRO_DEVICE_ID_JOYPAD_START, BTN_ID_START},
-        {"SELECT", RETRO_DEVICE_ID_JOYPAD_SELECT, BTN_ID_SELECT},
-        {"L1", RETRO_DEVICE_ID_JOYPAD_L, BTN_ID_L1},
-        {"R1", RETRO_DEVICE_ID_JOYPAD_R, BTN_ID_R1},
-        {"L2", RETRO_DEVICE_ID_JOYPAD_L2, BTN_ID_L2},
-        {"R2", RETRO_DEVICE_ID_JOYPAD_R2, BTN_ID_R2},
-        {"L3", RETRO_DEVICE_ID_JOYPAD_L3, BTN_ID_L3},
-        {"R3", RETRO_DEVICE_ID_JOYPAD_R3, BTN_ID_R3},
-        {NULL, 0, 0}};
+static ButtonMapping default_button_mapping[] = {
+    // used if pak.cfg doesn't exist or doesn't have bindings
+    {"Up", RETRO_DEVICE_ID_JOYPAD_UP, BTN_ID_DPAD_UP},
+    {"Down", RETRO_DEVICE_ID_JOYPAD_DOWN, BTN_ID_DPAD_DOWN},
+    {"Left", RETRO_DEVICE_ID_JOYPAD_LEFT, BTN_ID_DPAD_LEFT},
+    {"Right", RETRO_DEVICE_ID_JOYPAD_RIGHT, BTN_ID_DPAD_RIGHT},
+    {"A Button", RETRO_DEVICE_ID_JOYPAD_A, BTN_ID_A},
+    {"B Button", RETRO_DEVICE_ID_JOYPAD_B, BTN_ID_B},
+    {"X Button", RETRO_DEVICE_ID_JOYPAD_X, BTN_ID_X},
+    {"Y Button", RETRO_DEVICE_ID_JOYPAD_Y, BTN_ID_Y},
+    {"Start", RETRO_DEVICE_ID_JOYPAD_START, BTN_ID_START},
+    {"Select", RETRO_DEVICE_ID_JOYPAD_SELECT, BTN_ID_SELECT},
+    {"L1 Button", RETRO_DEVICE_ID_JOYPAD_L, BTN_ID_L1},
+    {"R1 Button", RETRO_DEVICE_ID_JOYPAD_R, BTN_ID_R1},
+    {"L2 Button", RETRO_DEVICE_ID_JOYPAD_L2, BTN_ID_L2},
+    {"R2 Button", RETRO_DEVICE_ID_JOYPAD_R2, BTN_ID_R2},
+    {"L3 Button", RETRO_DEVICE_ID_JOYPAD_L3, BTN_ID_L3},
+    {"R3 Button", RETRO_DEVICE_ID_JOYPAD_R3, BTN_ID_R3},
+    {NULL, 0, 0}};
+static ButtonMapping button_label_mapping[] = {
+    // used to lookup the retro_id and local btn_id from button name
+    {"NONE", -1, BTN_ID_NONE},
+    {"UP", RETRO_DEVICE_ID_JOYPAD_UP, BTN_ID_DPAD_UP},
+    {"DOWN", RETRO_DEVICE_ID_JOYPAD_DOWN, BTN_ID_DPAD_DOWN},
+    {"LEFT", RETRO_DEVICE_ID_JOYPAD_LEFT, BTN_ID_DPAD_LEFT},
+    {"RIGHT", RETRO_DEVICE_ID_JOYPAD_RIGHT, BTN_ID_DPAD_RIGHT},
+    {"A", RETRO_DEVICE_ID_JOYPAD_A, BTN_ID_A},
+    {"B", RETRO_DEVICE_ID_JOYPAD_B, BTN_ID_B},
+    {"C", RETRO_DEVICE_ID_JOYPAD_X, BTN_ID_C},
+    {"X", RETRO_DEVICE_ID_JOYPAD_X, BTN_ID_X},
+    {"Y", RETRO_DEVICE_ID_JOYPAD_Y, BTN_ID_Y},
+    {"Z", RETRO_DEVICE_ID_JOYPAD_Y, BTN_ID_Z},
+    {"START", RETRO_DEVICE_ID_JOYPAD_START, BTN_ID_START},
+    {"SELECT", RETRO_DEVICE_ID_JOYPAD_SELECT, BTN_ID_SELECT},
+    {"L1", RETRO_DEVICE_ID_JOYPAD_L, BTN_ID_L1},
+    {"R1", RETRO_DEVICE_ID_JOYPAD_R, BTN_ID_R1},
+    {"L2", RETRO_DEVICE_ID_JOYPAD_L2, BTN_ID_L2},
+    {"R2", RETRO_DEVICE_ID_JOYPAD_R2, BTN_ID_R2},
+    {"L3", RETRO_DEVICE_ID_JOYPAD_L3, BTN_ID_L3},
+    {"R3", RETRO_DEVICE_ID_JOYPAD_R3, BTN_ID_R3},
+    {NULL, 0, 0}};
 static ButtonMapping core_button_mapping[RETRO_BUTTON_COUNT + 1] = {0};
 
 static const char *device_button_names[LOCAL_BUTTON_COUNT] = {
@@ -1727,14 +1714,43 @@ static char *button_labels_menu[] = {
 };
 static char *button_labels_select[] = {
     "NONE", // displayed by default
-    "UP",        "DOWN",       "LEFT",    "RIGHT",      "A",
-    "B",         "C",          "X",       "Y",          "Z",
-    "START",     "SELECT",     "L1",      "R1",         "L2",
-    "R2",        "L3",         "R3",      "SELECT+UP",    "SELECT+DOWN",
-    "SELECT+LEFT", "SELECT+RIGHT", "SELECT+A",  "SELECT+B",     "SELECT+C",
-    "SELECT+X",    "SELECT+Y",     "SELECT+Z",  "SELECT+START", "SELECT+SELECT",
-    "SELECT+L1",   "SELECT+R1",    "SELECT+L2", "SELECT+R2",    "SELECT+L3",
-    "SELECT+R3",   NULL,
+    "UP",
+    "DOWN",
+    "LEFT",
+    "RIGHT",
+    "A",
+    "B",
+    "C",
+    "X",
+    "Y",
+    "Z",
+    "START",
+    "SELECT",
+    "L1",
+    "R1",
+    "L2",
+    "R2",
+    "L3",
+    "R3",
+    "SELECT+UP",
+    "SELECT+DOWN",
+    "SELECT+LEFT",
+    "SELECT+RIGHT",
+    "SELECT+A",
+    "SELECT+B",
+    "SELECT+C",
+    "SELECT+X",
+    "SELECT+Y",
+    "SELECT+Z",
+    "SELECT+START",
+    "SELECT+SELECT",
+    "SELECT+L1",
+    "SELECT+R1",
+    "SELECT+L2",
+    "SELECT+R2",
+    "SELECT+L3",
+    "SELECT+R3",
+    NULL,
 };
 static char **button_labels = button_labels_menu;
 static char *overclock_labels[] = {
@@ -2141,18 +2157,20 @@ static void applyArcDefaultControls(void) {
 
   const char *tag = (const char *)core.tag;
 
-  int is_dc = exactMatch((char *)tag, "DC") ||
-              exactMatch((char *)tag, "DREAMCAST");
+  int is_dc =
+      exactMatch((char *)tag, "DC") || exactMatch((char *)tag, "DREAMCAST");
 
-  int is_md = exactMatch((char *)tag, "MD") || exactMatch((char *)tag, "GENESIS") ||
-              exactMatch((char *)tag, "SEGACD") || exactMatch((char *)tag, "32X") ||
-              exactMatch((char *)tag, "SAT") || exactMatch((char *)tag, "SATURN");
+  int is_md =
+      exactMatch((char *)tag, "MD") || exactMatch((char *)tag, "GENESIS") ||
+      exactMatch((char *)tag, "SEGACD") || exactMatch((char *)tag, "32X") ||
+      exactMatch((char *)tag, "SAT") || exactMatch((char *)tag, "SATURN");
 
   int is_arcade = exactMatch((char *)tag, "ARCADE");
 
-  int is_pce = exactMatch((char *)tag, "PCE") || exactMatch((char *)tag, "PCECD") ||
-               exactMatch((char *)tag, "SGFX") || exactMatch((char *)tag, "TG16") ||
-               exactMatch((char *)tag, "TGCD");
+  int is_pce =
+      exactMatch((char *)tag, "PCE") || exactMatch((char *)tag, "PCECD") ||
+      exactMatch((char *)tag, "SGFX") || exactMatch((char *)tag, "TG16") ||
+      exactMatch((char *)tag, "TGCD");
 
   int is_sms = exactMatch((char *)tag, "SMS") || exactMatch((char *)tag, "GG");
 
@@ -2207,38 +2225,56 @@ static void applyArcDefaultControls(void) {
     } else if (is_md) {
       if (exactMatch((char *)name, "A Button") || exactMatch((char *)name, "A"))
         mapping->local = BTN_ID_A;
-      else if (exactMatch((char *)name, "B Button") || exactMatch((char *)name, "B"))
+      else if (exactMatch((char *)name, "B Button") ||
+               exactMatch((char *)name, "B"))
         mapping->local = BTN_ID_B;
-      else if (exactMatch((char *)name, "C Button") || exactMatch((char *)name, "C"))
+      else if (exactMatch((char *)name, "C Button") ||
+               exactMatch((char *)name, "C"))
         mapping->local = BTN_ID_C;
-      else if (exactMatch((char *)name, "X Button") || exactMatch((char *)name, "X"))
+      else if (exactMatch((char *)name, "X Button") ||
+               exactMatch((char *)name, "X"))
         mapping->local = BTN_ID_X;
-      else if (exactMatch((char *)name, "Y Button") || exactMatch((char *)name, "Y"))
+      else if (exactMatch((char *)name, "Y Button") ||
+               exactMatch((char *)name, "Y"))
         mapping->local = BTN_ID_Y;
-      else if (exactMatch((char *)name, "Z Button") || exactMatch((char *)name, "Z"))
+      else if (exactMatch((char *)name, "Z Button") ||
+               exactMatch((char *)name, "Z"))
         mapping->local = BTN_ID_Z;
-      else if (exactMatch((char *)name, "Mode") || exactMatch((char *)name, "Select"))
+      else if (exactMatch((char *)name, "Mode") ||
+               exactMatch((char *)name, "Select"))
         mapping->local = BTN_ID_SELECT;
       else if (exactMatch((char *)name, "Start"))
         mapping->local = BTN_ID_START;
-      else if (exactMatch((char *)name, "L1 Button") || exactMatch((char *)name, "L1") || exactMatch((char *)name, "L"))
+      else if (exactMatch((char *)name, "L1 Button") ||
+               exactMatch((char *)name, "L1") || exactMatch((char *)name, "L"))
         mapping->local = BTN_ID_L1;
-      else if (exactMatch((char *)name, "R1 Button") || exactMatch((char *)name, "R1") || exactMatch((char *)name, "R"))
+      else if (exactMatch((char *)name, "R1 Button") ||
+               exactMatch((char *)name, "R1") || exactMatch((char *)name, "R"))
         mapping->local = BTN_ID_R1;
     } else if (is_arcade) {
       if (exactMatch((char *)name, "A Button") || exactMatch((char *)name, "A"))
         mapping->local = BTN_ID_A;
-      else if (exactMatch((char *)name, "B Button") || exactMatch((char *)name, "B"))
+      else if (exactMatch((char *)name, "B Button") ||
+               exactMatch((char *)name, "B"))
         mapping->local = BTN_ID_B;
-      else if (exactMatch((char *)name, "R Button") || exactMatch((char *)name, "R") || exactMatch((char *)name, "R1 Button") || exactMatch((char *)name, "C Button"))
+      else if (exactMatch((char *)name, "R Button") ||
+               exactMatch((char *)name, "R") ||
+               exactMatch((char *)name, "R1 Button") ||
+               exactMatch((char *)name, "C Button"))
         mapping->local = BTN_ID_C;
-      else if (exactMatch((char *)name, "X Button") || exactMatch((char *)name, "X"))
+      else if (exactMatch((char *)name, "X Button") ||
+               exactMatch((char *)name, "X"))
         mapping->local = BTN_ID_X;
-      else if (exactMatch((char *)name, "Y Button") || exactMatch((char *)name, "Y"))
+      else if (exactMatch((char *)name, "Y Button") ||
+               exactMatch((char *)name, "Y"))
         mapping->local = BTN_ID_Y;
-      else if (exactMatch((char *)name, "L Button") || exactMatch((char *)name, "L") || exactMatch((char *)name, "L1 Button") || exactMatch((char *)name, "Z Button"))
+      else if (exactMatch((char *)name, "L Button") ||
+               exactMatch((char *)name, "L") ||
+               exactMatch((char *)name, "L1 Button") ||
+               exactMatch((char *)name, "Z Button"))
         mapping->local = BTN_ID_Z;
-      else if (exactMatch((char *)name, "Coin") || exactMatch((char *)name, "Select"))
+      else if (exactMatch((char *)name, "Coin") ||
+               exactMatch((char *)name, "Select"))
         mapping->local = BTN_ID_SELECT;
       else if (exactMatch((char *)name, "Start"))
         mapping->local = BTN_ID_START;
@@ -2266,32 +2302,51 @@ static void applyArcDefaultControls(void) {
         mapping->local = BTN_ID_A;
       else if (exactMatch((char *)name, "Button 2"))
         mapping->local = BTN_ID_B;
-      else if (exactMatch((char *)name, "Pause") || exactMatch((char *)name, "Start"))
+      else if (exactMatch((char *)name, "Pause") ||
+               exactMatch((char *)name, "Start"))
         mapping->local = BTN_ID_START;
     } else {
       // 2-button & 4-button systems (SNES, PSX, GBA, GB, GBC, NES/FC, etc.)
-      if (exactMatch((char *)name, "A Button") || exactMatch((char *)name, "A") || exactMatch((char *)name, "Circle") || exactMatch((char *)name, "Circle Button"))
+      if (exactMatch((char *)name, "A Button") ||
+          exactMatch((char *)name, "A") || exactMatch((char *)name, "Circle") ||
+          exactMatch((char *)name, "Circle Button"))
         mapping->local = BTN_ID_B;
-      else if (exactMatch((char *)name, "B Button") || exactMatch((char *)name, "B") || exactMatch((char *)name, "Cross") || exactMatch((char *)name, "Cross Button"))
+      else if (exactMatch((char *)name, "B Button") ||
+               exactMatch((char *)name, "B") ||
+               exactMatch((char *)name, "Cross") ||
+               exactMatch((char *)name, "Cross Button"))
         mapping->local = BTN_ID_A;
-      else if (exactMatch((char *)name, "X Button") || exactMatch((char *)name, "X") || exactMatch((char *)name, "Triangle") || exactMatch((char *)name, "Triangle Button"))
+      else if (exactMatch((char *)name, "X Button") ||
+               exactMatch((char *)name, "X") ||
+               exactMatch((char *)name, "Triangle") ||
+               exactMatch((char *)name, "Triangle Button"))
         mapping->local = BTN_ID_Y;
-      else if (exactMatch((char *)name, "Y Button") || exactMatch((char *)name, "Y") || exactMatch((char *)name, "Square") || exactMatch((char *)name, "Square Button"))
+      else if (exactMatch((char *)name, "Y Button") ||
+               exactMatch((char *)name, "Y") ||
+               exactMatch((char *)name, "Square") ||
+               exactMatch((char *)name, "Square Button"))
         mapping->local = BTN_ID_X;
       else if (exactMatch((char *)name, "A Turbo"))
         mapping->local = BTN_ID_Y;
       else if (exactMatch((char *)name, "B Turbo"))
         mapping->local = BTN_ID_X;
-      else if (exactMatch((char *)name, "L Button") || exactMatch((char *)name, "L") || exactMatch((char *)name, "L1 Button") || exactMatch((char *)name, "L1"))
+      else if (exactMatch((char *)name, "L Button") ||
+               exactMatch((char *)name, "L") ||
+               exactMatch((char *)name, "L1 Button") ||
+               exactMatch((char *)name, "L1"))
         mapping->local = BTN_ID_L1;
-      else if (exactMatch((char *)name, "R Button") || exactMatch((char *)name, "R") || exactMatch((char *)name, "R1 Button") || exactMatch((char *)name, "R1"))
+      else if (exactMatch((char *)name, "R Button") ||
+               exactMatch((char *)name, "R") ||
+               exactMatch((char *)name, "R1 Button") ||
+               exactMatch((char *)name, "R1"))
         mapping->local = BTN_ID_R1;
     }
   }
 }
 
 static void Config_init(void) {
-  button_labels = !PLAT_hasMenuButton() ? button_labels_select : button_labels_menu;
+  button_labels =
+      !PLAT_hasMenuButton() ? button_labels_select : button_labels_menu;
 
   if (!config.default_cfg || config.initialized)
     return;
@@ -2409,7 +2464,9 @@ static void Config_readControlsString(char *cfg) {
   char key[256];
   char value[256];
   char *tmp;
-  char **alt_labels = (button_labels == button_labels_select) ? button_labels_menu : button_labels_select;
+  char **alt_labels = (button_labels == button_labels_select)
+                          ? button_labels_menu
+                          : button_labels_select;
 
   for (int i = 0; config.controls[i].name; i++) {
     ButtonMapping *mapping = &config.controls[i];
@@ -2932,9 +2989,9 @@ static void OptionList_setOptionValue(OptionList *list, const char *key,
     LOG_info("unknown option %s \n", key);
 }
 // static void OptionList_setOptionVisibility(OptionList* list, const char* key,
-// int visible) { 	Option* item = OptionList_getOption(list, key); 	if (item)
-// item->visible = visible; 	else printf("unknown option %s \n", key);
-// fflush(stdout);
+// int visible) { 	Option* item = OptionList_getOption(list, key);
+// if (item) item->visible = visible; 	else printf("unknown option %s \n",
+// key); fflush(stdout);
 // }
 
 ///////////////////////////////
@@ -3158,12 +3215,12 @@ static void input_poll_callback(void) {
                 exactMatch((char *)core.tag, "DREAMCAST");
     if (is_dc) {
       if (PAD_isPressed(BTN_C) || PAD_isPressed(BTN_R2)) {
-        buttons |= (1 << RETRO_DEVICE_ID_JOYPAD_R) |
-                   (1 << RETRO_DEVICE_ID_JOYPAD_R2);
+        buttons |=
+            (1 << RETRO_DEVICE_ID_JOYPAD_R) | (1 << RETRO_DEVICE_ID_JOYPAD_R2);
       }
       if (PAD_isPressed(BTN_Z) || PAD_isPressed(BTN_L2)) {
-        buttons |= (1 << RETRO_DEVICE_ID_JOYPAD_L) |
-                   (1 << RETRO_DEVICE_ID_JOYPAD_L2);
+        buttons |=
+            (1 << RETRO_DEVICE_ID_JOYPAD_L) | (1 << RETRO_DEVICE_ID_JOYPAD_L2);
       }
     } else {
       int c_bound = 0;
@@ -3581,11 +3638,10 @@ static bool environment_callback(unsigned cmd,
   // case RETRO_ENVIRONMENT_SET_AUDIO_BUFFER_STATUS_CALLBACK: { /* 62 */
   // 	LOG_info("RETRO_ENVIRONMENT_SET_AUDIO_BUFFER_STATUS_CALLBACK\n");
   // 	const struct retro_audio_buffer_status_callback *cb = (const struct
-  // retro_audio_buffer_status_callback *)data; 	if (cb) { 		LOG_info("has
-  // audo_buffer_status callback\n"); 		core.audio_buffer_status = cb->callback;
-  // 	} else {
-  // 		LOG_info("no audo_buffer_status callback\n");
-  // 		core.audio_buffer_status = NULL;
+  // retro_audio_buffer_status_callback *)data; 	if (cb) {
+  // LOG_info("has audo_buffer_status callback\n");
+  // core.audio_buffer_status = cb->callback; 	} else { 		LOG_info("no
+  // audo_buffer_status callback\n"); 		core.audio_buffer_status = NULL;
   // 	}
   // 	break;
   // }
@@ -3599,8 +3655,8 @@ static bool environment_callback(unsigned cmd,
   // 		if (frames < 30)
   // 			// audio_buffer_size_override = frames;
   // 			LOG_info("audio_buffer_size_override = %i (unused?)\n",
-  // frames); 		else 			LOG_info("Audio buffer change out of range (%d), ignored\n",
-  // frames);
+  // frames); 		else 			LOG_info("Audio buffer change
+  // out of range (%d), ignored\n", frames);
   // 	}
   // 	break;
   // }
@@ -4030,7 +4086,8 @@ static void selectScaler(int src_w, int src_h, int src_p) {
 
   // LOG_info("coreAR:%0.3f fixedAR:%0.3f srcAR: %0.3f\nname:%s\nfit:%i
   // scale:%i\nsrc_x:%i src_y:%i src_w:%i src_h:%i src_p:%i\ndst_x:%i dst_y:%i
-  // dst_w:%i dst_h:%i dst_p:%i\naspect_w:%i aspect_h:%i\n", 	core.aspect_ratio,
+  // dst_w:%i dst_h:%i dst_p:%i\naspect_w:%i aspect_h:%i\n",
+  // core.aspect_ratio,
   // ((double)DEVICE_WIDTH) / DEVICE_HEIGHT, ((double)src_w) / src_h,
   // 	scaler_name,
   // 	fit,scale,
@@ -4708,7 +4765,8 @@ static int OptionControls_optionChanged(MenuList *list, int i) {
 static MenuList OptionControls_menu = {
     .type = MENU_INPUT,
     .desc = "Press A to set and X to clear."
-            "\nSupports single button and MENU+button." // updated dynamically in openMenu
+            "\nSupports single button and MENU+button." // updated dynamically
+                                                        // in openMenu
     ,
     .on_confirm = OptionControls_bind,
     .on_change = OptionControls_unbind,
@@ -4716,8 +4774,10 @@ static MenuList OptionControls_menu = {
 static int OptionControls_openMenu(MenuList *list, int i) {
   LOG_info("OptionControls_openMenu\n");
   OptionControls_menu.desc = !PLAT_hasMenuButton()
-                                 ? "Press A to set and X to clear.\nSupports single button and SELECT+button."
-                                 : "Press A to set and X to clear.\nSupports single button and MENU+button.";
+                                 ? "Press A to set and X to clear.\nSupports "
+                                   "single button and SELECT+button."
+                                 : "Press A to set and X to clear.\nSupports "
+                                   "single button and MENU+button.";
 
   if (OptionControls_menu.items == NULL) {
 
@@ -4815,7 +4875,8 @@ static int OptionShortcuts_unbind(MenuList *list, int i) {
 static MenuList OptionShortcuts_menu = {
     .type = MENU_INPUT,
     .desc = "Press A to set and X to clear."
-            "\nSupports single button and MENU+button." // updated dynamically in openMenu
+            "\nSupports single button and MENU+button." // updated dynamically
+                                                        // in openMenu
     ,
     .on_confirm = OptionShortcuts_bind,
     .on_change = OptionShortcuts_unbind,
@@ -4836,8 +4897,10 @@ static char *getSaveDesc(void) {
 }
 static int OptionShortcuts_openMenu(MenuList *list, int i) {
   OptionShortcuts_menu.desc = !PLAT_hasMenuButton()
-                                 ? "Press A to set and X to clear.\nSupports single button and SELECT+button."
-                                 : "Press A to set and X to clear.\nSupports single button and MENU+button.";
+                                  ? "Press A to set and X to clear.\nSupports "
+                                    "single button and SELECT+button."
+                                  : "Press A to set and X to clear.\nSupports "
+                                    "single button and MENU+button.";
 
   if (OptionShortcuts_menu.items == NULL) {
     // TODO: where do I free this? I guess I don't :sweat_smile:
@@ -5114,9 +5177,9 @@ static void Menu_saveState(void) {
     if (hw_render_enabled)
       bitmap = hw_capture_fbo_surface();
     else if (renderer.src)
-      bitmap =
-          SDL_CreateRGBSurfaceFrom(renderer.src, renderer.true_w, renderer.true_h,
-                                   FIXED_DEPTH, renderer.src_p, RGBA_MASK_565);
+      bitmap = SDL_CreateRGBSurfaceFrom(renderer.src, renderer.true_w,
+                                        renderer.true_h, FIXED_DEPTH,
+                                        renderer.src_p, RGBA_MASK_565);
   }
   if (bitmap) {
     SDL_RWops *out = SDL_RWFromFile(menu.bmp_path, "wb");
