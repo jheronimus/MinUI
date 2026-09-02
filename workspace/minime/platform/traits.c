@@ -78,125 +78,11 @@ char input_menu[MINIME_TRAIT_NAME_MAX] = "";
 char input_rumble[MINIME_TRAIT_NAME_MAX] = "";
 char input_lid[MINIME_TRAIT_NAME_MAX] = "";
 
-///////////////////////////////
-// Internal Schema & Parser State
-
-typedef struct {
-	char device_id[MINIME_TRAIT_NAME_MAX];
-	char device_model[MINIME_TRAIT_PATH_MAX];
-	int screen_width;
-	int screen_height;
-	int screen_rotation;
-	int screen_rotation_kernel;
-	MinimeScreenAspect screen_aspect;
-	int screen_refresh_rate;
-	char screen_backlight_path[MINIME_TRAIT_PATH_MAX];
-	int screen_backlight_max;
-	char screen_blank_path[MINIME_TRAIT_PATH_MAX];
-	int ui_padding;
-	int ui_row_count;
-	int screen2_width;
-	int screen2_height;
-	int screen2_rotation;
-	MinimeScreenAspect screen2_aspect;
-	int screen2_refresh_rate;
-	char screen2_backlight_path[MINIME_TRAIT_PATH_MAX];
-	char screen2_blank_path[MINIME_TRAIT_PATH_MAX];
-	int screen2_touch;
-	char screen2_touch_device_name[MINIME_TRAIT_NAME_MAX];
-
-	char cpu_governor_path[MINIME_TRAIT_PATH_MAX];
-	char cpu_clock_path[MINIME_TRAIT_PATH_MAX];
-	int cpu_clock_menu;
-	int cpu_clock_powersave;
-	int cpu_clock_normal;
-	int cpu_clock_performance;
-	int cpu_undervolt_supported;
-	char cpu_thermal_path[MINIME_TRAIT_PATH_MAX];
-
-	char gpu_device[MINIME_TRAIT_PATH_MAX];
-	char gpu_device2[MINIME_TRAIT_PATH_MAX];
-	char gpu_hdmi_connector[MINIME_TRAIT_NAME_MAX];
-	char gpu_hdmi_state_path[MINIME_TRAIT_PATH_MAX];
-	char gpu_driver[MINIME_TRAIT_NAME_MAX];
-	int gpu_clock_min;
-	int gpu_clock_max;
-	int gpu_hdmi_width;
-	int gpu_hdmi_height;
-	char gpu_devfreq_path[MINIME_TRAIT_PATH_MAX];
-
-	char audio_card[MINIME_TRAIT_NAME_MAX];
-	char audio_mixer[MINIME_TRAIT_NAME_MAX];
-	char audio_jack_device_name[MINIME_TRAIT_NAME_MAX];
-	int audio_mic;
-
-	char input_gamepad[MINIME_TRAIT_NAME_MAX];
-	char input_stick[MINIME_TRAIT_NAME_MAX];
-	char input_power[MINIME_TRAIT_NAME_MAX];
-	char input_volume[MINIME_TRAIT_NAME_MAX];
-	char input_menu[MINIME_TRAIT_NAME_MAX];
-	char input_lid[MINIME_TRAIT_NAME_MAX];
-	char input_rumble_device_name[MINIME_TRAIT_NAME_MAX];
-	int input_touch;
-	char input_touch_device_name[MINIME_TRAIT_NAME_MAX];
-
-	int key_up;
-	int key_down;
-	int key_left;
-	int key_right;
-	int key_a;
-	int key_b;
-	int key_c;
-	int key_x;
-	int key_y;
-	int key_z;
-	int key_l1;
-	int key_r1;
-	int key_l2;
-	int key_r2;
-	int key_l3;
-	int key_r3;
-	int key_start;
-	int key_select;
-	int key_menu;
-	int key_power;
-	int key_vol_up;
-	int key_vol_down;
-
-	int axis_lx;
-	int axis_ly;
-	int axis_rx;
-	int axis_ry;
-	int axis_min;
-	int axis_center;
-	int axis_max;
-	int axis_lx_invert;
-	int axis_ly_invert;
-	int axis_rx_invert;
-	int axis_ry_invert;
-	int axis_hat_x;
-	int axis_hat_y;
-
-	char wifi_interface[MINIME_TRAIT_NAME_MAX];
-	char bluetooth_interface[MINIME_TRAIT_NAME_MAX];
-
-	char power_battery_sysfs[MINIME_TRAIT_PATH_MAX];
-	char power_charger_online_path[MINIME_TRAIT_PATH_MAX];
-	char power_led_path[MINIME_TRAIT_PATH_MAX];
-
-	int usb_otg;
-	int usb_host_ports;
-	int usb_device_mode;
-	int usb_controller_mode;
-
-	char storage_sd_node[MINIME_TRAIT_PATH_MAX];
-	char storage_sd2_node[MINIME_TRAIT_PATH_MAX];
-	char storage_emmc_node[MINIME_TRAIT_PATH_MAX];
-} TraitParserState;
-
-static TraitParserState traits;
 static int initialized = 0;
 static int valid = 0;
+
+///////////////////////////////
+// Internal Schema Table
 
 typedef enum {
 	TYPE_STRING,
@@ -207,117 +93,84 @@ typedef enum {
 typedef struct {
 	const char* key;
 	TraitType type;
-	size_t offset;
+	void* dest;
+	size_t max_len;
 } TraitField;
 
-#define FIELD(type, name) {#name, type, offsetof(TraitParserState, name)}
-#define STR_FIELD(name) FIELD(TYPE_STRING, name)
-#define INT_FIELD(name) FIELD(TYPE_INT, name)
-#define ASPECT_FIELD(name) FIELD(TYPE_ASPECT, name)
-#define KEYED_STR(key, name) {key, TYPE_STRING, offsetof(TraitParserState, name)}
-#define KEYED_INT(key, name) {key, TYPE_INT, offsetof(TraitParserState, name)}
+#define STR_BIND(key, var) {key, TYPE_STRING, var, sizeof(var)}
+#define INT_BIND(key, var) {key, TYPE_INT, &var, 0}
+#define ASPECT_BIND(key, var) {key, TYPE_ASPECT, &var, 0}
 
 static const TraitField TRAIT_FIELDS[] = {
-	STR_FIELD(device_id),
-	STR_FIELD(device_model),
-	INT_FIELD(screen_width),
-	INT_FIELD(screen_height),
-	INT_FIELD(screen_rotation),
-	INT_FIELD(screen_rotation_kernel),
-	ASPECT_FIELD(screen_aspect),
-	INT_FIELD(screen_refresh_rate),
-	STR_FIELD(screen_backlight_path),
-	INT_FIELD(screen_backlight_max),
-	STR_FIELD(screen_blank_path),
-	INT_FIELD(ui_padding),
-	INT_FIELD(ui_row_count),
-	INT_FIELD(screen2_width),
-	INT_FIELD(screen2_height),
-	INT_FIELD(screen2_rotation),
-	ASPECT_FIELD(screen2_aspect),
-	INT_FIELD(screen2_refresh_rate),
-	STR_FIELD(screen2_backlight_path),
-	STR_FIELD(screen2_blank_path),
-	INT_FIELD(screen2_touch),
-	STR_FIELD(screen2_touch_device_name),
-	STR_FIELD(cpu_governor_path),
-	STR_FIELD(cpu_clock_path),
-	INT_FIELD(cpu_clock_menu),
-	INT_FIELD(cpu_clock_powersave),
-	INT_FIELD(cpu_clock_normal),
-	INT_FIELD(cpu_clock_performance),
-	INT_FIELD(cpu_undervolt_supported),
-	STR_FIELD(cpu_thermal_path),
-	STR_FIELD(gpu_device),
-	STR_FIELD(gpu_device2),
-	STR_FIELD(gpu_hdmi_connector),
-	STR_FIELD(gpu_hdmi_state_path),
-	STR_FIELD(gpu_driver),
-	INT_FIELD(gpu_clock_min),
-	INT_FIELD(gpu_clock_max),
-	INT_FIELD(gpu_hdmi_width),
-	INT_FIELD(gpu_hdmi_height),
-	STR_FIELD(gpu_devfreq_path),
-	STR_FIELD(audio_card),
-	STR_FIELD(audio_mixer),
-	STR_FIELD(audio_jack_device_name),
-	INT_FIELD(audio_mic),
-	KEYED_STR("input_gamepad_device_name", input_gamepad),
-	KEYED_STR("input_stick_device_name", input_stick),
-	KEYED_STR("input_power_device_name", input_power),
-	KEYED_STR("input_volume_device_name", input_volume),
-	KEYED_STR("input_menu_device_name", input_menu),
-	KEYED_STR("input_lid_device_name", input_lid),
-	STR_FIELD(input_rumble_device_name),
-	INT_FIELD(input_touch),
-	STR_FIELD(input_touch_device_name),
-	INT_FIELD(key_up),
-	INT_FIELD(key_down),
-	INT_FIELD(key_left),
-	INT_FIELD(key_right),
-	INT_FIELD(key_a),
-	INT_FIELD(key_b),
-	INT_FIELD(key_c),
-	INT_FIELD(key_x),
-	INT_FIELD(key_y),
-	INT_FIELD(key_z),
-	INT_FIELD(key_l1),
-	INT_FIELD(key_r1),
-	INT_FIELD(key_l2),
-	INT_FIELD(key_r2),
-	INT_FIELD(key_l3),
-	INT_FIELD(key_r3),
-	INT_FIELD(key_start),
-	INT_FIELD(key_select),
-	INT_FIELD(key_menu),
-	INT_FIELD(key_power),
-	INT_FIELD(key_vol_up),
-	INT_FIELD(key_vol_down),
-	KEYED_INT("input_axis_lx", axis_lx),
-	KEYED_INT("input_axis_ly", axis_ly),
-	KEYED_INT("input_axis_rx", axis_rx),
-	KEYED_INT("input_axis_ry", axis_ry),
-	KEYED_INT("input_axis_min", axis_min),
-	KEYED_INT("input_axis_center", axis_center),
-	KEYED_INT("input_axis_max", axis_max),
-	KEYED_INT("input_axis_lx_invert", axis_lx_invert),
-	KEYED_INT("input_axis_ly_invert", axis_ly_invert),
-	KEYED_INT("input_axis_rx_invert", axis_rx_invert),
-	KEYED_INT("input_axis_ry_invert", axis_ry_invert),
-	INT_FIELD(axis_hat_x),
-	INT_FIELD(axis_hat_y),
-	STR_FIELD(wifi_interface),
-	STR_FIELD(bluetooth_interface),
-	STR_FIELD(power_battery_sysfs),
-	STR_FIELD(power_charger_online_path),
-	STR_FIELD(power_led_path),
-	INT_FIELD(usb_otg),
-	INT_FIELD(usb_host_ports),
-	INT_FIELD(usb_device_mode),
-	INT_FIELD(usb_controller_mode),
-	STR_FIELD(storage_sd_node),
-	STR_FIELD(storage_sd2_node),
-	STR_FIELD(storage_emmc_node),
+	STR_BIND("device_id", device_id),
+	STR_BIND("device_model", device_model),
+	INT_BIND("screen_width", screen_width),
+	INT_BIND("screen_height", screen_height),
+	INT_BIND("screen_rotation", screen_rotation),
+	ASPECT_BIND("screen_aspect", screen_aspect),
+	INT_BIND("screen_refresh_rate", screen_refresh_rate),
+	STR_BIND("screen_backlight_path", screen_backlight_path),
+	INT_BIND("screen_backlight_max", screen_backlight_max),
+	STR_BIND("screen_blank_path", screen_blank_path),
+	STR_BIND("cpu_governor_path", cpu_governor_path),
+	STR_BIND("cpu_clock_path", cpu_clock_path),
+	INT_BIND("cpu_clock_menu", cpu_clock_menu),
+	INT_BIND("cpu_clock_powersave", cpu_clock_powersave),
+	INT_BIND("cpu_clock_normal", cpu_clock_normal),
+	INT_BIND("cpu_clock_performance", cpu_clock_performance),
+	INT_BIND("cpu_undervolt_supported", cpu_undervolt_supported),
+	STR_BIND("gpu_device", gpu_device),
+	STR_BIND("gpu_hdmi_state_path", gpu_hdmi_state_path),
+	INT_BIND("gpu_clock_min", gpu_clock_min),
+	INT_BIND("gpu_clock_max", gpu_clock_max),
+	STR_BIND("audio_card", audio_card),
+	STR_BIND("audio_mixer", audio_mixer),
+	STR_BIND("audio_jack_device_name", audio_jack_device_name),
+	STR_BIND("input_gamepad_device_name", input_gamepad),
+	STR_BIND("input_stick_device_name", input_stick),
+	STR_BIND("input_power_device_name", input_power),
+	STR_BIND("input_volume_device_name", input_volume),
+	STR_BIND("input_menu_device_name", input_menu),
+	STR_BIND("input_lid_device_name", input_lid),
+	STR_BIND("input_rumble_device_name", input_rumble),
+	INT_BIND("key_up", button_keycodes[BTN_ID_DPAD_UP]),
+	INT_BIND("key_down", button_keycodes[BTN_ID_DPAD_DOWN]),
+	INT_BIND("key_left", button_keycodes[BTN_ID_DPAD_LEFT]),
+	INT_BIND("key_right", button_keycodes[BTN_ID_DPAD_RIGHT]),
+	INT_BIND("key_a", button_keycodes[BTN_ID_A]),
+	INT_BIND("key_b", button_keycodes[BTN_ID_B]),
+	INT_BIND("key_c", button_keycodes[BTN_ID_C]),
+	INT_BIND("key_x", button_keycodes[BTN_ID_X]),
+	INT_BIND("key_y", button_keycodes[BTN_ID_Y]),
+	INT_BIND("key_z", button_keycodes[BTN_ID_Z]),
+	INT_BIND("key_l1", button_keycodes[BTN_ID_L1]),
+	INT_BIND("key_r1", button_keycodes[BTN_ID_R1]),
+	INT_BIND("key_l2", button_keycodes[BTN_ID_L2]),
+	INT_BIND("key_r2", button_keycodes[BTN_ID_R2]),
+	INT_BIND("key_l3", button_keycodes[BTN_ID_L3]),
+	INT_BIND("key_r3", button_keycodes[BTN_ID_R3]),
+	INT_BIND("key_start", button_keycodes[BTN_ID_START]),
+	INT_BIND("key_select", button_keycodes[BTN_ID_SELECT]),
+	INT_BIND("key_menu", button_keycodes[BTN_ID_MENU]),
+	INT_BIND("key_power", button_keycodes[BTN_ID_POWER]),
+	INT_BIND("key_vol_up", button_keycodes[BTN_ID_PLUS]),
+	INT_BIND("key_vol_down", button_keycodes[BTN_ID_MINUS]),
+	INT_BIND("input_axis_lx", axis_lx),
+	INT_BIND("input_axis_ly", axis_ly),
+	INT_BIND("input_axis_rx", axis_rx),
+	INT_BIND("input_axis_ry", axis_ry),
+	INT_BIND("input_axis_min", axis_min),
+	INT_BIND("input_axis_center", axis_center),
+	INT_BIND("input_axis_max", axis_max),
+	INT_BIND("input_axis_lx_invert", axis_lx_invert),
+	INT_BIND("input_axis_ly_invert", axis_ly_invert),
+	INT_BIND("input_axis_rx_invert", axis_rx_invert),
+	INT_BIND("input_axis_ry_invert", axis_ry_invert),
+	STR_BIND("wifi_interface", wifi_interface),
+	STR_BIND("bluetooth_interface", bluetooth_interface),
+	STR_BIND("power_battery_sysfs", power_battery_sysfs),
+	STR_BIND("power_charger_online_path", power_charger_online_path),
+	STR_BIND("power_led_path", power_led_path),
 };
 
 #define TRAIT_FIELD_COUNT (sizeof(TRAIT_FIELDS) / sizeof(TRAIT_FIELDS[0]))
@@ -360,18 +213,16 @@ static MinimeScreenAspect parseAspect(const char* value) {
 
 static int setValue(const char* key, const char* value) {
 	const TraitField* field = findField(key);
-	if (!field) {
-		fprintf(stderr, "Minime traits: unknown key '%s' in %s\n", key, TRAITS_PATH);
-		return -1;
-	}
+	if (!field)
+		return 0; // Unused trait, silently ignored
 
 	if (field->type == TYPE_STRING) {
-		copyText((char*)&traits + field->offset, MINIME_TRAIT_NAME_MAX, value);
+		copyText((char*)field->dest, field->max_len, value);
 		return 0;
 	}
 
 	if (field->type == TYPE_ASPECT) {
-		*(MinimeScreenAspect*)((char*)&traits + field->offset) = parseAspect(value);
+		*(MinimeScreenAspect*)field->dest = parseAspect(value);
 		return 0;
 	}
 
@@ -380,7 +231,7 @@ static int setValue(const char* key, const char* value) {
 		fprintf(stderr, "Minime traits: invalid integer '%s' for '%s'\n", value, key);
 		return -1;
 	}
-	*(int*)((char*)&traits + field->offset) = parsed;
+	*(int*)field->dest = parsed;
 	return 0;
 }
 
@@ -393,10 +244,13 @@ int MINIME_traitAvailable(const char* value) {
 
 static int validateRequiredKeys(void) {
 	const int required[] = {
-		traits.key_up, traits.key_down, traits.key_left, traits.key_right,
-		traits.key_a, traits.key_b, traits.key_x, traits.key_y,
-		traits.key_start, traits.key_select, traits.key_menu,
-		traits.key_power, traits.key_vol_up, traits.key_vol_down};
+		button_keycodes[BTN_ID_DPAD_UP], button_keycodes[BTN_ID_DPAD_DOWN],
+		button_keycodes[BTN_ID_DPAD_LEFT], button_keycodes[BTN_ID_DPAD_RIGHT],
+		button_keycodes[BTN_ID_A], button_keycodes[BTN_ID_B],
+		button_keycodes[BTN_ID_X], button_keycodes[BTN_ID_Y],
+		button_keycodes[BTN_ID_START], button_keycodes[BTN_ID_SELECT],
+		button_keycodes[BTN_ID_MENU], button_keycodes[BTN_ID_POWER],
+		button_keycodes[BTN_ID_PLUS], button_keycodes[BTN_ID_MINUS]};
 	for (size_t i = 0; i < sizeof(required) / sizeof(required[0]); i++) {
 		if (required[i] < 0) return 0;
 	}
@@ -404,22 +258,22 @@ static int validateRequiredKeys(void) {
 }
 
 static int validateDisplay(void) {
-	return (traits.screen_width > 0 && traits.screen_height > 0 &&
-			traits.screen_rotation >= 0 &&
-			MINIME_traitAvailable(traits.gpu_device) &&
-			MINIME_traitAvailable(traits.screen_backlight_path) &&
-			traits.screen_backlight_max > 0);
+	return (screen_width > 0 && screen_height > 0 &&
+			screen_rotation >= 0 &&
+			MINIME_traitAvailable(gpu_device) &&
+			MINIME_traitAvailable(screen_backlight_path) &&
+			screen_backlight_max > 0);
 }
 
 static int validateInputs(void) {
-	return (MINIME_traitAvailable(traits.input_gamepad) &&
-			MINIME_traitAvailable(traits.input_power) &&
-			MINIME_traitAvailable(traits.input_volume) &&
+	return (MINIME_traitAvailable(input_gamepad) &&
+			MINIME_traitAvailable(input_power) &&
+			MINIME_traitAvailable(input_volume) &&
 			validateRequiredKeys());
 }
 
 static int validate(void) {
-	if (!traits.device_id[0] || !traits.device_model[0] ||
+	if (!device_id[0] || !device_model[0] ||
 		!validateDisplay() || !validateInputs()) {
 		fprintf(stderr, "Invalid required Minime traits in %s\n", TRAITS_PATH);
 		return -1;
@@ -428,113 +282,32 @@ static int validate(void) {
 }
 
 ///////////////////////////////
-// Trait Resolution & Export
-
-static void exportResolvedTraits(void) {
-	copyText(device_id, sizeof(device_id), traits.device_id);
-	copyText(device_model, sizeof(device_model), traits.device_model);
-
-	screen_width = traits.screen_width;
-	screen_height = traits.screen_height;
-	screen_rotation = (traits.screen_rotation > 0) ? traits.screen_rotation : 0;
-	screen_padding = traits.ui_padding;
-	screen_row_count = traits.ui_row_count;
-	screen_aspect = traits.screen_aspect;
-	screen_refresh_rate = traits.screen_refresh_rate;
-	copyText(screen_backlight_path, sizeof(screen_backlight_path), traits.screen_backlight_path);
-	screen_backlight_max = (traits.screen_backlight_max > 0) ? traits.screen_backlight_max : 255;
-	copyText(screen_blank_path, sizeof(screen_blank_path), traits.screen_blank_path);
-
-	copyText(gpu_device, sizeof(gpu_device), traits.gpu_device);
-	copyText(gpu_hdmi_state_path, sizeof(gpu_hdmi_state_path), traits.gpu_hdmi_state_path);
-	gpu_hdmi_width = (traits.gpu_hdmi_width > 0) ? traits.gpu_hdmi_width : 1280;
-	gpu_hdmi_height = (traits.gpu_hdmi_height > 0) ? traits.gpu_hdmi_height : 720;
-	copyText(gpu_devfreq_path, sizeof(gpu_devfreq_path), traits.gpu_devfreq_path);
-	gpu_clock_min = traits.gpu_clock_min;
-	gpu_clock_max = traits.gpu_clock_max;
-
-	copyText(cpu_governor_path, sizeof(cpu_governor_path), traits.cpu_governor_path);
-	copyText(cpu_clock_path, sizeof(cpu_clock_path), traits.cpu_clock_path);
-	cpu_clock_menu = traits.cpu_clock_menu;
-	cpu_clock_powersave = traits.cpu_clock_powersave;
-	cpu_clock_normal = traits.cpu_clock_normal;
-	cpu_clock_performance = traits.cpu_clock_performance;
-	cpu_undervolt_supported = traits.cpu_undervolt_supported;
-
-	copyText(audio_card, sizeof(audio_card), traits.audio_card);
-	copyText(audio_mixer, sizeof(audio_mixer), traits.audio_mixer);
-	copyText(audio_jack_device_name, sizeof(audio_jack_device_name), traits.audio_jack_device_name);
-
-	copyText(power_battery_sysfs, sizeof(power_battery_sysfs), traits.power_battery_sysfs);
-	copyText(power_charger_online_path, sizeof(power_charger_online_path), traits.power_charger_online_path);
-	copyText(power_led_path, sizeof(power_led_path), traits.power_led_path);
-
-	copyText(wifi_interface, sizeof(wifi_interface), traits.wifi_interface);
-	copyText(bluetooth_interface, sizeof(bluetooth_interface), traits.bluetooth_interface);
-
-	for (int i = 0; i < BTN_ID_COUNT; i++) button_keycodes[i] = -1;
-	button_keycodes[BTN_ID_DPAD_UP] = traits.key_up;
-	button_keycodes[BTN_ID_DPAD_DOWN] = traits.key_down;
-	button_keycodes[BTN_ID_DPAD_LEFT] = traits.key_left;
-	button_keycodes[BTN_ID_DPAD_RIGHT] = traits.key_right;
-	button_keycodes[BTN_ID_A] = traits.key_a;
-	button_keycodes[BTN_ID_B] = traits.key_b;
-	button_keycodes[BTN_ID_X] = traits.key_x;
-	button_keycodes[BTN_ID_Y] = traits.key_y;
-	button_keycodes[BTN_ID_C] = traits.key_c;
-	button_keycodes[BTN_ID_Z] = traits.key_z;
-	button_keycodes[BTN_ID_START] = traits.key_start;
-	button_keycodes[BTN_ID_SELECT] = traits.key_select;
-	button_keycodes[BTN_ID_MENU] = traits.key_menu;
-	button_keycodes[BTN_ID_L1] = traits.key_l1;
-	button_keycodes[BTN_ID_L2] = traits.key_l2;
-	button_keycodes[BTN_ID_L3] = traits.key_l3;
-	button_keycodes[BTN_ID_R1] = traits.key_r1;
-	button_keycodes[BTN_ID_R2] = traits.key_r2;
-	button_keycodes[BTN_ID_R3] = traits.key_r3;
-	button_keycodes[BTN_ID_PLUS] = traits.key_vol_up;
-	button_keycodes[BTN_ID_MINUS] = traits.key_vol_down;
-	button_keycodes[BTN_ID_POWER] = traits.key_power;
-
-	axis_lx = traits.axis_lx;
-	axis_ly = traits.axis_ly;
-	axis_rx = traits.axis_rx;
-	axis_ry = traits.axis_ry;
-	axis_min = traits.axis_min;
-	axis_center = traits.axis_center;
-	axis_max = traits.axis_max;
-	axis_hat_x = traits.axis_hat_x;
-	axis_hat_y = traits.axis_hat_y;
-	axis_lx_invert = traits.axis_lx_invert;
-	axis_ly_invert = traits.axis_ly_invert;
-	axis_rx_invert = traits.axis_rx_invert;
-	axis_ry_invert = traits.axis_ry_invert;
-
-	copyText(input_gamepad, sizeof(input_gamepad), traits.input_gamepad);
-	copyText(input_stick, sizeof(input_stick), traits.input_stick);
-	copyText(input_power, sizeof(input_power), traits.input_power);
-	copyText(input_volume, sizeof(input_volume), traits.input_volume);
-	copyText(input_menu, sizeof(input_menu), traits.input_menu);
-	copyText(input_rumble, sizeof(input_rumble), traits.input_rumble_device_name);
-	copyText(input_lid, sizeof(input_lid), traits.input_lid);
-}
-
-///////////////////////////////
 // Initialization & Loading
 
 static void initTraitDefaults(void) {
-	memset(&traits, 0, sizeof(traits));
-	traits.key_c = traits.key_z = -1;
-	traits.key_l1 = traits.key_r1 = -1;
-	traits.key_l2 = traits.key_r2 = -1;
-	traits.key_l3 = traits.key_r3 = -1;
-	traits.axis_lx = traits.axis_ly = -1;
-	traits.axis_rx = traits.axis_ry = -1;
-	traits.axis_min = traits.axis_center = traits.axis_max = -1;
-	traits.axis_hat_x = 16; // ABS_HAT0X
-	traits.axis_hat_y = 17; // ABS_HAT0Y
-	traits.gpu_hdmi_width = 1280;
-	traits.gpu_hdmi_height = 720;
+	for (int i = 0; i < BTN_ID_COUNT; i++) button_keycodes[i] = -1;
+	axis_lx = axis_ly = -1;
+	axis_rx = axis_ry = -1;
+	axis_min = axis_center = axis_max = -1;
+	axis_hat_x = 16; // ABS_HAT0X
+	axis_hat_y = 17; // ABS_HAT0Y
+	screen_width = 640;
+	screen_height = 480;
+	screen_rotation = 0;
+	screen_padding = 0;
+	screen_row_count = 0;
+	screen_aspect = MINIME_ASPECT_4x3;
+	screen_refresh_rate = 60;
+	screen_backlight_max = 255;
+	gpu_hdmi_width = 1280;
+	gpu_hdmi_height = 720;
+	cpu_clock_menu = -1;
+	cpu_clock_powersave = -1;
+	cpu_clock_normal = -1;
+	cpu_clock_performance = -1;
+	cpu_undervolt_supported = 0;
+	copyText(audio_card, sizeof(audio_card), "default");
+	copyText(audio_mixer, sizeof(audio_mixer), "Master");
 }
 
 static int parseTraitsFile(const char* path) {
@@ -563,10 +336,10 @@ static int parseTraitsFile(const char* path) {
 }
 
 static void deriveFallbacks(void) {
-	if (traits.ui_padding <= 0)
-		traits.ui_padding = (traits.screen_width >= 720) ? 40 : 10;
-	if (traits.ui_row_count <= 0)
-		traits.ui_row_count = (traits.screen_width >= 720) ? 8 : 6;
+	if (screen_padding <= 0)
+		screen_padding = (screen_width >= 720) ? 40 : 10;
+	if (screen_row_count <= 0)
+		screen_row_count = (screen_width >= 720) ? 8 : 6;
 }
 
 int MINIME_traitsInit(void) {
@@ -581,8 +354,5 @@ int MINIME_traitsInit(void) {
 	deriveFallbacks();
 
 	valid = (validate() == 0);
-	if (valid) {
-		exportResolvedTraits();
-	}
 	return valid ? 0 : -1;
 }
