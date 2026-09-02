@@ -1,5 +1,4 @@
 #include <ctype.h>
-#include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -110,6 +109,7 @@ static const TraitField TRAIT_FIELDS[] = {
 	STR_FIELD(gpu_device),
 	STR_FIELD(gpu_device2),
 	STR_FIELD(gpu_hdmi_connector),
+	STR_FIELD(gpu_hdmi_state_path),
 	STR_FIELD(gpu_driver),
 	INT_FIELD(gpu_clock_min),
 	INT_FIELD(gpu_clock_max),
@@ -207,20 +207,12 @@ static const TraitField* findField(const char* key) {
 	return NULL;
 }
 
-static MinimeScreenAspect deriveAspect(int w, int h) {
-	if (w <= 0 || h <= 0) return MINIME_ASPECT_UNKNOWN;
-	if (w * 3 == h * 4) return MINIME_ASPECT_4x3;
-	if (w * 2 == h * 3) return MINIME_ASPECT_3x2;
-	if (w * 9 == h * 16) return MINIME_ASPECT_16x9;
-	if (w == h) return MINIME_ASPECT_1x1;
-	return MINIME_ASPECT_UNKNOWN;
-}
-
 static MinimeScreenAspect parseAspect(const char* value) {
-	int w = 0, h = 0;
-	if (sscanf(value, "%d:%d", &w, &h) == 2) {
-		return deriveAspect(w, h);
-	}
+	if (!value) return MINIME_ASPECT_UNKNOWN;
+	if (!strcmp(value, "4:3")) return MINIME_ASPECT_4x3;
+	if (!strcmp(value, "3:2")) return MINIME_ASPECT_3x2;
+	if (!strcmp(value, "16:9")) return MINIME_ASPECT_16x9;
+	if (!strcmp(value, "1:1")) return MINIME_ASPECT_1x1;
 	return MINIME_ASPECT_UNKNOWN;
 }
 
@@ -254,36 +246,6 @@ static int setValue(const char* key, const char* value) {
 
 int MINIME_traitAvailable(const char* value) {
 	return value && value[0] && strcmp(value, NA);
-}
-
-// Resolve the stable gpu_hdmi_connector (e.g. "HDMI-A-1") to the actual DRM
-// sysfs status path. The card number prefix ("card0", "card1", ...) is the
-// DRM primary-minor index, allocated first-come-first-serve at probe time,
-// so it is NOT part of the trait file — we glob /sys/class/drm/card* and
-// pick the connector whose suffix matches. Empty connector means no HDMI.
-static void resolveHdmiConnector(void) {
-	const char* connector = traits.gpu_hdmi_connector;
-
-	if (!MINIME_traitAvailable(connector))
-		return;
-
-	DIR* dir = opendir("/sys/class/drm");
-	if (!dir)
-		return;
-	struct dirent* entry;
-	while ((entry = readdir(dir)) != NULL) {
-		const char* name = entry->d_name;
-		const char* dash = strchr(name, '-');
-		if (!dash)
-			continue;
-		// name = "cardN-<connector>"; match the suffix after the card prefix.
-		if (strcmp(dash + 1, connector) == 0) {
-			snprintf(traits.gpu_hdmi_state_path, sizeof(traits.gpu_hdmi_state_path),
-					 "/sys/class/drm/%s/status", name);
-			break;
-		}
-	}
-	closedir(dir);
 }
 
 static int validateRequiredKeys(void) {
@@ -424,10 +386,6 @@ static void deriveFallbacks(void) {
 		traits.ui_padding = (traits.screen_width >= 720) ? 40 : 10;
 	if (traits.ui_row_count <= 0)
 		traits.ui_row_count = (traits.screen_width >= 720) ? 8 : 6;
-
-	if (traits.screen_aspect == MINIME_ASPECT_UNKNOWN) {
-		traits.screen_aspect = deriveAspect(traits.screen_width, traits.screen_height);
-	}
 }
 
 int MINIME_traitsInit(void) {
@@ -440,8 +398,6 @@ int MINIME_traitsInit(void) {
 		return -1;
 
 	deriveFallbacks();
-
-	resolveHdmiConnector();
 
 	valid = validate() == 0;
 	if (valid) {
