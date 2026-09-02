@@ -448,7 +448,7 @@ static void hw_render_menu_surface(SDL_Surface *surface) {
   glDisableVertexAttribArray(menu_a_pos);
   glDisableVertexAttribArray(menu_a_texcoord);
 
-  PLAT_glSwap();
+  PLAT_swapGL();
 }
 
 static const char *bitmap_font[] = {
@@ -1000,7 +1000,7 @@ static void hw_render_compositor_frame(unsigned width, unsigned height) {
 
   hw_draw_hud();
 
-  PLAT_glSwap();
+  PLAT_swapGL();
 
   // Re-bind core FBO for next frame
   glBindFramebuffer(GL_FRAMEBUFFER, hw_fbo);
@@ -4444,7 +4444,7 @@ void Core_quit(void) {
     core.initialized = 0;
     if (hw_render_enabled) {
       hw_destroy_compositor();
-      PLAT_destroyGLContext();
+      PLAT_quitGLContext();
       hw_render_enabled = 0;
     }
   }

@@ -3,127 +3,16 @@
 
 ///////////////////////////////
 
-#include <SDL2/SDL.h>
+#include "sdl.h"
 
 ///////////////////////////////
+// Display (Native panel & layout)
 
 extern int plat_fixed_width;
 extern int plat_fixed_height;
-extern int plat_has_hdmi;
+extern int plat_screen_rotation;
 extern int plat_main_row_count;
 extern int plat_padding;
-extern int plat_screen_rotation;
-extern int on_hdmi;
-extern void (*plat_custom_flip)(SDL_Surface *surface);
-
-int PLAT_is6Button(void);
-int PLAT_hasMenuButton(void);
-
-SDL_GLContext PLAT_initGLContext(int major, int minor, int gles);
-void PLAT_destroyGLContext(void);
-void PLAT_glSwap(void);
-void *PLAT_getGLProcAddress(const char *proc);
-void PLAT_setGLSwapInterval(int interval);
-
-///////////////////////////////
-
-#define BUTTON_UP BUTTON_NA
-#define BUTTON_DOWN BUTTON_NA
-#define BUTTON_LEFT BUTTON_NA
-#define BUTTON_RIGHT BUTTON_NA
-
-#define BUTTON_SELECT BUTTON_NA
-#define BUTTON_START BUTTON_NA
-
-#define BUTTON_A BUTTON_NA
-#define BUTTON_B BUTTON_NA
-#define BUTTON_C BUTTON_NA
-#define BUTTON_X BUTTON_NA
-#define BUTTON_Y BUTTON_NA
-#define BUTTON_Z BUTTON_NA
-
-#define BUTTON_L1 BUTTON_NA
-#define BUTTON_R1 BUTTON_NA
-#define BUTTON_L2 BUTTON_NA
-#define BUTTON_R2 BUTTON_NA
-#define BUTTON_L3 BUTTON_NA
-#define BUTTON_R3 BUTTON_NA
-
-#define BUTTON_MENU BUTTON_NA
-#define BUTTON_POWER BUTTON_NA
-#define BUTTON_PLUS BUTTON_NA
-#define BUTTON_MINUS BUTTON_NA
-
-///////////////////////////////
-
-#define CODE_UP CODE_NA
-#define CODE_DOWN CODE_NA
-#define CODE_LEFT CODE_NA
-#define CODE_RIGHT CODE_NA
-
-#define CODE_SELECT CODE_NA
-#define CODE_START CODE_NA
-
-#define CODE_A CODE_NA
-#define CODE_B CODE_NA
-#define CODE_C CODE_NA
-#define CODE_X CODE_NA
-#define CODE_Y CODE_NA
-#define CODE_Z CODE_NA
-
-#define CODE_L1 CODE_NA
-#define CODE_R1 CODE_NA
-#define CODE_L2 CODE_NA
-#define CODE_R2 CODE_NA
-#define CODE_L3 CODE_NA
-#define CODE_R3 CODE_NA
-
-#define CODE_MENU CODE_NA
-#define CODE_POWER 102
-
-#define CODE_PLUS CODE_NA
-#define CODE_MINUS CODE_NA
-
-///////////////////////////////
-
-#define JOY_UP 13
-#define JOY_DOWN 16
-#define JOY_LEFT 14
-#define JOY_RIGHT 15
-
-#define JOY_SELECT 6
-#define JOY_START 7
-
-#define JOY_A 0
-#define JOY_B 1
-#define JOY_C JOY_NA
-#define JOY_X 3
-#define JOY_Y 2
-#define JOY_Z JOY_NA
-
-#define JOY_L1 4
-#define JOY_R1 5
-#define JOY_L2 9
-#define JOY_R2 10
-#define JOY_L3 JOY_NA
-#define JOY_R3 JOY_NA
-
-#define JOY_MENU 8
-#define JOY_POWER JOY_NA
-#define JOY_PLUS 18
-#define JOY_MINUS 17
-
-///////////////////////////////
-
-#define BTN_RESUME BTN_X
-#define BTN_SLEEP BTN_POWER
-#define BTN_WAKE BTN_POWER
-#define BTN_MOD_VOLUME BTN_NONE
-#define BTN_MOD_BRIGHTNESS BTN_MENU
-#define BTN_MOD_PLUS BTN_PLUS
-#define BTN_MOD_MINUS BTN_MINUS
-
-///////////////////////////////
 
 #define FIXED_SCALE 2
 #define FIXED_WIDTH plat_fixed_width
@@ -133,7 +22,16 @@ void PLAT_setGLSwapInterval(int interval);
 #define FIXED_PITCH (FIXED_WIDTH * FIXED_BPP)
 #define FIXED_SIZE (FIXED_PITCH * FIXED_HEIGHT)
 
+#define MAIN_ROW_COUNT (plat_main_row_count + (on_hdmi ? 2 : 0))
+#define PADDING (on_hdmi ? 40 : plat_padding)
+
+extern void (*plat_custom_flip)(SDL_Surface* surface);
+
 ///////////////////////////////
+// HDMI Output
+
+extern int plat_has_hdmi;
+extern int on_hdmi;
 
 #define HAS_HDMI plat_has_hdmi
 #define HDMI_WIDTH 1280
@@ -144,17 +42,37 @@ void PLAT_setGLSwapInterval(int interval);
 // TODO: if HDMI_HEIGHT > FIXED_HEIGHT then MAIN_ROW_COUNT will be insufficient
 
 ///////////////////////////////
+// Hardware Acceleration (GLES / KMS)
 
-#define MAIN_ROW_COUNT (plat_main_row_count + (on_hdmi ? 2 : 0))
-#define PADDING (on_hdmi ? 40 : plat_padding)
+SDL_GLContext PLAT_initGLContext(int major, int minor, int gles);
+void PLAT_quitGLContext(void);
+void PLAT_swapGL(void);
+void* PLAT_getGLProcAddress(const char* proc);
+void PLAT_setGLSwapInterval(int interval);
 
 ///////////////////////////////
+// Gamepad & Button Mapping
+
+int PLAT_is6Button(void);
+int PLAT_hasMenuButton(void);
+int PLAT_hasL3(void);
+int PLAT_hasR3(void);
+int PLAT_hasLeftStick(void);
+int PLAT_hasRightStick(void);
+
+#define BTN_RESUME BTN_X
+#define BTN_SLEEP BTN_POWER
+#define BTN_WAKE BTN_POWER
+#define BTN_MOD_VOLUME BTN_NONE
+#define BTN_MOD_BRIGHTNESS BTN_MENU
+#define BTN_MOD_PLUS BTN_PLUS
+#define BTN_MOD_MINUS BTN_MINUS
+
+///////////////////////////////
+// Platform Constants
 
 #define SDCARD_PATH "/mnt/sdcard"
 #define MUTE_VOLUME_RAW 0
-#if defined(__arm__) && !defined(__aarch64__)
-#define HAS_NEON
-#endif
 #define SAMPLES 400 // fix for (most) fceumm underruns
 
 ///////////////////////////////

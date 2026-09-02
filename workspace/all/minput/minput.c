@@ -50,14 +50,14 @@ int main(int argc , char* argv[]) {
 	InitSettings();
 	
 	// one-time
-	int has_L2 = (BUTTON_L2!=BUTTON_NA || CODE_L2!=CODE_NA || JOY_L2!=JOY_NA || AXIS_L2!=AXIS_NA);
-	int has_R2 = (BUTTON_R2!=BUTTON_NA || CODE_R2!=CODE_NA || JOY_R2!=JOY_NA || AXIS_R2!=AXIS_NA);
-	int has_L3 = (BUTTON_L3!=BUTTON_NA || CODE_L3!=CODE_NA || JOY_L3!=JOY_NA);
-	int has_R3 = (BUTTON_R3!=BUTTON_NA || CODE_R3!=CODE_NA || JOY_R3!=JOY_NA);
-	int has_LS = (AXIS_LX!=AXIS_NA);
-	int has_RS = (AXIS_RX!=AXIS_NA);
+	int has_L2 = 1;
+	int has_R2 = 1;
+	int has_L3 = PLAT_hasL3();
+	int has_R3 = PLAT_hasR3();
+	int has_LS = PLAT_hasLeftStick();
+	int has_RS = PLAT_hasRightStick();
 	
-	int has_volume = (BUTTON_PLUS!=BUTTON_NA || CODE_PLUS!=CODE_NA || JOY_PLUS!=JOY_NA);
+	int has_volume = 1;
 	int has_power = HAS_POWER_BUTTON;
 	int has_menu = HAS_MENU_BUTTON;
 	int has_both = (has_power && has_menu);

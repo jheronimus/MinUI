@@ -80,45 +80,10 @@
 
 ///////////////////////////////
 
-#define HAS_POWER_BUTTON (BUTTON_POWER!=BUTTON_NA||CODE_POWER!=CODE_NA||JOY_POWER!=JOY_NA)
-#define HAS_POWEROFF_BUTTON (BUTTON_POWEROFF!=BUTTON_NA)
-#define HAS_MENU_BUTTON (BUTTON_MENU!=BUTTON_NA||CODE_MENU!=CODE_NA||JOY_MENU!=JOY_NA)
+#define HAS_POWER_BUTTON 1
+#define HAS_POWEROFF_BUTTON 0
+#define HAS_MENU_BUTTON PLAT_hasMenuButton()
 #define HAS_SKINNY_SCREEN (FIXED_WIDTH<320)
-
-///////////////////////////////
-
-#define BUTTON_NA	-1
-#define CODE_NA		-1
-#define JOY_NA		-1
-#define AXIS_NA		-1
-
-#ifndef BUTTON_POWEROFF
-#define BUTTON_POWEROFF BUTTON_NA
-#endif
-#ifndef CODE_POWEROFF
-#define CODE_POWEROFF CODE_NA
-#endif
-
-#ifndef BUTTON_MENU_ALT
-#define BUTTON_MENU_ALT BUTTON_NA
-#endif
-#ifndef CODE_MENU_ALT
-#define CODE_MENU_ALT CODE_NA
-#endif
-#ifndef JOY_MENU_ALT
-#define JOY_MENU_ALT JOY_NA
-#endif
-
-#ifndef JOY_MENU_ALT2
-#define JOY_MENU_ALT2 JOY_NA
-#endif
-
-#ifndef AXIS_L2
-#define AXIS_L2	AXIS_NA
-#define AXIS_R2	AXIS_NA
-#endif 
-
-#ifndef AXIS_LX
 #define AXIS_LX	AXIS_NA
 #define AXIS_LY	AXIS_NA
 #define AXIS_RX	AXIS_NA
