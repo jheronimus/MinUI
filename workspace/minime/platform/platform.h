@@ -10,7 +10,6 @@
 
 extern int screen_width;
 extern int screen_height;
-extern int screen_pitch;
 extern int screen_padding;
 extern int screen_row_count;
 
@@ -19,8 +18,8 @@ extern int screen_row_count;
 #define FIXED_DEPTH (FIXED_BPP * 8)
 #define FIXED_WIDTH screen_width
 #define FIXED_HEIGHT screen_height
-#define FIXED_PITCH screen_pitch
-#define FIXED_SIZE (screen_pitch * screen_height)
+#define FIXED_PITCH (screen_width * FIXED_BPP)
+#define FIXED_SIZE (FIXED_PITCH * screen_height)
 
 #define MAIN_ROW_COUNT (screen_row_count + (on_hdmi ? 2 : 0))
 #define PADDING (on_hdmi ? 40 : screen_padding)

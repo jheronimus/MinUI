@@ -41,7 +41,6 @@ struct input_event {
 ///////////////////////////////
 // Platform Lifecycle & Device Traits
 
-int screen_pitch = 640 * 2;
 int plat_has_hdmi = 0;
 int on_hdmi = 0;
 static int screen_rotation_step = 0;
@@ -56,7 +55,6 @@ static inline void ensure_traits(void) {
 
 static void load_traits(void) {
 	if (MINIME_traitsInit() != 0) exit(1);
-	screen_pitch = screen_width * 2;
 	screen_rotation_step = screen_rotation / 90;
 	plat_has_hdmi = MINIME_videoHDMIConnected();
 }
@@ -687,7 +685,7 @@ static void renderCopy(SDL_Texture* texture, const SDL_Rect* src, const SDL_Rect
 static void flipUI(void) {
 	int screen_w = getScreenWidth();
 	int screen_h = getScreenHeight();
-	resizeVideo(screen_w, screen_h, screen_pitch);
+	resizeVideo(screen_w, screen_h, screen_w * FIXED_BPP);
 	SDL_UpdateTexture(vid.texture, NULL, vid.screen->pixels, vid.screen->pitch);
 	renderCopy(vid.texture, NULL, NULL);
 	SDL_RenderPresent(vid.renderer);
