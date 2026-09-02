@@ -12,7 +12,9 @@
 #define TRAITS_PATH "/mnt/sdcard/.minime/traits"
 #define NA "na"
 
-// Canonical hardware global variables
+///////////////////////////////
+// Canonical Hardware Variables
+
 char device_id[MINIME_TRAIT_NAME_MAX] = "";
 char device_model[MINIME_TRAIT_PATH_MAX] = "";
 
@@ -75,6 +77,9 @@ char input_volume[MINIME_TRAIT_NAME_MAX] = "";
 char input_menu[MINIME_TRAIT_NAME_MAX] = "";
 char input_rumble[MINIME_TRAIT_NAME_MAX] = "";
 char input_lid[MINIME_TRAIT_NAME_MAX] = "";
+
+///////////////////////////////
+// Internal Schema & Parser State
 
 typedef struct {
 	char device_id[MINIME_TRAIT_NAME_MAX];
@@ -317,6 +322,9 @@ static const TraitField TRAIT_FIELDS[] = {
 
 #define TRAIT_FIELD_COUNT (sizeof(TRAIT_FIELDS) / sizeof(TRAIT_FIELDS[0]))
 
+///////////////////////////////
+// Value Parsers & Helpers
+
 static void copyText(char* dst, size_t size, const char* src) {
 	if (!dst || !size)
 		return;
@@ -380,6 +388,9 @@ int MINIME_traitAvailable(const char* value) {
 	return value && value[0] && strcmp(value, NA);
 }
 
+///////////////////////////////
+// Trait Validation
+
 static int validateRequiredKeys(void) {
 	const int required[] = {
 		traits.key_up, traits.key_down, traits.key_left, traits.key_right,
@@ -415,6 +426,9 @@ static int validate(void) {
 	}
 	return 0;
 }
+
+///////////////////////////////
+// Trait Resolution & Export
 
 static void exportResolvedTraits(void) {
 	copyText(device_id, sizeof(device_id), traits.device_id);
@@ -504,6 +518,9 @@ static void exportResolvedTraits(void) {
 	copyText(input_rumble, sizeof(input_rumble), traits.input_rumble_device_name);
 	copyText(input_lid, sizeof(input_lid), traits.input_lid);
 }
+
+///////////////////////////////
+// Initialization & Loading
 
 static void initTraitDefaults(void) {
 	memset(&traits, 0, sizeof(traits));
