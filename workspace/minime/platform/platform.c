@@ -41,84 +41,62 @@ struct input_event {
 ///////////////////////////////
 // Platform Lifecycle & Device Traits
 
-int plat_fixed_width = 640;
-int plat_fixed_height = 480;
+int screen_width = 640;
+int screen_height = 480;
+int screen_pitch = 640 * 2;
+int screen_padding = 10;
+int screen_row_count = 6;
 int plat_has_hdmi = 0;
-int plat_main_row_count = 6;
-int plat_padding = 10;
-static int plat_screen_rotation = -1;
+static int screen_rotation = -1;
 int on_hdmi = 0;
-static int rotate = 0;
+static int screen_rotation_step = 0;
 static const MinimeTraits* traits;
 
-typedef struct {
-	int code;
-	int btn;
-	int id;
-} KeyMapping;
+static int button_keycodes[BTN_ID_COUNT];
 
-static KeyMapping key_map[] = {
-	{-1, BTN_DPAD_UP, BTN_ID_DPAD_UP},
-	{-1, BTN_DPAD_DOWN, BTN_ID_DPAD_DOWN},
-	{-1, BTN_DPAD_LEFT, BTN_ID_DPAD_LEFT},
-	{-1, BTN_DPAD_RIGHT, BTN_ID_DPAD_RIGHT},
-	{-1, BTN_A, BTN_ID_A},
-	{-1, BTN_B, BTN_ID_B},
-	{-1, BTN_X, BTN_ID_X},
-	{-1, BTN_Y, BTN_ID_Y},
-	{-1, BTN_C, BTN_ID_C},
-	{-1, BTN_Z, BTN_ID_Z},
-	{-1, BTN_START, BTN_ID_START},
-	{-1, BTN_SELECT, BTN_ID_SELECT},
-	{-1, BTN_MENU, BTN_ID_MENU},
-	{-1, BTN_L1, BTN_ID_L1},
-	{-1, BTN_L2, BTN_ID_L2},
-	{-1, BTN_L3, BTN_ID_L3},
-	{-1, BTN_R1, BTN_ID_R1},
-	{-1, BTN_R2, BTN_ID_R2},
-	{-1, BTN_R3, BTN_ID_R3},
-	{-1, BTN_PLUS, BTN_ID_PLUS},
-	{-1, BTN_MINUS, BTN_ID_MINUS},
-	{-1, BTN_POWER, BTN_ID_POWER},
-};
-#define KEY_MAP_COUNT (sizeof(key_map) / sizeof(key_map[0]))
+static void initKeyMap(void) {
+	for (int i = 0; i < BTN_ID_COUNT; i++) button_keycodes[i] = -1;
+
+	button_keycodes[BTN_ID_DPAD_UP] = traits->key_up;
+	button_keycodes[BTN_ID_DPAD_DOWN] = traits->key_down;
+	button_keycodes[BTN_ID_DPAD_LEFT] = traits->key_left;
+	button_keycodes[BTN_ID_DPAD_RIGHT] = traits->key_right;
+	button_keycodes[BTN_ID_A] = traits->key_a;
+	button_keycodes[BTN_ID_B] = traits->key_b;
+	button_keycodes[BTN_ID_X] = traits->key_x;
+	button_keycodes[BTN_ID_Y] = traits->key_y;
+	button_keycodes[BTN_ID_C] = traits->key_c;
+	button_keycodes[BTN_ID_Z] = traits->key_z;
+	button_keycodes[BTN_ID_START] = traits->key_start;
+	button_keycodes[BTN_ID_SELECT] = traits->key_select;
+	button_keycodes[BTN_ID_MENU] = traits->key_menu;
+	button_keycodes[BTN_ID_L1] = traits->key_l1;
+	button_keycodes[BTN_ID_L2] = traits->key_l2;
+	button_keycodes[BTN_ID_L3] = traits->key_l3;
+	button_keycodes[BTN_ID_R1] = traits->key_r1;
+	button_keycodes[BTN_ID_R2] = traits->key_r2;
+	button_keycodes[BTN_ID_R3] = traits->key_r3;
+	button_keycodes[BTN_ID_PLUS] = traits->key_vol_up;
+	button_keycodes[BTN_ID_MINUS] = traits->key_vol_down;
+	button_keycodes[BTN_ID_POWER] = traits->key_power;
+}
 
 static void load_traits(void) {
 	if (MINIME_traitsInit() != 0) exit(1);
 	traits = MINIME_traits();
-	plat_fixed_width = traits->screen_width;
-	plat_fixed_height = traits->screen_height;
-	plat_screen_rotation = traits->screen_rotation;
+	screen_width = traits->screen_width;
+	screen_height = traits->screen_height;
+	screen_pitch = screen_width * 2;
+	screen_rotation = traits->screen_rotation;
 	plat_has_hdmi = MINIME_traitAvailable(traits->gpu_hdmi_state_path);
 
-	key_map[0].code = traits->key_up;
-	key_map[1].code = traits->key_down;
-	key_map[2].code = traits->key_left;
-	key_map[3].code = traits->key_right;
-	key_map[4].code = traits->key_a;
-	key_map[5].code = traits->key_b;
-	key_map[6].code = traits->key_x;
-	key_map[7].code = traits->key_y;
-	key_map[8].code = traits->key_c;
-	key_map[9].code = traits->key_z;
-	key_map[10].code = traits->key_start;
-	key_map[11].code = traits->key_select;
-	key_map[12].code = traits->key_menu;
-	key_map[13].code = traits->key_l1;
-	key_map[14].code = traits->key_l2;
-	key_map[15].code = traits->key_l3;
-	key_map[16].code = traits->key_r1;
-	key_map[17].code = traits->key_r2;
-	key_map[18].code = traits->key_r3;
-	key_map[19].code = traits->key_vol_up;
-	key_map[20].code = traits->key_vol_down;
-	key_map[21].code = traits->key_power;
+	initKeyMap();
 
 	// Derive layout properties from resolved traits.
-	plat_padding = (plat_fixed_width >= 720) ? 40 : 10;
-	plat_main_row_count = (plat_fixed_width >= 720) ? 8 : 6;
-	if (plat_screen_rotation != -1) {
-		rotate = plat_screen_rotation / 90;
+	screen_padding = (screen_width >= 720) ? 40 : 10;
+	screen_row_count = (screen_width >= 720) ? 8 : 6;
+	if (screen_rotation != -1) {
+		screen_rotation_step = screen_rotation / 90;
 	}
 }
 
@@ -128,7 +106,7 @@ char* PLAT_getModel(void) {
 
 int PLAT_getScreenRotation(void) {
 	if (!traits) load_traits();
-	return (plat_screen_rotation > 0) ? plat_screen_rotation : 0;
+	return (screen_rotation > 0) ? screen_rotation : 0;
 }
 
 int PLAT_hasUndervolt(void) {
@@ -243,9 +221,9 @@ static void handleKeyEvent(int code, int value, uint32_t tick) {
 	if (value > 1) return; // ignore repeats
 	int pressed = value;
 
-	for (size_t i = 0; i < KEY_MAP_COUNT; i++) {
-		if (key_map[i].code >= 0 && code == key_map[i].code) {
-			updateButtonState(key_map[i].btn, pressed, key_map[i].id, tick);
+	for (int id = 0; id < BTN_ID_COUNT; id++) {
+		if (button_keycodes[id] >= 0 && code == button_keycodes[id]) {
+			updateButtonState(1 << id, pressed, id, tick);
 			break;
 		}
 	}
@@ -404,11 +382,11 @@ static struct VID_Context {
 } vid;
 
 static inline int getScreenWidth(void) {
-	return on_hdmi ? HDMI_WIDTH : plat_fixed_width;
+	return on_hdmi ? HDMI_WIDTH : screen_width;
 }
 
 static inline int getScreenHeight(void) {
-	return on_hdmi ? HDMI_HEIGHT : plat_fixed_height;
+	return on_hdmi ? HDMI_HEIGHT : screen_height;
 }
 
 static void PLAT_computeRendererRects(const GFX_Renderer* renderer, SDL_Rect* src_rect,
@@ -764,14 +742,14 @@ void PLAT_blitRenderer(GFX_Renderer* renderer) {
 void (*plat_custom_flip)(SDL_Surface* surface) = NULL;
 
 static void renderCopy(SDL_Texture* texture, const SDL_Rect* src, const SDL_Rect* dst) {
-	if (rotate && !on_hdmi) {
-		int screen_w = plat_fixed_width;
-		int screen_h = plat_fixed_height;
+	if (screen_rotation_step && !on_hdmi) {
+		int screen_w = screen_width;
+		int screen_h = screen_height;
 		int oy = (screen_w - screen_h) / 2;
 		int ox = -oy;
 		SDL_Rect target = dst ? (SDL_Rect){ox + dst->x, oy + dst->y, dst->w, dst->h}
 							  : (SDL_Rect){ox, oy, screen_w, screen_h};
-		SDL_RenderCopyEx(vid.renderer, texture, src, &target, rotate * 90, NULL, SDL_FLIP_NONE);
+		SDL_RenderCopyEx(vid.renderer, texture, src, &target, screen_rotation_step * 90, NULL, SDL_FLIP_NONE);
 	} else {
 		SDL_RenderCopy(vid.renderer, texture, src, dst);
 	}
@@ -780,7 +758,7 @@ static void renderCopy(SDL_Texture* texture, const SDL_Rect* src, const SDL_Rect
 static void flipUI(void) {
 	int screen_w = getScreenWidth();
 	int screen_h = getScreenHeight();
-	resizeVideo(screen_w, screen_h, FIXED_PITCH);
+	resizeVideo(screen_w, screen_h, screen_pitch);
 	SDL_UpdateTexture(vid.texture, NULL, vid.screen->pixels, vid.screen->pitch);
 	renderCopy(vid.texture, NULL, NULL);
 	SDL_RenderPresent(vid.renderer);

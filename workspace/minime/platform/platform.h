@@ -8,21 +8,22 @@
 ///////////////////////////////
 // Display (Native panel & layout)
 
-extern int plat_fixed_width;
-extern int plat_fixed_height;
-extern int plat_main_row_count;
-extern int plat_padding;
+extern int screen_width;
+extern int screen_height;
+extern int screen_pitch;
+extern int screen_padding;
+extern int screen_row_count;
 
 #define FIXED_SCALE 2
-#define FIXED_WIDTH plat_fixed_width
-#define FIXED_HEIGHT plat_fixed_height
 #define FIXED_BPP 2
 #define FIXED_DEPTH (FIXED_BPP * 8)
-#define FIXED_PITCH (FIXED_WIDTH * FIXED_BPP)
-#define FIXED_SIZE (FIXED_PITCH * FIXED_HEIGHT)
+#define FIXED_WIDTH screen_width
+#define FIXED_HEIGHT screen_height
+#define FIXED_PITCH screen_pitch
+#define FIXED_SIZE (screen_pitch * screen_height)
 
-#define MAIN_ROW_COUNT (plat_main_row_count + (on_hdmi ? 2 : 0))
-#define PADDING (on_hdmi ? 40 : plat_padding)
+#define MAIN_ROW_COUNT (screen_row_count + (on_hdmi ? 2 : 0))
+#define PADDING (on_hdmi ? 40 : screen_padding)
 
 int PLAT_getScreenRotation(void);
 extern void (*plat_custom_flip)(SDL_Surface* surface);
