@@ -1,5 +1,6 @@
 #ifndef __API_H__
 #define __API_H__
+#include "defines.h"
 #include "sdl.h"
 #include "platform.h"
 #include "scaler.h"
