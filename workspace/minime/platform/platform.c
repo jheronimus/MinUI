@@ -8,6 +8,18 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <linux/input.h>
+
+#undef BTN_A
+#undef BTN_B
+#undef BTN_C
+#undef BTN_X
+#undef BTN_Y
+#undef BTN_Z
+#undef BTN_START
+#undef BTN_SELECT
+#undef BTN_MODE
+#undef BTN_TRIGGER_HAPPY
 
 #include <msettings.h>
 
@@ -140,6 +152,23 @@ int PLAT_hasUndervolt(void) {
 
 #define INPUT_COUNT 5
 static int inputs[INPUT_COUNT];
+
+static void updateButtonState(int btn, int pressed, int id, uint32_t tick) {
+	if (btn == BTN_NONE || id < 0 || id >= BTN_ID_COUNT)
+		return;
+
+	if (pressed) {
+		if ((pad.is_pressed & btn) == BTN_NONE) {
+			pad.just_pressed |= btn;
+			pad.just_repeated |= btn;
+			pad.is_pressed |= btn;
+			pad.repeat_at[id] = tick + PAD_REPEAT_DELAY;
+		}
+	} else if (pad.is_pressed & btn) {
+		pad.just_released |= btn;
+		pad.is_pressed &= ~btn;
+	}
+}
 
 static void drainInputFd(int input) {
 	if (input < 0) return;
