@@ -9,7 +9,7 @@
 #include <unistd.h>
 #include <signal.h>
 
-#include "traits.h"
+#include "platform.h"
 #include "wireless.h"
 #include "utils.h"
 
@@ -29,13 +29,7 @@ static void bt_restore_alsa(void) {
 }
 
 static int is_bt_interface_present(void) {
-	const MinimeTraits *traits = MINIME_traits();
-	char path[256];
-
-	if (!traits || !traits->bluetooth_interface[0] || strcmp(traits->bluetooth_interface, "na") == 0)
-		return 0;
-	snprintf(path, sizeof(path), "/sys/class/bluetooth/%s", traits->bluetooth_interface);
-	return access(path, F_OK) == 0;
+return PLAT_hasBluetooth();
 }
 
 static int is_bt_service_up(void) {

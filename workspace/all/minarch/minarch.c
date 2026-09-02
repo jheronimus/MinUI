@@ -401,7 +401,7 @@ static void hw_render_menu_surface(SDL_Surface *surface) {
 
   int phys_w = DEVICE_WIDTH;
   int phys_h = DEVICE_HEIGHT;
-  int rot = plat_screen_rotation > 0 ? plat_screen_rotation : 0;
+  int rot = PLAT_getScreenRotation();
   if (rot == 90 || rot == 270) {
     phys_w = DEVICE_HEIGHT;
     phys_h = DEVICE_WIDTH;
@@ -787,7 +787,7 @@ static void hw_draw_hud(void) {
                     GL_RGBA, GL_UNSIGNED_BYTE, hw_hud_surf->pixels);
   }
 
-  int rot = plat_screen_rotation > 0 ? plat_screen_rotation : 0;
+  int rot = PLAT_getScreenRotation();
 
 #define ROT_X(lx, ly)                                                          \
   ((rot == 90) ? (ly) : (rot == 180) ? -(lx) : (rot == 270) ? -(ly) : (lx))
@@ -927,7 +927,7 @@ static void hw_render_compositor_frame(unsigned width, unsigned height) {
 
   int phys_w = DEVICE_WIDTH;
   int phys_h = DEVICE_HEIGHT;
-  int rot = plat_screen_rotation > 0 ? plat_screen_rotation : 0;
+  int rot = PLAT_getScreenRotation();
   if (rot == 90 || rot == 270) {
     phys_w = DEVICE_HEIGHT;
     phys_h = DEVICE_WIDTH;

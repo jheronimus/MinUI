@@ -14,7 +14,6 @@
 #include "defines.h"
 #include "api.h"
 #include "menu.h"
-#include "traits.h"
 #include "utils.h"
 
 #define POWER_POLICY_PATH USERDATA_PATH "/power.conf"
@@ -84,16 +83,14 @@ static int write_power_policy(void) {
 
 // undervolt (RK3566 only) via device.sh
 static int undervolt_supported(void) {
-	const MinimeTraits* traits = MINIME_traits();
-	return traits && traits->cpu_undervolt_supported > 0;
+	return PLAT_hasUndervolt();
 }
 
 // lid (clamshell only): the trait holds the evdev name of the lid switch
 // device, e.g. "gpio-keys-lid". Devices without a clamshell (e.g. RG Arc)
 // leave it "na" and must not offer a Lid Behavior setting.
 static int lid_supported(void) {
-	const MinimeTraits* traits = MINIME_traits();
-	return traits && MINIME_traitAvailable(traits->input_lid);
+	return PLAT_hasLid();
 }
 
 static int undervolt_level(void) {

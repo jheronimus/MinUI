@@ -1,43 +1,36 @@
 // minime platform
+#include <errno.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
-
-#include <errno.h>
-#include <pthread.h>
 #include <unistd.h>
 
 #include <msettings.h>
 
-// clang-format off
 #include "defines.h"
 #include "api.h"
 #include "platform.h"
 #include "utils.h"
-// clang-format on
-
 #include "scaler.h"
 #include "traits.h"
 
-// EVIOCGSW / SW_* from <linux/input.h> without pulling in conflicting BTN_* macros
-#ifndef EVIOCGSW
-#define EVIOCGSW(len) _IOC(_IOC_READ, 'E', 0x0b, len)
-#endif
-#ifndef SW_LID
-#define SW_LID 0x00
-#endif
-#ifndef SW_MAX
-#define SW_MAX 0x0f
-#endif
-#ifndef EV_SW
-#define EV_SW 0x05
-#endif
-#define EV_KEY 0x01
-#define EV_ABS 0x03
+///////////////////////////////
+// Linux evdev definitions
+// Extracted from <linux/input.h> to prevent naming collisions with MinUI's BTN_* enum.
 
-// from <linux/input.h> which has BTN_ constants that conflict with platform.h
+#define EV_KEY 0x01 // Keyboard / gamepad button events
+#define EV_ABS 0x03 // Absolute axis / thumbstick events
+#define EV_SW 0x05	// Hardware switch events (clamshell lid)
+#define SW_LID 0x00 // Clamshell lid switch code
+#define SW_MAX 0x0f // Maximum switch code supported by kernel
+
+#ifndef EVIOCGSW
+#define EVIOCGSW(len) _IOC(_IOC_READ, 'E', 0x0b, len) // ioctl: query switch bitmask
+#endif
+
 struct input_event {
 	struct timeval time;
 	unsigned short type;
@@ -50,7 +43,7 @@ int plat_fixed_height = 480;
 int plat_has_hdmi = 0;
 int plat_main_row_count = 6;
 int plat_padding = 10;
-int plat_screen_rotation = -1;
+static int plat_screen_rotation = -1;
 int on_hdmi = 0;
 static int rotate = 0;
 static const MinimeTraits* traits;
@@ -188,6 +181,40 @@ int PLAT_hasLeftStick(void) {
 int PLAT_hasRightStick(void) {
 	if (!traits) load_traits();
 	return (traits && traits->axis_rx >= 0);
+}
+
+int PLAT_getScreenRotation(void) {
+	if (!traits) load_traits();
+	return (plat_screen_rotation > 0) ? plat_screen_rotation : 0;
+}
+
+int PLAT_hasBluetooth(void) {
+	char path[256];
+	if (!traits) load_traits();
+	if (!traits || !traits->bluetooth_interface[0] || strcmp(traits->bluetooth_interface, "na") == 0)
+		return 0;
+	snprintf(path, sizeof(path), "/sys/class/bluetooth/%s", traits->bluetooth_interface);
+	return access(path, F_OK) == 0;
+}
+
+int PLAT_hasWifi(void) {
+	if (!traits) load_traits();
+	return traits && traits->wifi_interface[0] && strcmp(traits->wifi_interface, "na") != 0;
+}
+
+const char* PLAT_getWifiInterface(void) {
+	if (!traits) load_traits();
+	return PLAT_hasWifi() ? traits->wifi_interface : "wlan0";
+}
+
+int PLAT_hasUndervolt(void) {
+	if (!traits) load_traits();
+	return traits && traits->cpu_undervolt_supported > 0;
+}
+
+int PLAT_hasLid(void) {
+	if (!traits) load_traits();
+	return traits && MINIME_traitAvailable(traits->input_lid);
 }
 
 void PLAT_initLid(void) {

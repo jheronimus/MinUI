@@ -11,7 +11,7 @@
 #include <strings.h>
 #include <unistd.h>
 
-#include "traits.h"
+#include "platform.h"
 #include "wireless.h"
 #include "utils.h"
 
@@ -28,17 +28,11 @@ static WifiNetwork networks[WIFI_MAX_NETWORKS];
 static int network_count = 0;
 
 static const char *wifi_interface(void) {
-	const MinimeTraits *traits = MINIME_traits();
-
-	return (traits && traits->wifi_interface[0] && strcmp(traits->wifi_interface, "na"))
-	           ? traits->wifi_interface
-	           : "wlan0";
+return PLAT_getWifiInterface();
 }
 
 static int WIFI_hasWifi(void) {
-	const MinimeTraits *traits = MINIME_traits();
-
-	return traits && traits->wifi_interface[0] && strcmp(traits->wifi_interface, "na");
+return PLAT_hasWifi();
 }
 
 static int is_wifi_interface_present(void) {

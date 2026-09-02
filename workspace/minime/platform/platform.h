@@ -10,7 +10,6 @@
 
 extern int plat_fixed_width;
 extern int plat_fixed_height;
-extern int plat_screen_rotation;
 extern int plat_main_row_count;
 extern int plat_padding;
 
@@ -25,6 +24,7 @@ extern int plat_padding;
 #define MAIN_ROW_COUNT (plat_main_row_count + (on_hdmi ? 2 : 0))
 #define PADDING (on_hdmi ? 40 : plat_padding)
 
+int PLAT_getScreenRotation(void);
 extern void (*plat_custom_flip)(SDL_Surface* surface);
 
 ///////////////////////////////
@@ -66,6 +66,15 @@ int PLAT_hasRightStick(void);
 #define BTN_MOD_BRIGHTNESS BTN_MENU
 #define BTN_MOD_PLUS BTN_PLUS
 #define BTN_MOD_MINUS BTN_MINUS
+
+///////////////////////////////
+// Hardware & Peripheral Capabilities
+
+int PLAT_hasBluetooth(void);
+int PLAT_hasWifi(void);
+const char* PLAT_getWifiInterface(void);
+int PLAT_hasUndervolt(void);
+int PLAT_hasLid(void);
 
 ///////////////////////////////
 // Platform Constants
