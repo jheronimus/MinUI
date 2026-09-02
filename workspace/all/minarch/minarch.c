@@ -2179,16 +2179,13 @@ static void applyArcDefaultControls(void) {
     const char *name = mapping->name;
 
     if (is_dc) {
-      if (exactMatch((char *)name, "A Button") || exactMatch((char *)name, "A"))
+      if (mapping->retro == RETRO_DEVICE_ID_JOYPAD_B)
         mapping->local = BTN_ID_A;
-      else if (exactMatch((char *)name, "B Button") ||
-               exactMatch((char *)name, "B"))
+      else if (mapping->retro == RETRO_DEVICE_ID_JOYPAD_A)
         mapping->local = BTN_ID_B;
-      else if (exactMatch((char *)name, "X Button") ||
-               exactMatch((char *)name, "X"))
+      else if (mapping->retro == RETRO_DEVICE_ID_JOYPAD_Y)
         mapping->local = BTN_ID_X;
-      else if (exactMatch((char *)name, "Y Button") ||
-               exactMatch((char *)name, "Y"))
+      else if (mapping->retro == RETRO_DEVICE_ID_JOYPAD_X)
         mapping->local = BTN_ID_Y;
       else if (exactMatch((char *)name, "R Button") ||
                exactMatch((char *)name, "R") ||
@@ -2196,7 +2193,9 @@ static void applyArcDefaultControls(void) {
                exactMatch((char *)name, "R2") ||
                exactMatch((char *)name, "R1 Button") ||
                exactMatch((char *)name, "R1") ||
-               exactMatch((char *)name, "R Trigger"))
+               exactMatch((char *)name, "R Trigger") ||
+               mapping->retro == RETRO_DEVICE_ID_JOYPAD_R ||
+               mapping->retro == RETRO_DEVICE_ID_JOYPAD_R2)
         mapping->local = BTN_ID_R2;
       else if (exactMatch((char *)name, "L Button") ||
                exactMatch((char *)name, "L") ||
@@ -2204,23 +2203,31 @@ static void applyArcDefaultControls(void) {
                exactMatch((char *)name, "L2") ||
                exactMatch((char *)name, "L1 Button") ||
                exactMatch((char *)name, "L1") ||
-               exactMatch((char *)name, "L Trigger"))
+               exactMatch((char *)name, "L Trigger") ||
+               mapping->retro == RETRO_DEVICE_ID_JOYPAD_L ||
+               mapping->retro == RETRO_DEVICE_ID_JOYPAD_L2)
         mapping->local = BTN_ID_L2;
-      else if (exactMatch((char *)name, "Start"))
+      else if (exactMatch((char *)name, "Start") ||
+               mapping->retro == RETRO_DEVICE_ID_JOYPAD_START)
         mapping->local = BTN_ID_START;
-      else if (exactMatch((char *)name, "Select"))
+      else if (exactMatch((char *)name, "Select") ||
+               mapping->retro == RETRO_DEVICE_ID_JOYPAD_SELECT)
         mapping->local = BTN_ID_SELECT;
       else if (exactMatch((char *)name, "D-Pad Up") ||
-               exactMatch((char *)name, "Up"))
+               exactMatch((char *)name, "Up") ||
+               mapping->retro == RETRO_DEVICE_ID_JOYPAD_UP)
         mapping->local = BTN_ID_DPAD_UP;
       else if (exactMatch((char *)name, "D-Pad Down") ||
-               exactMatch((char *)name, "Down"))
+               exactMatch((char *)name, "Down") ||
+               mapping->retro == RETRO_DEVICE_ID_JOYPAD_DOWN)
         mapping->local = BTN_ID_DPAD_DOWN;
       else if (exactMatch((char *)name, "D-Pad Left") ||
-               exactMatch((char *)name, "Left"))
+               exactMatch((char *)name, "Left") ||
+               mapping->retro == RETRO_DEVICE_ID_JOYPAD_LEFT)
         mapping->local = BTN_ID_DPAD_LEFT;
       else if (exactMatch((char *)name, "D-Pad Right") ||
-               exactMatch((char *)name, "Right"))
+               exactMatch((char *)name, "Right") ||
+               mapping->retro == RETRO_DEVICE_ID_JOYPAD_RIGHT)
         mapping->local = BTN_ID_DPAD_RIGHT;
     } else if (is_md) {
       if (exactMatch((char *)name, "A Button") || exactMatch((char *)name, "A"))
@@ -3640,8 +3647,9 @@ static bool environment_callback(unsigned cmd,
   // 	const struct retro_audio_buffer_status_callback *cb = (const struct
   // retro_audio_buffer_status_callback *)data; 	if (cb) {
   // LOG_info("has audo_buffer_status callback\n");
-  // core.audio_buffer_status = cb->callback; 	} else { 		LOG_info("no
-  // audo_buffer_status callback\n"); 		core.audio_buffer_status = NULL;
+  // core.audio_buffer_status = cb->callback; 	} else {
+  // LOG_info("no audo_buffer_status callback\n");
+  // core.audio_buffer_status = NULL;
   // 	}
   // 	break;
   // }
