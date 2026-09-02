@@ -394,36 +394,43 @@ static struct VID_Context {
 	SDL_Surface* screen;
 	SDL_GLContext gl_ctx;
 	GFX_Renderer* blit;
-	int width;
-	int height;
-	int pitch;
+	int tex_w;
+	int tex_h;
+	int tex_p;
 	int sharpness;
 } vid;
 
-static int device_width;
-static int device_height;
+static inline int getScreenWidth(void) {
+	return on_hdmi ? HDMI_WIDTH : plat_fixed_width;
+}
+
+static inline int getScreenHeight(void) {
+	return on_hdmi ? HDMI_HEIGHT : plat_fixed_height;
+}
 
 static void PLAT_computeRendererRects(const GFX_Renderer* renderer, SDL_Rect* src_rect,
 									  SDL_Rect* dst_rect) {
+	int screen_w = getScreenWidth();
+	int screen_h = getScreenHeight();
 	int x = 0;
 	int y = 0;
-	int w = device_width;
-	int h = device_height;
+	int w = screen_w;
+	int h = screen_h;
 
 	if (renderer->aspect == 0) {
 		if (renderer->scale == 1) {
-			w = MIN(renderer->src_w, device_width);
-			h = MIN(renderer->src_h, device_height);
-			x = (device_width - w) / 2;
-			y = (device_height - h) / 2;
+			w = MIN(renderer->src_w, screen_w);
+			h = MIN(renderer->src_h, screen_h);
+			x = (screen_w - w) / 2;
+			y = (screen_h - h) / 2;
 		} else if (renderer->scale > 0) {
 			w = renderer->src_w * renderer->scale;
 			h = renderer->src_h * renderer->scale;
-			x = (device_width - w) / 2;
-			y = (device_height - h) / 2;
+			x = (screen_w - w) / 2;
+			y = (screen_h - h) / 2;
 		} else {
-			w = MIN(renderer->src_w, device_width);
-			h = MIN(renderer->src_h, device_height);
+			w = MIN(renderer->src_w, screen_w);
+			h = MIN(renderer->src_h, screen_h);
 			x = renderer->dst_x;
 			y = renderer->dst_y;
 			src_rect->w = w;
@@ -438,15 +445,15 @@ static void PLAT_computeRendererRects(const GFX_Renderer* renderer, SDL_Rect* sr
 	}
 
 	if (renderer->aspect > 0) {
-		h = device_height;
+		h = screen_h;
 		w = h * renderer->aspect;
-		if (w > device_width) {
+		if (w > screen_w) {
 			double ratio = 1 / renderer->aspect;
-			w = device_width;
+			w = screen_w;
 			h = w * ratio;
 		}
-		x = (device_width - w) / 2;
-		y = (device_height - h) / 2;
+		x = (screen_w - w) / 2;
+		y = (screen_h - h) / 2;
 
 		dst_rect->x = x;
 		dst_rect->y = y;
@@ -500,9 +507,9 @@ SDL_Surface* PLAT_initVideo(void) {
 	}
 
 	vid.screen = screen;
-	vid.width = w;
-	vid.height = h;
-	vid.pitch = p;
+	vid.tex_w = w;
+	vid.tex_h = h;
+	vid.tex_p = p;
 	vid.sharpness = SHARPNESS_SOFT;
 
 	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
@@ -512,9 +519,6 @@ SDL_Surface* PLAT_initVideo(void) {
 		LOG_error("SDL texture creation failed: %s\n", SDL_GetError());
 		exit(1);
 	}
-
-	device_width = w;
-	device_height = h;
 
 	return vid.screen;
 }
@@ -598,9 +602,9 @@ void PLAT_setVsync(int vsync) {
 static int hard_scale = 4;
 
 static void resizeVideo(int w, int h, int p) {
-	if (w == vid.width && h == vid.height && p == vid.pitch) return;
+	if (w == vid.tex_w && h == vid.tex_h && p == vid.tex_p) return;
 
-	if (w >= device_width && h >= device_height)
+	if (w >= getScreenWidth() && h >= getScreenHeight())
 		hard_scale = 1;
 	else if (h >= 160)
 		hard_scale = 2;
@@ -623,9 +627,9 @@ static void resizeVideo(int w, int h, int p) {
 		vid.target = NULL;
 	}
 
-	vid.width = w;
-	vid.height = h;
-	vid.pitch = p;
+	vid.tex_w = w;
+	vid.tex_h = h;
+	vid.tex_p = p;
 }
 
 SDL_Surface* PLAT_resizeVideo(int w, int h, int p) {
@@ -635,10 +639,10 @@ SDL_Surface* PLAT_resizeVideo(int w, int h, int p) {
 
 void PLAT_setSharpness(int sharpness) {
 	if (vid.sharpness == sharpness) return;
-	int p = vid.pitch;
-	vid.pitch = 0;
+	int p = vid.tex_p;
+	vid.tex_p = 0;
 	vid.sharpness = sharpness;
-	resizeVideo(vid.width, vid.height, p);
+	resizeVideo(vid.tex_w, vid.tex_h, p);
 }
 
 static struct FX_Context {
@@ -785,10 +789,12 @@ void (*plat_custom_flip)(SDL_Surface* surface) = NULL;
 
 static void renderCopy(SDL_Texture* texture, const SDL_Rect* src, const SDL_Rect* dst) {
 	if (rotate && !on_hdmi) {
-		int oy = (device_width - device_height) / 2;
+		int screen_w = plat_fixed_width;
+		int screen_h = plat_fixed_height;
+		int oy = (screen_w - screen_h) / 2;
 		int ox = -oy;
 		SDL_Rect target = dst ? (SDL_Rect){ox + dst->x, oy + dst->y, dst->w, dst->h}
-							  : (SDL_Rect){ox, oy, device_width, device_height};
+							  : (SDL_Rect){ox, oy, screen_w, screen_h};
 		SDL_RenderCopyEx(vid.renderer, texture, src, &target, rotate * 90, NULL, SDL_FLIP_NONE);
 	} else {
 		SDL_RenderCopy(vid.renderer, texture, src, dst);
@@ -796,7 +802,9 @@ static void renderCopy(SDL_Texture* texture, const SDL_Rect* src, const SDL_Rect
 }
 
 static void flipUI(void) {
-	resizeVideo(device_width, device_height, FIXED_PITCH);
+	int screen_w = getScreenWidth();
+	int screen_h = getScreenHeight();
+	resizeVideo(screen_w, screen_h, FIXED_PITCH);
 	SDL_UpdateTexture(vid.texture, NULL, vid.screen->pixels, vid.screen->pitch);
 	renderCopy(vid.texture, NULL, NULL);
 	SDL_RenderPresent(vid.renderer);
@@ -822,8 +830,10 @@ static void flipGame(void) {
 		target = vid.target;
 	}
 
+	int screen_w = getScreenWidth();
+	int screen_h = getScreenHeight();
 	SDL_Rect src_rect = {x, y, w, h};
-	SDL_Rect dst_rect = {0, 0, device_width, device_height};
+	SDL_Rect dst_rect = {0, 0, screen_w, screen_h};
 	PLAT_computeRendererRects(vid.blit, &src_rect, &dst_rect);
 
 	renderCopy(target, &src_rect, &dst_rect);
