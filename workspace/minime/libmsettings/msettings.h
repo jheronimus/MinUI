@@ -1,8 +1,14 @@
 #ifndef __msettings_h__
 #define __msettings_h__
 
+//////////////////////////////////////
+// Settings Lifecycle
+
 void InitSettings(void);
 void QuitSettings(void);
+
+//////////////////////////////////////
+// Display & Audio Controls
 
 int GetBrightness(void);
 int GetVolume(void);
@@ -12,6 +18,9 @@ void SetRawVolume(int value);	  // 0-100
 
 void SetBrightness(int value); // 0-10
 void SetVolume(int value);	   // 0-20
+
+//////////////////////////////////////
+// Peripheral & Power State
 
 int GetJack(void);
 void SetJack(int value); // 0-1

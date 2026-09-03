@@ -20,6 +20,9 @@
 
 #define AUDIO_SH "/usr/share/minime/scripts/audio.sh"
 
+//////////////////////////////////////
+// Shared Memory Lifecycle
+
 typedef struct {
 	int brightness;
 	int volume;
@@ -34,25 +37,9 @@ typedef struct {
 
 static SharedSettings* shared = NULL;
 static int shm_fd = -1;
-static int is_host = 0;
 
 static int isAudioJackConnected(void) {
-	if (!MINIME_traitAvailable(audio_jack_device_name))
-		return 0;
-	int fd = open(audio_jack_device_name, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-	if (fd < 0) {
-		char name[256];
-		char path[64];
-		for (int i = 0; i < 32; i++) {
-			snprintf(path, sizeof(path), "/dev/input/event%d", i);
-			fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-			if (fd < 0) continue;
-			if (ioctl(fd, EVIOCGNAME(sizeof(name)), name) >= 0 && !strcmp(name, audio_jack_device_name))
-				break;
-			close(fd);
-			fd = -1;
-		}
-	}
+	int fd = MINIME_inputOpenByName(audio_jack_device_name);
 	if (fd < 0)
 		return 0;
 	unsigned char switches[1] = {0};
@@ -78,12 +65,9 @@ void InitSettings(void) {
 	}
 
 	if (shared->size == 0) {
-		is_host = 1;
 		memcpy(shared, &proto, sizeof(SharedSettings));
 		SetBrightness(5);
 		SetVolume(10);
-	} else {
-		is_host = 0;
 	}
 	SetJack(isAudioJackConnected());
 }
@@ -99,21 +83,8 @@ void QuitSettings(void) {
 	}
 }
 
-int GetBrightness(void) {
-	return shared ? shared->brightness : 5;
-}
-int GetVolume(void) {
-	return shared ? shared->volume : 10;
-}
-int GetJack(void) {
-	return shared ? shared->jack : 0;
-}
-int GetHDMI(void) {
-	return shared ? shared->hdmi : 0;
-}
-int GetMute(void) {
-	return shared ? shared->mute : 0;
-}
+//////////////////////////////////////
+// Display & Audio Hardware Controls
 
 void SetRawBrightness(int value) {
 	if (MINIME_traitAvailable(screen_backlight_path))
@@ -160,6 +131,21 @@ void SetVolume(int value) {
 	SetRawVolume(raw);
 }
 
+//////////////////////////////////////
+// State Getters & Setters
+
+int GetBrightness(void) {
+	return shared ? shared->brightness : 5;
+}
+
+int GetVolume(void) {
+	return shared ? shared->volume : 10;
+}
+
+int GetJack(void) {
+	return shared ? shared->jack : 0;
+}
+
 void SetJack(int value) {
 	if (shared)
 		shared->jack = value;
@@ -168,6 +154,11 @@ void SetJack(int value) {
 			 value ? "headphones" : "speakers");
 	(void)system(cmd);
 }
+
+int GetHDMI(void) {
+	return shared ? shared->hdmi : 0;
+}
+
 void SetHDMI(int value) {
 	if (shared)
 		shared->hdmi = value;
@@ -180,27 +171,38 @@ void SetHDMI(int value) {
 	}
 	(void)system(cmd);
 }
+
+int GetMute(void) {
+	return shared ? shared->mute : 0;
+}
+
 void SetMute(int value) {
 	if (shared)
 		shared->mute = value;
 }
+
 int GetCharging(void) {
 	return shared ? shared->charging : 0;
 }
+
 void SetCharging(int value) {
 	if (shared)
 		shared->charging = value;
 }
+
 int GetBattery(void) {
 	return shared ? shared->battery : 0;
 }
+
 void SetBattery(int value) {
 	if (shared)
 		shared->battery = value;
 }
+
 int GetBT(void) {
 	return shared ? shared->bt : 0;
 }
+
 void SetBT(int value) {
 	if (shared)
 		shared->bt = value;

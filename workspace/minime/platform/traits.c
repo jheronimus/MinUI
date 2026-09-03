@@ -9,10 +9,15 @@
 #include "traits.h"
 #include "utils.h"
 
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
+#include <linux/input.h>
+
 #define TRAITS_PATH "/mnt/sdcard/.minime/traits"
 #define NA "na"
 
-///////////////////////////////
+//////////////////////////////////////
 // Canonical Hardware Variables
 
 char device_id[MINIME_TRAIT_NAME_MAX] = "";
@@ -81,7 +86,7 @@ char input_lid[MINIME_TRAIT_NAME_MAX] = "";
 static int initialized = 0;
 static int valid = 0;
 
-///////////////////////////////
+//////////////////////////////////////
 // Internal Schema Table
 
 typedef enum {
@@ -175,7 +180,7 @@ static const TraitField TRAIT_FIELDS[] = {
 
 #define TRAIT_FIELD_COUNT (sizeof(TRAIT_FIELDS) / sizeof(TRAIT_FIELDS[0]))
 
-///////////////////////////////
+//////////////////////////////////////
 // Value Parsers & Helpers
 
 static void copyText(char* dst, size_t size, const char* src) {
@@ -239,7 +244,7 @@ int MINIME_traitAvailable(const char* value) {
 	return value && value[0] && strcmp(value, NA);
 }
 
-///////////////////////////////
+//////////////////////////////////////
 // Trait Validation
 
 static int validateRequiredKeys(void) {
@@ -281,7 +286,7 @@ static int validate(void) {
 	return 0;
 }
 
-///////////////////////////////
+//////////////////////////////////////
 // Initialization & Loading
 
 static void initTraitDefaults(void) {
@@ -355,4 +360,41 @@ int MINIME_traitsInit(void) {
 
 	valid = (validate() == 0);
 	return valid ? 0 : -1;
+}
+
+//////////////////////////////////////
+// Hardware State Probing
+
+int MINIME_isHDMIConnected(void) {
+	if (!MINIME_traitAvailable(gpu_hdmi_state_path))
+		return 0;
+	char status[16] = "";
+	getFile(gpu_hdmi_state_path, status, sizeof(status));
+	if (status[0] != '\0') {
+		if (prefixMatch("connected", status))
+			return 1;
+		if (prefixMatch("disconnected", status) || prefixMatch("unknown", status))
+			return 0;
+	}
+	return getInt(gpu_hdmi_state_path);
+}
+
+int MINIME_inputOpenByName(const char* expected) {
+	if (!MINIME_traitAvailable(expected))
+		return -1;
+	int fd = open(expected, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+	if (fd >= 0)
+		return fd;
+	char name[256];
+	char path[64];
+	for (int i = 0; i < 32; i++) {
+		snprintf(path, sizeof(path), "/dev/input/event%d", i);
+		fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+		if (fd < 0)
+			continue;
+		if (ioctl(fd, EVIOCGNAME(sizeof(name)), name) >= 0 && !strcmp(name, expected))
+			return fd;
+		close(fd);
+	}
+	return -1;
 }

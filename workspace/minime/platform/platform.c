@@ -19,36 +19,20 @@
 
 #include <linux/input.h>
 
-///////////////////////////////
+//////////////////////////////////////
 // Platform Lifecycle & Device Traits
 
-int plat_has_hdmi = 0;
 int on_hdmi = 0;
-static int screen_rotation_step = 0;
 
-static void load_traits(void);
+static inline void load_traits(void) {
+	if (MINIME_traitsInit() != 0)
+		exit(1);
+}
 
 static inline void ensure_traits(void) {
 	if (device_id[0] == '\0') {
 		load_traits();
 	}
-}
-
-static int openInputByName(const char* expected) {
-	if (!MINIME_traitAvailable(expected))
-		return -1;
-	char name[256];
-	char path[64];
-	for (int i = 0; i < 32; i++) {
-		snprintf(path, sizeof(path), "/dev/input/event%d", i);
-		int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-		if (fd < 0)
-			continue;
-		if (ioctl(fd, EVIOCGNAME(sizeof(name)), name) >= 0 && !strcmp(name, expected))
-			return fd;
-		close(fd);
-	}
-	return -1;
 }
 
 static int openShortcutDevices(int* fds, size_t max_fds) {
@@ -63,7 +47,7 @@ static int openShortcutDevices(int* fds, size_t max_fds) {
 	};
 	int count = 0;
 	for (size_t i = 0; i < sizeof(names) / sizeof(names[0]) && (size_t)count < max_fds; i++) {
-		int fd = openInputByName(names[i]);
+		int fd = MINIME_inputOpenByName(names[i]);
 		if (fd >= 0)
 			fds[count++] = fd;
 	}
@@ -82,26 +66,6 @@ static int normalizeAxis(int value, int invert) {
 	return invert ? -normalized : normalized;
 }
 
-static int isHDMIConnected(void) {
-	if (!MINIME_traitAvailable(gpu_hdmi_state_path))
-		return 0;
-	char status[16] = "";
-	getFile(gpu_hdmi_state_path, status, sizeof(status));
-	if (status[0] != '\0') {
-		if (prefixMatch("connected", status))
-			return 1;
-		if (prefixMatch("disconnected", status) || prefixMatch("unknown", status))
-			return 0;
-	}
-	return getInt(gpu_hdmi_state_path);
-}
-
-static void load_traits(void) {
-	if (MINIME_traitsInit() != 0) exit(1);
-	screen_rotation_step = screen_rotation / 90;
-	plat_has_hdmi = MINIME_traitAvailable(gpu_hdmi_state_path);
-}
-
 char* PLAT_getModel(void) {
 	ensure_traits();
 	return device_model;
@@ -115,7 +79,7 @@ int PLAT_hasUndervolt(void) {
 	return cpu_undervolt_supported > 0;
 }
 
-///////////////////////////////
+//////////////////////////////////////
 // Input Handling & Gamepad
 
 #define INPUT_COUNT 5
@@ -313,7 +277,7 @@ int PLAT_hasRightStick(void) {
 	return axis_rx >= 0;
 }
 
-///////////////////////////////
+//////////////////////////////////////
 // Clamshell Lid Sensor
 
 static int lid_fd = -1;
@@ -325,7 +289,7 @@ int PLAT_hasLid(void) {
 
 void PLAT_initLid(void) {
 	ensure_traits();
-	lid_fd = openInputByName(input_lid);
+	lid_fd = MINIME_inputOpenByName(input_lid);
 	lid.has_lid = lid_fd >= 0;
 	if (lid.has_lid) {
 		unsigned long sw[SW_MAX / 8 / sizeof(unsigned long) + 1] = {0};
@@ -350,7 +314,7 @@ int PLAT_lidChanged(int* state) {
 	return 0;
 }
 
-///////////////////////////////
+//////////////////////////////////////
 // Video Pipeline (KMSDRM & Scaler)
 
 static struct VID_Context {
@@ -436,10 +400,10 @@ SDL_Surface* PLAT_initVideo(void) {
 	int w = FIXED_WIDTH;
 	int h = FIXED_HEIGHT;
 	int p = FIXED_PITCH;
-	if (isHDMIConnected()) {
-		w = HDMI_WIDTH;
-		h = HDMI_HEIGHT;
-		p = HDMI_PITCH;
+	if (MINIME_isHDMIConnected()) {
+		w = gpu_hdmi_width;
+		h = gpu_hdmi_height;
+		p = gpu_hdmi_width * FIXED_BPP;
 		on_hdmi = 1;
 	}
 
@@ -569,7 +533,7 @@ void PLAT_setSharpness(int sharpness) {
 	resizeVideo(vid.tex_w, vid.tex_h, p);
 }
 
-///////////////////////////////
+//////////////////////////////////////
 // Video Effects & Scanlines
 
 static struct FX_Context {
@@ -723,20 +687,20 @@ void PLAT_blitRenderer(GFX_Renderer* renderer) {
 	resizeVideo(vid.blit->true_w, vid.blit->true_h, vid.blit->src_p);
 }
 
-///////////////////////////////
+//////////////////////////////////////
 // Screen Presentation & Rotation
 
 void (*plat_custom_flip)(SDL_Surface* surface) = NULL;
 
 static void renderCopy(SDL_Texture* texture, const SDL_Rect* src, const SDL_Rect* dst) {
-	if (screen_rotation_step && !on_hdmi) {
+	if (screen_rotation && !on_hdmi) {
 		int screen_w = screen_width;
 		int screen_h = screen_height;
 		int oy = (screen_w - screen_h) / 2;
 		int ox = -oy;
 		SDL_Rect target = dst ? (SDL_Rect){ox + dst->x, oy + dst->y, dst->w, dst->h}
 							  : (SDL_Rect){ox, oy, screen_w, screen_h};
-		SDL_RenderCopyEx(vid.renderer, texture, src, &target, screen_rotation_step * 90, NULL, SDL_FLIP_NONE);
+		SDL_RenderCopyEx(vid.renderer, texture, src, &target, screen_rotation, NULL, SDL_FLIP_NONE);
 	} else {
 		SDL_RenderCopy(vid.renderer, texture, src, dst);
 	}
@@ -805,7 +769,7 @@ int PLAT_supportsOverscan(void) {
 	return screen_aspect == MINIME_ASPECT_1x1;
 }
 
-///////////////////////////////
+//////////////////////////////////////
 // Hardware Acceleration (EGL / OpenGL ES)
 
 SDL_GLContext PLAT_initGLContext(int major, int minor, int gles) {
@@ -852,7 +816,7 @@ void* PLAT_getGLProcAddress(const char* proc) {
 	return SDL_GL_GetProcAddress(proc);
 }
 
-///////////////////////////////
+//////////////////////////////////////
 // UI Overlay
 
 #define OVERLAY_WIDTH PILL_SIZE
@@ -879,7 +843,7 @@ void PLAT_enableOverlay(int enable) {
 	(void)enable;
 }
 
-///////////////////////////////
+//////////////////////////////////////
 // Wireless Networking (Wi-Fi & Bluetooth)
 
 static int online = 0;
@@ -887,7 +851,7 @@ static int bt_up = 0;
 
 int PLAT_hasWifi(void) {
 	ensure_traits();
-	return wifi_interface[0] && strcmp(wifi_interface, "na") != 0;
+	return MINIME_traitAvailable(wifi_interface);
 }
 
 const char* PLAT_getWifiInterface(void) {
@@ -930,7 +894,7 @@ int PLAT_isBluetoothUp(void) {
 	return bt_up;
 }
 
-///////////////////////////////
+//////////////////////////////////////
 // Power, Battery & Thermal Management
 
 void PLAT_getBatteryStatus(int* is_charging, int* charge) {
@@ -988,7 +952,7 @@ void PLAT_powerOff(void) {
 	exit(0);
 }
 
-///////////////////////////////
+//////////////////////////////////////
 // CPU Governor & Haptics
 
 static void setGpuClock(int speed) {
@@ -1024,7 +988,7 @@ void PLAT_setRumble(int strength) {
 	if (!MINIME_traitAvailable(input_rumble))
 		return;
 
-	int fd = openInputByName(input_rumble);
+	int fd = MINIME_inputOpenByName(input_rumble);
 	if (fd < 0)
 		return;
 
@@ -1044,7 +1008,7 @@ void PLAT_setRumble(int strength) {
 	close(fd);
 }
 
-///////////////////////////////
+//////////////////////////////////////
 // Audio
 
 int PLAT_pickSampleRate(int requested, int max) {

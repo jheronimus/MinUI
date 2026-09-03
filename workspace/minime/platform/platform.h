@@ -5,7 +5,7 @@
 
 #include <SDL2/SDL.h>
 
-///////////////////////////////
+//////////////////////////////////////
 // Display (Native panel & layout)
 
 extern int screen_width;
@@ -27,21 +27,22 @@ extern int screen_row_count;
 int PLAT_getScreenRotation(void);
 extern void (*plat_custom_flip)(SDL_Surface* surface);
 
-///////////////////////////////
+//////////////////////////////////////
 // HDMI Output
 
-extern int plat_has_hdmi;
 extern int on_hdmi;
+extern int gpu_hdmi_width;
+extern int gpu_hdmi_height;
+extern char gpu_hdmi_state_path[];
+int MINIME_traitAvailable(const char* value);
 
-#define HAS_HDMI plat_has_hdmi
-#define HDMI_WIDTH 1280
-#define HDMI_HEIGHT 720
-#define HDMI_PITCH (HDMI_WIDTH * FIXED_BPP)
-#define HDMI_SIZE (HDMI_PITCH * HDMI_HEIGHT)
+#define HAS_HDMI MINIME_traitAvailable(gpu_hdmi_state_path)
+#define HDMI_WIDTH gpu_hdmi_width
+#define HDMI_HEIGHT gpu_hdmi_height
+#define HDMI_PITCH (gpu_hdmi_width * FIXED_BPP)
+#define HDMI_SIZE (HDMI_PITCH * gpu_hdmi_height)
 
-// TODO: if HDMI_HEIGHT > FIXED_HEIGHT then MAIN_ROW_COUNT will be insufficient
-
-///////////////////////////////
+//////////////////////////////////////
 // Hardware Acceleration (GLES / KMS)
 
 SDL_GLContext PLAT_initGLContext(int major, int minor, int gles);
@@ -49,7 +50,7 @@ void PLAT_quitGLContext(void);
 void PLAT_swapGL(void);
 void* PLAT_getGLProcAddress(const char* proc);
 
-///////////////////////////////
+//////////////////////////////////////
 // Gamepad & Button Mapping
 
 int PLAT_is6Button(void);
@@ -67,7 +68,7 @@ int PLAT_hasRightStick(void);
 #define BTN_MOD_PLUS BTN_PLUS
 #define BTN_MOD_MINUS BTN_MINUS
 
-///////////////////////////////
+//////////////////////////////////////
 // Hardware & Peripheral Capabilities
 
 int PLAT_hasBluetooth(void);
@@ -76,7 +77,7 @@ const char* PLAT_getWifiInterface(void);
 int PLAT_hasUndervolt(void);
 int PLAT_hasLid(void);
 
-///////////////////////////////
+//////////////////////////////////////
 // Platform Constants
 
 #define SDCARD_PATH "/mnt/sdcard"

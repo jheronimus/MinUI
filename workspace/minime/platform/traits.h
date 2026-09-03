@@ -7,6 +7,9 @@
 #define MINIME_TRAIT_PATH_MAX 256
 #define MINIME_TRAIT_NAME_MAX 64
 
+//////////////////////////////////////
+// Display Aspect & Dimensions
+
 typedef enum {
 	MINIME_ASPECT_4x3,
 	MINIME_ASPECT_3x2,
@@ -15,7 +18,9 @@ typedef enum {
 	MINIME_ASPECT_UNKNOWN,
 } MinimeScreenAspect;
 
-// Canonical hardware global variables (owned and populated by traits.c)
+//////////////////////////////////////
+// Canonical Hardware Traits
+
 // [device]
 extern char device_id[MINIME_TRAIT_NAME_MAX];
 extern char device_model[MINIME_TRAIT_PATH_MAX];
@@ -87,7 +92,12 @@ extern char input_menu[MINIME_TRAIT_NAME_MAX];
 extern char input_rumble[MINIME_TRAIT_NAME_MAX];
 extern char input_lid[MINIME_TRAIT_NAME_MAX];
 
+//////////////////////////////////////
+// Public Trait APIs
+
 int MINIME_traitsInit(void);
 int MINIME_traitAvailable(const char* value);
+int MINIME_inputOpenByName(const char* expected);
+int MINIME_isHDMIConnected(void);
 
 #endif // MINIME_TRAITS_H

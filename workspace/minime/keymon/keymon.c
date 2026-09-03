@@ -1,29 +1,26 @@
-#include <linux/input.h>
+#include <fcntl.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <time.h>
 #include <unistd.h>
-#include <fcntl.h>
-#include "utils.h"
-#include <sys/ioctl.h>
 #include <linux/input.h>
 
 #include <msettings.h>
 
 #include "settings.h"
 #include "traits.h"
+#include "utils.h"
 
-//	for ev.value
+// for ev.value
 #define RELEASED 0
 #define PRESSED 1
 #define REPEAT 2
 
-// linux/input-event-codes.h
 #define SW_HEADPHONE_INSERT 0x02
-
 #define AUDIO_SH "/usr/share/minime/scripts/audio.sh"
 #define BLUETOOTHD_PID "/run/bluetoothd.pid"
 
@@ -36,44 +33,31 @@ static uint32_t now_ms(void) {
 	return (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 }
 
+//////////////////////////////////////
+// Background State Monitors
+
 static pthread_t hdmi_pt;
 static pthread_t power_pt;
 static pthread_t bt_pt;
 
-static int isHDMIConnected(void) {
-	if (!MINIME_traitAvailable(gpu_hdmi_state_path))
-		return 0;
-	char status[16] = "";
-	getFile(gpu_hdmi_state_path, status, sizeof(status));
-	if (status[0] != '\0') {
-		if (prefixMatch("connected", status))
-			return 1;
-		if (prefixMatch("disconnected", status) || prefixMatch("unknown", status))
-			return 0;
-	}
-	return getInt(gpu_hdmi_state_path);
-}
-
 static void* watchHDMI(void* arg) {
-	int has_hdmi, had_hdmi;
-
-	has_hdmi = had_hdmi = isHDMIConnected();
+	(void)arg;
+	int has_hdmi = MINIME_isHDMIConnected();
+	int had_hdmi = has_hdmi;
 	SetHDMI(has_hdmi);
 
 	if (!MINIME_traitAvailable(gpu_hdmi_state_path))
-		return 0;
+		return NULL;
 
 	while (1) {
 		sleep(2);
-
-		has_hdmi = isHDMIConnected();
+		has_hdmi = MINIME_isHDMIConnected();
 		if (had_hdmi != has_hdmi) {
 			had_hdmi = has_hdmi;
 			SetHDMI(has_hdmi);
 		}
 	}
-
-	return 0;
+	return NULL;
 }
 
 static int getBatteryStatus(int* charging, int* capacity) {
@@ -172,40 +156,13 @@ static void* watchBT(void* arg) {
 		}
 		sleep(2);
 	}
-	return 0;
+	return NULL;
 }
 
-static int openInputDevice(const char* name_or_path) {
-	if (!MINIME_traitAvailable(name_or_path))
-		return -1;
-	int fd = open(name_or_path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-	if (fd >= 0)
-		return fd;
-	char name[256];
-	char path[64];
-	for (int i = 0; i < 32; i++) {
-		snprintf(path, sizeof(path), "/dev/input/event%d", i);
-		fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-		if (fd < 0)
-			continue;
-		if (ioctl(fd, EVIOCGNAME(sizeof(name)), name) >= 0 && !strcmp(name, name_or_path))
-			return fd;
-		close(fd);
-	}
-	return -1;
-}
+//////////////////////////////////////
+// Input Device Management
 
-int main(int argc, char* argv[]) {
-
-	(void)argc;
-	(void)argv;
-	if (MINIME_traitsInit() != 0)
-		return 1;
-	InitSettings();
-	pthread_create(&hdmi_pt, NULL, &watchHDMI, NULL);
-	pthread_create(&power_pt, NULL, &watchPower, NULL);
-	pthread_create(&bt_pt, NULL, &watchBT, NULL);
-
+static void initInputDevices(void) {
 	const char* dev_names[] = {
 		input_gamepad,
 		input_stick,
@@ -218,111 +175,125 @@ int main(int argc, char* argv[]) {
 	for (size_t i = 0; i < sizeof(dev_names) / sizeof(dev_names[0]) &&
 					   (size_t)input_count < (sizeof(input_fds) / sizeof(input_fds[0]));
 		 i++) {
-		int fd = openInputDevice(dev_names[i]);
+		int fd = MINIME_inputOpenByName(dev_names[i]);
 		if (fd >= 0)
 			input_fds[input_count++] = fd;
 	}
+}
 
-	int menu_code = (button_keycodes[BTN_ID_MENU] >= 0 ? button_keycodes[BTN_ID_MENU] : button_keycodes[BTN_ID_SELECT]);
-	uint32_t val;
-	uint32_t menu_pressed = 0;
+//////////////////////////////////////
+// Event Polling & Key Repeat Handling
 
-	uint32_t up_pressed = 0;
-	uint32_t up_just_pressed = 0;
-	uint32_t up_repeat_at = 0;
+typedef struct {
+	uint32_t menu_pressed;
+	uint32_t up_pressed;
+	uint32_t up_just_pressed;
+	uint32_t up_repeat_at;
+	uint32_t down_pressed;
+	uint32_t down_just_pressed;
+	uint32_t down_repeat_at;
+} KeymonState;
 
-	uint32_t down_pressed = 0;
-	uint32_t down_just_pressed = 0;
-	uint32_t down_repeat_at = 0;
+static void resetState(KeymonState* state) {
+	state->menu_pressed = 0;
+	state->up_pressed = state->up_just_pressed = 0;
+	state->down_pressed = state->down_just_pressed = 0;
+	state->up_repeat_at = state->down_repeat_at = 0;
+}
 
-	uint8_t ignore;
-	uint32_t then;
-	uint32_t now;
+static void handleKeyEvent(int code, int val, int menu_code, KeymonState* state, uint32_t now) {
+	if (code == menu_code) {
+		state->menu_pressed = val;
+	} else if (code == button_keycodes[BTN_ID_PLUS]) {
+		state->up_pressed = state->up_just_pressed = val;
+		if (val)
+			state->up_repeat_at = now + 300;
+	} else if (code == button_keycodes[BTN_ID_MINUS]) {
+		state->down_pressed = state->down_just_pressed = val;
+		if (val)
+			state->down_repeat_at = now + 300;
+	}
+}
 
-	then = now_ms();
-	ignore = 0;
+static void pollInputFd(int fd, int menu_code, KeymonState* state, uint32_t now) {
+	struct input_event ev;
+	while (read(fd, &ev, sizeof(ev)) == sizeof(ev)) {
+		if (ev.type == EV_SW && ev.code == SW_HEADPHONE_INSERT) {
+			SetJack(ev.value);
+		} else if (ev.type == EV_KEY && ev.value <= REPEAT) {
+			handleKeyEvent(ev.code, ev.value, menu_code, state, now);
+		}
+	}
+}
+
+static void pollInputs(int menu_code, KeymonState* state, uint32_t now) {
+	for (int i = 0; i < input_count; i++) {
+		if (input_fds[i] > 0)
+			pollInputFd(input_fds[i], menu_code, state, now);
+	}
+}
+
+static void adjustVolumeOrBrightness(int is_up, int menu_pressed) {
+	if (menu_pressed) {
+		int val = GetBrightness() + (is_up ? 1 : -1);
+		if (val >= BRIGHTNESS_MIN && val <= BRIGHTNESS_MAX)
+			SetBrightness(val);
+	} else {
+		int val = GetVolume() + (is_up ? 1 : -1);
+		if (val >= VOLUME_MIN && val <= VOLUME_MAX)
+			SetVolume(val);
+	}
+}
+
+static void handleButtonRepeats(KeymonState* state, uint32_t now) {
+	if (state->up_just_pressed || (state->up_pressed && now >= state->up_repeat_at)) {
+		adjustVolumeOrBrightness(1, state->menu_pressed);
+		if (state->up_just_pressed)
+			state->up_just_pressed = 0;
+		else
+			state->up_repeat_at += 100;
+	}
+
+	if (state->down_just_pressed || (state->down_pressed && now >= state->down_repeat_at)) {
+		adjustVolumeOrBrightness(0, state->menu_pressed);
+		if (state->down_just_pressed)
+			state->down_just_pressed = 0;
+		else
+			state->down_repeat_at += 100;
+	}
+}
+
+//////////////////////////////////////
+// Keymon Daemon Entry
+
+int main(int argc, char* argv[]) {
+	(void)argc;
+	(void)argv;
+	if (MINIME_traitsInit() != 0)
+		return 1;
+	InitSettings();
+	pthread_create(&hdmi_pt, NULL, &watchHDMI, NULL);
+	pthread_create(&power_pt, NULL, &watchPower, NULL);
+	pthread_create(&bt_pt, NULL, &watchBT, NULL);
+
+	initInputDevices();
+
+	int menu_code = (button_keycodes[BTN_ID_MENU] >= 0 ? button_keycodes[BTN_ID_MENU]
+													   : button_keycodes[BTN_ID_SELECT]);
+	KeymonState state = {0};
+	uint32_t then = now_ms();
 
 	while (1) {
-		now = now_ms();
-		if (now - then > 1000)
-			ignore = 1; // ignore input that arrived during sleep
-
-		struct input_event ev;
-		for (int i = 0; i < input_count; i++) {
-			if (input_fds[i] <= 0)
-				continue;
-			while (read(input_fds[i], &ev, sizeof(ev)) == sizeof(ev)) {
-				if (ignore)
-					continue;
-				val = ev.value;
-
-				if (ev.type == EV_SW) {
-					if (ev.code == SW_HEADPHONE_INSERT) {
-						SetJack(val);
-					}
-					continue;
-				}
-				if (ev.type != EV_KEY || val > REPEAT)
-					continue;
-				if (ev.code == menu_code) {
-					menu_pressed = val;
-				} else if (ev.code == button_keycodes[BTN_ID_PLUS]) {
-					up_pressed = up_just_pressed = val;
-					if (val)
-						up_repeat_at = now + 300;
-				} else if (ev.code == button_keycodes[BTN_ID_MINUS]) {
-					down_pressed = down_just_pressed = val;
-					if (val)
-						down_repeat_at = now + 300;
-				}
-			}
-		}
-
-		if (ignore) {
-			menu_pressed = 0;
-			up_pressed = up_just_pressed = 0;
-			down_pressed = down_just_pressed = 0;
-			up_repeat_at = 0;
-			down_repeat_at = 0;
-		}
-
-		if (up_just_pressed || (up_pressed && now >= up_repeat_at)) {
-			if (menu_pressed) {
-				val = GetBrightness();
-				if (val < BRIGHTNESS_MAX)
-					SetBrightness(++val);
-			} else {
-				val = GetVolume();
-				if (val < VOLUME_MAX)
-					SetVolume(++val);
-			}
-
-			if (up_just_pressed)
-				up_just_pressed = 0;
-			else
-				up_repeat_at += 100;
-		}
-
-		if (down_just_pressed || (down_pressed && now >= down_repeat_at)) {
-			if (menu_pressed) {
-				val = GetBrightness();
-				if (val > BRIGHTNESS_MIN)
-					SetBrightness(--val);
-			} else {
-				val = GetVolume();
-				if (val > VOLUME_MIN)
-					SetVolume(--val);
-			}
-
-			if (down_just_pressed)
-				down_just_pressed = 0;
-			else
-				down_repeat_at += 100;
+		uint32_t now = now_ms();
+		if (now - then > 1000) {
+			resetState(&state);
+		} else {
+			pollInputs(menu_code, &state, now);
+			handleButtonRepeats(&state, now);
 		}
 
 		then = now;
-		ignore = 0;
-
 		usleep(16666); // 60fps
 	}
+	return 0;
 }
