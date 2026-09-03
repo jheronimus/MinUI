@@ -8,19 +8,6 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <linux/input.h>
-
-#undef BTN_A
-#undef BTN_B
-#undef BTN_C
-#undef BTN_X
-#undef BTN_Y
-#undef BTN_Z
-#undef BTN_START
-#undef BTN_SELECT
-#undef BTN_MODE
-#undef BTN_TRIGGER_HAPPY
-
 #include <msettings.h>
 
 #include "defines.h"
