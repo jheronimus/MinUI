@@ -60,6 +60,20 @@ static void* watchHDMI(void* arg) {
 	return NULL;
 }
 
+static int estimateCapacityFromVoltage(const char* base_path) {
+	char path[MINIME_TRAIT_PATH_MAX + 32];
+	snprintf(path, sizeof(path), "%s/voltage_avg", base_path);
+	int volt = getInt(path);
+	if (volt <= 0)
+		return 0;
+	int pct = (volt - 3400000) * 100 / (4172000 - 3400000);
+	if (pct > 100)
+		return 100;
+	if (pct < 0)
+		return 0;
+	return pct;
+}
+
 static int getBatteryStatus(int* charging, int* capacity) {
 	if (!MINIME_traitAvailable(power_battery_sysfs) || !charging || !capacity)
 		return -1;
@@ -67,6 +81,9 @@ static int getBatteryStatus(int* charging, int* capacity) {
 	char path[MINIME_TRAIT_PATH_MAX + 32];
 	snprintf(path, sizeof(path), "%s/capacity", power_battery_sysfs);
 	*capacity = getInt(path);
+
+	if (*capacity <= 0)
+		*capacity = estimateCapacityFromVoltage(power_battery_sysfs);
 
 	if (MINIME_traitAvailable(power_charger_online_path)) {
 		*charging = getInt(power_charger_online_path);
