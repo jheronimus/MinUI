@@ -17,26 +17,7 @@
 #include "scaler.h"
 #include "traits.h"
 
-///////////////////////////////
-// Linux evdev definitions
-// Extracted from <linux/input.h> to prevent naming collisions with MinUI's BTN_* enum.
-
-#define EV_KEY 0x01 // Keyboard / gamepad button events
-#define EV_ABS 0x03 // Absolute axis / thumbstick events
-#define EV_SW 0x05	// Hardware switch events (clamshell lid)
-#define SW_LID 0x00 // Clamshell lid switch code
-#define SW_MAX 0x0f // Maximum switch code supported by kernel
-
-#ifndef EVIOCGSW
-#define EVIOCGSW(len) _IOC(_IOC_READ, 'E', 0x0b, len) // ioctl: query switch bitmask
-#endif
-
-struct input_event {
-	struct timeval time;
-	unsigned short type;
-	unsigned short code;
-	int value;
-};
+#include <linux/input.h>
 
 ///////////////////////////////
 // Platform Lifecycle & Device Traits
