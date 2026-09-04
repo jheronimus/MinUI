@@ -144,10 +144,26 @@ static struct Core {
 
 ///////////////////////////////////////
 
+static SRC_STATE *audio_src_state = NULL;
+static float *audio_src_in = NULL;
+static float *audio_src_out = NULL;
+static size_t audio_src_in_cap = 0;
+static size_t audio_src_out_cap = 0;
+
 static void cleanup_audio_resampler(void) {
   if (audio_src_state) {
     src_delete(audio_src_state);
     audio_src_state = NULL;
+  }
+  if (audio_src_in) {
+    free(audio_src_in);
+    audio_src_in = NULL;
+    audio_src_in_cap = 0;
+  }
+  if (audio_src_out) {
+    free(audio_src_out);
+    audio_src_out = NULL;
+    audio_src_out_cap = 0;
   }
 }
 
@@ -532,7 +548,7 @@ static void RTC_write(void) {
 
   char filename[MAX_PATH];
   RTC_getPath(filename);
-  printf("rtc path (write) size(%u): %s\n", rtc_size, filename);
+  printf("rtc path (write) size(%zu): %s\n", rtc_size, filename);
 
   FILE *rtc_file = fopen(filename, "w");
   if (!rtc_file) {

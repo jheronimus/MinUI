@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "libretro.h"
 
 #if defined(__has_include)
 #if __has_include(<vulkan/vulkan.h>)

@@ -1,8 +1,8 @@
 #include <SDL2/SDL.h>
 #include <stdbool.h>
 
-#include "api.h"
 #include "defines.h"
+#include "api.h"
 #include "render.h"
 
 static int sw_dev_w = 640;

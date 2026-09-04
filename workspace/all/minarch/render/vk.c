@@ -1,13 +1,16 @@
-#include "render.h"
-#include "hud.h"
-#include "viewport.h"
-#include "vk_libretro.h"
-#include "vk_shaders.h"
-
 #include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "defines.h"
+#include "api.h"
+#include "hud.h"
+#include "libretro.h"
+#include "render.h"
+#include "viewport.h"
+#include "vk_libretro.h"
+#include "vk_shaders.h"
 
 #define VK_MAX_SWAPCHAIN_IMAGES 2
 

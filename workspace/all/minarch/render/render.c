@@ -1,5 +1,6 @@
 #include "render.h"
 #include <stdio.h>
+#include <string.h>
 
 static render_backend_ops_t* current_backend = &render_sw_ops;
 static const char* preferred_backend = NULL;

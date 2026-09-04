@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "defines.h"
+#include "api.h"
 #include "hud.h"
 #include "libretro.h"
 #include "render.h"
