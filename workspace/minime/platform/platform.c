@@ -75,10 +75,6 @@ int PLAT_getScreenRotation(void) {
 	return screen_rotation;
 }
 
-int PLAT_hasUndervolt(void) {
-	return cpu_undervolt_supported > 0;
-}
-
 //////////////////////////////////////
 // Input Handling & Gamepad
 
@@ -953,34 +949,7 @@ void PLAT_powerOff(void) {
 }
 
 //////////////////////////////////////
-// CPU Governor & Haptics
-
-static void setGpuClock(int speed) {
-	int gpu_clock = (speed >= 3) ? gpu_clock_max : gpu_clock_min;
-	if (MINIME_traitAvailable(gpu_devfreq_path) && gpu_clock > 0)
-		putInt(gpu_devfreq_path, gpu_clock);
-}
-
-void PLAT_setCPUSpeed(int speed) {
-	const char* governor = (speed >= 3) ? "performance" : "schedutil";
-	int clock = -1;
-	if (speed <= 0)
-		clock = cpu_clock_menu;
-	else if (speed == 1)
-		clock = cpu_clock_powersave;
-	else if (speed == 2)
-		clock = cpu_clock_normal;
-	else
-		clock = cpu_clock_performance;
-
-	if (MINIME_traitAvailable(cpu_governor_path))
-		putFile(cpu_governor_path, (char*)governor);
-
-	if (MINIME_traitAvailable(cpu_clock_path) && clock > 0)
-		putInt(cpu_clock_path, clock);
-
-	setGpuClock(speed);
-}
+// Haptics
 
 void PLAT_setRumble(int strength) {
 	if (GetHDMI())

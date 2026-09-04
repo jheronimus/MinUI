@@ -10,8 +10,6 @@ int main(int argc , char* argv[]) {
 	char msg[1024];
 	sprintf(msg, "%s", argv[1]);
 	
-	PWR_setCPUSpeed(CPU_SPEED_MENU);
-	
 	SDL_Surface* screen = GFX_init(MODE_MAIN);
 	PAD_init();
 	PWR_init();

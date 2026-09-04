@@ -44,11 +44,6 @@ int gpu_clock_max = -1;
 
 char cpu_governor_path[MINIME_TRAIT_PATH_MAX] = "";
 char cpu_clock_path[MINIME_TRAIT_PATH_MAX] = "";
-int cpu_clock_menu = -1;
-int cpu_clock_powersave = -1;
-int cpu_clock_normal = -1;
-int cpu_clock_performance = -1;
-int cpu_undervolt_supported = 0;
 
 char audio_card[MINIME_TRAIT_NAME_MAX] = "default";
 char audio_mixer[MINIME_TRAIT_NAME_MAX] = "Master";
@@ -119,11 +114,6 @@ static const TraitField TRAIT_FIELDS[] = {
 	STR_BIND("screen_blank_path", screen_blank_path),
 	STR_BIND("cpu_governor_path", cpu_governor_path),
 	STR_BIND("cpu_clock_path", cpu_clock_path),
-	INT_BIND("cpu_clock_menu", cpu_clock_menu),
-	INT_BIND("cpu_clock_powersave", cpu_clock_powersave),
-	INT_BIND("cpu_clock_normal", cpu_clock_normal),
-	INT_BIND("cpu_clock_performance", cpu_clock_performance),
-	INT_BIND("cpu_undervolt_supported", cpu_undervolt_supported),
 	STR_BIND("gpu_device", gpu_device),
 	STR_BIND("gpu_hdmi_state_path", gpu_hdmi_state_path),
 	INT_BIND("gpu_clock_min", gpu_clock_min),
@@ -306,11 +296,6 @@ static void initTraitDefaults(void) {
 	screen_backlight_max = 255;
 	gpu_hdmi_width = 1280;
 	gpu_hdmi_height = 720;
-	cpu_clock_menu = -1;
-	cpu_clock_powersave = -1;
-	cpu_clock_normal = -1;
-	cpu_clock_performance = -1;
-	cpu_undervolt_supported = 0;
 	copyText(audio_card, sizeof(audio_card), "default");
 	copyText(audio_mixer, sizeof(audio_mixer), "Master");
 }

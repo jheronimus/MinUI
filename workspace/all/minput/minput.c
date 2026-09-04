@@ -42,8 +42,6 @@ static void blitButton(char* label, SDL_Surface* dst, int pressed, int x, int y,
 }
 
 int main(int argc , char* argv[]) {
-	PWR_setCPUSpeed(CPU_SPEED_MENU);
-	
 	SDL_Surface* screen = GFX_init(MODE_MAIN);
 	PAD_init();
 	PWR_init();

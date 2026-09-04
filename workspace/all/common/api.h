@@ -321,14 +321,6 @@ int PWR_setLidBehavior(int behavior);
 int PWR_setPowerButtonBehavior(int behavior);
 void PWR_requestLidAction(void);
 
-enum {
-	CPU_SPEED_MENU,
-	CPU_SPEED_POWERSAVE,
-	CPU_SPEED_NORMAL,
-	CPU_SPEED_PERFORMANCE,
-};
-#define PWR_setCPUSpeed PLAT_setCPUSpeed
-
 // ///////////////////////////////
 
 // Scan/refresh cycle shared by the wifi/bt settings tools. Call every tick
@@ -373,7 +365,6 @@ void PLAT_getBatteryStatus(int* is_charging, int* charge); // 0,1 and 0,10,20,40
 void PLAT_enableBacklight(int enable);
 void PLAT_powerOff(void);
 	
-void PLAT_setCPUSpeed(int speed); // enum
 void PLAT_setRumble(int strength);
 int PLAT_pickSampleRate(int requested, int max);
 

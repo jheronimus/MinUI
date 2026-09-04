@@ -49,11 +49,6 @@ extern int gpu_clock_max;
 // [cpu]
 extern char cpu_governor_path[MINIME_TRAIT_PATH_MAX];
 extern char cpu_clock_path[MINIME_TRAIT_PATH_MAX];
-extern int cpu_clock_menu;
-extern int cpu_clock_powersave;
-extern int cpu_clock_normal;
-extern int cpu_clock_performance;
-extern int cpu_undervolt_supported;
 
 // [audio]
 extern char audio_card[MINIME_TRAIT_NAME_MAX];

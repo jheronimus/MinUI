@@ -53,7 +53,7 @@ static int screen_scaling = SCALE_ASPECT;
 static int screen_sharpness = SHARPNESS_SOFT;
 static int screen_effect = EFFECT_NONE;
 static int prevent_tearing = 1; // lenient
-static int show_debug = 0;
+static int show_debug = 1;
 static int cpu_ticks = 0;
 static int fps_ticks = 0;
 static int use_ticks = 0;
@@ -63,7 +63,6 @@ static double use_double = 0;
 static uint32_t sec_start = 0;
 static int max_ff_speed = 3; // 4x
 static int fast_forward = 0;
-static int overclock = 1; // normal
 static int has_custom_controllers = 0;
 static int gamepad_type = 0; // index in gamepad_labels/gamepad_values
 static int downsample = 0;   // set to 1 to convert from 8888 to 565
@@ -935,10 +934,8 @@ static void hw_render_compositor_frame(unsigned width, unsigned height) {
 
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
   glViewport(0, 0, phys_w, phys_h);
-  if (dst_x > 0 || dst_y > 0 || dst_w < DEVICE_WIDTH || dst_h < DEVICE_HEIGHT) {
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-  }
+  glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+  glClear(GL_COLOR_BUFFER_BIT);
 
   glUseProgram(comp_prog);
   glActiveTexture(GL_TEXTURE0);
@@ -1593,7 +1590,6 @@ enum {
   FE_OPT_EFFECT,
   FE_OPT_SHARPNESS,
   FE_OPT_TEARING,
-  FE_OPT_OVERCLOCK,
   FE_OPT_THREAD,
   FE_OPT_DEBUG,
   FE_OPT_MAXFF,
@@ -1753,12 +1749,6 @@ static char *button_labels_select[] = {
     NULL,
 };
 static char **button_labels = button_labels_menu;
-static char *overclock_labels[] = {
-    "Powersave",
-    "Normal",
-    "Performance",
-    NULL,
-};
 
 // TODO: this should be provided by the core
 static char *gamepad_labels[] = {
@@ -1858,19 +1848,6 @@ static struct Config {
                          .values = tearing_labels,
                          .labels = tearing_labels,
                      },
-                 [FE_OPT_OVERCLOCK] =
-                     {
-                         .key = "minarch_cpu_speed",
-                         .name = "CPU Speed",
-                         .desc =
-                             "Over- or underclock the CPU to prioritize\npure "
-                             "performance or power savings.",
-                         .default_value = 1,
-                         .value = 1,
-                         .count = 3,
-                         .values = overclock_labels,
-                         .labels = overclock_labels,
-                     },
                  [FE_OPT_THREAD] =
                      {
                          .key = "minarch_thread_video",
@@ -1889,8 +1866,8 @@ static struct Config {
                          .name = "Debug HUD",
                          .desc = "Show frames per second, cpu "
                                  "load,\nresolution, and scaler information.",
-                         .default_value = 0,
-                         .value = 0,
+                         .default_value = 1,
+                         .value = 1,
                          .count = 2,
                          .values = onoff_labels,
                          .labels = onoff_labels,
@@ -2035,20 +2012,6 @@ static int Config_getValue(char *cfg, const char *key, char *out_value,
   return 1;
 }
 
-static void setOverclock(int i) {
-  overclock = i;
-  switch (i) {
-  case 0:
-    PWR_setCPUSpeed(CPU_SPEED_POWERSAVE);
-    break;
-  case 1:
-    PWR_setCPUSpeed(CPU_SPEED_NORMAL);
-    break;
-  case 2:
-    PWR_setCPUSpeed(CPU_SPEED_PERFORMANCE);
-    break;
-  }
-}
 static int toggle_thread = 0;
 static void Config_syncFrontend(char *key, int value) {
   int i = -1;
@@ -2084,9 +2047,6 @@ static void Config_syncFrontend(char *key, int value) {
     int old_value = thread_video || was_threaded;
     toggle_thread = old_value != value;
     i = FE_OPT_THREAD;
-  } else if (exactMatch(key, config.frontend.options[FE_OPT_OVERCLOCK].key)) {
-    overclock = value;
-    i = FE_OPT_OVERCLOCK;
   } else if (exactMatch(key, config.frontend.options[FE_OPT_DEBUG].key)) {
     show_debug = value;
     i = FE_OPT_DEBUG;
@@ -4565,12 +4525,10 @@ void Menu_beforeSleep(void) {
   RTC_write();
   State_autosave();
   putFile(AUTO_RESUME_PATH, game.path + strlen(SDCARD_PATH));
-  PWR_setCPUSpeed(CPU_SPEED_MENU);
 }
 void Menu_afterSleep(void) {
   // LOG_info("beforeSleep\n");
   unlink(AUTO_RESUME_PATH);
-  setOverclock(overclock);
 }
 
 static int MenuList_freeItems(MenuList *list, int i) {
@@ -5299,7 +5257,6 @@ static void Menu_loop(void) {
   PWR_warn(0);
   if (!HAS_POWER_BUTTON)
     PWR_enableSleep();
-  PWR_setCPUSpeed(CPU_SPEED_MENU); // set Hz directly
   GFX_setVsync(VSYNC_STRICT);
   GFX_setEffect(EFFECT_NONE);
 
@@ -5618,7 +5575,6 @@ static void Menu_loop(void) {
     video_refresh_callback(renderer.src, renderer.true_w, renderer.true_h,
                            renderer.src_p);
 
-    setOverclock(overclock); // restore overclock value
     if (rumble_strength)
       VIB_setStrength(rumble_strength);
 
@@ -6623,8 +6579,6 @@ int main(int argc, char *argv[]) {
   setenv("mesa_glthread", "true", 0);
   setenv("MESA_NO_ERROR", "1", 0);
   setenv("vblank_mode", "0", 0);
-
-  setOverclock(overclock); // default to normal
   // force a stack overflow to ensure asan is linked and actually working
   // char tmp[2];
   // tmp[2] = 'a';
@@ -6675,7 +6629,6 @@ int main(int argc, char *argv[]) {
   Config_init();
   Config_readOptions(); // cores with boot logo option (eg. gb) need to load
                         // options early
-  setOverclock(overclock);
   GFX_setVsync(prevent_tearing);
 
   Core_init();

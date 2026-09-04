@@ -1,8 +1,7 @@
 // Power settings PAK for Minime.
 // Reads/writes the power policy (sleep/auto-shutdown/lid/power button
-// behavior) via PWR_* in common/api.c + power.conf, and CPU undervolt via
-// device.sh. Changes apply on the next minui/minarch launch (they read
-// power.conf at PWR_init).
+// behavior) via PWR_* in common/api.c + power.conf. Changes apply on the
+// next minui/minarch launch (they read power.conf at PWR_init).
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,7 +16,6 @@
 #include "utils.h"
 
 #define POWER_POLICY_PATH USERDATA_PATH "/power.conf"
-#define DEVICE_SH "/usr/share/minime/scripts/device.sh"
 
 static const int power_timeout_values[] = {
 	PWR_TIMEOUT_OFF, PWR_TIMEOUT_1_MIN, PWR_TIMEOUT_5_MIN, PWR_TIMEOUT_15_MIN, PWR_TIMEOUT_30_MIN, PWR_TIMEOUT_1_HOUR,
@@ -81,56 +79,11 @@ static int write_power_policy(void) {
 	return 0;
 }
 
-// undervolt (RK3566 only) via device.sh
-static int undervolt_supported(void) {
-	return PLAT_hasUndervolt();
-}
-
 // lid (clamshell only): the trait holds the evdev name of the lid switch
 // device, e.g. "gpio-keys-lid". Devices without a clamshell (e.g. RG Arc)
 // leave it "na" and must not offer a Lid Behavior setting.
 static int lid_supported(void) {
 	return PLAT_hasLid();
-}
-
-static int undervolt_level(void) {
-	char buf[64];
-	char cmd[128];
-	FILE* f;
-
-	snprintf(cmd, sizeof(cmd), DEVICE_SH " get undervolt 2>/dev/null");
-	f = cmdOutput(cmd);
-	if (!f)
-		return 0;
-	buf[0] = '\0';
-	if (fgets(buf, sizeof(buf), f))
-		trimWhitespace(buf);
-	pclose(f);
-	if (!strcmp(buf, "l1"))
-		return 1;
-	if (!strcmp(buf, "l2"))
-		return 2;
-	if (!strcmp(buf, "l3"))
-		return 3;
-	return 0;
-}
-
-static int next_undervolt_level(int current, int direction) {
-	static const int levels[] = {0, 1, 2, 3};
-	return levels[next_enum_index(levels, 4, current, direction)];
-}
-
-static void set_undervolt(int level) {
-	const char* name = "off";
-	char cmd[128];
-
-	switch (level) {
-	case 1: name = "l1"; break;
-	case 2: name = "l2"; break;
-	case 3: name = "l3"; break;
-	}
-	snprintf(cmd, sizeof(cmd), DEVICE_SH " set undervolt %s >/dev/null 2>&1", name);
-	(void)system(cmd);
 }
 
 ///////////////////////////////////////
@@ -140,7 +93,6 @@ enum {
 	POWER_ITEM_AUTO_SHUTDOWN_TIMEOUT,
 	POWER_ITEM_LID_BEHAVIOR,
 	POWER_ITEM_POWER_BUTTON_BEHAVIOR,
-	POWER_ITEM_UNDERVOLT,
 };
 
 static const char* power_timeout_labels[] = {
@@ -148,9 +100,6 @@ static const char* power_timeout_labels[] = {
 };
 static const char* power_behavior_labels[] = {
 	"Sleep Only", "Auto Shutdown", "Shut Down Now", NULL,
-};
-static const char* undervolt_labels[] = {
-	"Off", "L1", "L2", "L3", NULL,
 };
 
 static void rebuild(MenuList* list) {
@@ -189,15 +138,6 @@ static void rebuild(MenuList* list) {
 	items[count].values = (char**)power_behavior_labels;
 	count++;
 
-	if (undervolt_supported()) {
-		items[count].name = "CPU Undervolt";
-		items[count].id = POWER_ITEM_UNDERVOLT;
-		items[count].desc = "Applies on next boot";
-		items[count].value = undervolt_level();
-		items[count].values = (char**)undervolt_labels;
-		count++;
-	}
-
 	items[count].name = NULL;
 	list->max_width = 0;
 }
@@ -225,9 +165,6 @@ static int on_change(MenuList* list, int i) {
 		                                                                                 : PWR_BEHAVIOR_SLEEP_ONLY;
 		PWR_setPowerButtonBehavior(behavior);
 		break;
-	case POWER_ITEM_UNDERVOLT:
-		set_undervolt(value);
-		break;
 	}
 	(void)write_power_policy();
 	return MENU_CALLBACK_NOP;
@@ -240,7 +177,6 @@ int main(int argc, char* argv[]) {
 	(void)argc;
 	(void)argv;
 
-	PWR_setCPUSpeed(CPU_SPEED_MENU);
 	screen = GFX_init(MODE_MAIN);
 	PAD_init();
 	InitSettings();

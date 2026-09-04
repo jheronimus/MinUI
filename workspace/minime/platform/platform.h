@@ -74,7 +74,6 @@ int PLAT_hasRightStick(void);
 int PLAT_hasBluetooth(void);
 int PLAT_hasWifi(void);
 const char* PLAT_getWifiInterface(void);
-int PLAT_hasUndervolt(void);
 int PLAT_hasLid(void);
 
 //////////////////////////////////////

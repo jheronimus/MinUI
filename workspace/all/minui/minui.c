@@ -1324,8 +1324,6 @@ int main (int argc, char *argv[]) {
 	Menu_init();
 	// LOG_info("- menu init: %lu\n", SDL_GetTicks() - main_begin);
 	
-	// now that (most of) the heavy lifting is done, take a load off
-	PWR_setCPUSpeed(CPU_SPEED_MENU);
 	GFX_setVsync(VSYNC_STRICT);
 
 	PAD_reset();

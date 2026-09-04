@@ -276,7 +276,6 @@ int main(int argc, char* argv[]) {
 	(void)argc;
 	(void)argv;
 
-	PWR_setCPUSpeed(CPU_SPEED_MENU);
 	screen = GFX_init(MODE_MAIN);
 	PAD_init();
 	InitSettings();
