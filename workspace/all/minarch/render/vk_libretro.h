@@ -230,6 +230,39 @@ typedef struct VkImageViewCreateInfo {
 	VkImageSubresourceRange subresourceRange;
 } VkImageViewCreateInfo;
 
+#ifndef VK_MAKE_VERSION
+#define VK_MAKE_VERSION(major, minor, patch) \
+	((((uint32_t)(major)) << 22) | (((uint32_t)(minor)) << 12) | ((uint32_t)(patch)))
+#endif
+#ifndef VK_API_VERSION_1_0
+#define VK_API_VERSION_1_0 VK_MAKE_VERSION(1, 0, 0)
+#endif
+#ifndef VK_API_VERSION_1_1
+#define VK_API_VERSION_1_1 VK_MAKE_VERSION(1, 1, 0)
+#endif
+
+typedef struct VkExtent3D {
+	uint32_t width;
+	uint32_t height;
+	uint32_t depth;
+} VkExtent3D;
+
+typedef struct VkQueueFamilyProperties {
+	VkQueueFlags queueFlags;
+	uint32_t queueCount;
+	uint32_t timestampValidBits;
+	VkExtent3D minImageTransferGranularity;
+} VkQueueFamilyProperties;
+
+typedef VkResult (*PFN_vkCreateInstance)(const VkInstanceCreateInfo* pCreateInfo, const void* pAllocator, VkInstance* pInstance);
+typedef void (*PFN_vkDestroyInstance)(VkInstance instance, const void* pAllocator);
+typedef VkResult (*PFN_vkEnumeratePhysicalDevices)(VkInstance instance, uint32_t* pPhysicalDeviceCount, VkPhysicalDevice* pPhysicalDevices);
+typedef void (*PFN_vkGetPhysicalDeviceQueueFamilyProperties)(VkPhysicalDevice physicalDevice, uint32_t* pQueueFamilyPropertyCount, VkQueueFamilyProperties* pQueueFamilyProperties);
+typedef VkResult (*PFN_vkCreateDevice)(VkPhysicalDevice physicalDevice, const VkDeviceCreateInfo* pCreateInfo, const void* pAllocator, VkDevice* pDevice);
+typedef void (*PFN_vkDestroyDevice)(VkDevice device, const void* pAllocator);
+typedef void (*PFN_vkGetDeviceQueue)(VkDevice device, uint32_t queueFamilyIndex, uint32_t queueIndex, VkQueue* pQueue);
+typedef VkResult (*PFN_vkDeviceWaitIdle)(VkDevice device);
+
 #endif // HAS_SYSTEM_VULKAN
 
 // Libretro Vulkan constants & structures

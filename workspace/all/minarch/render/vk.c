@@ -62,10 +62,17 @@ typedef struct {
 	struct retro_hw_render_interface_vulkan iface;
 	struct retro_hw_render_context_negotiation_interface_vulkan neg_iface;
 	bool has_neg_iface;
+	bool core_owns_device;
 
 	// Dynamic loader symbols
 	PFN_vkGetInstanceProcAddr get_instance_proc_addr;
 	PFN_vkGetDeviceProcAddr get_device_proc_addr;
+	PFN_vkCreateInstance create_instance;
+	PFN_vkDestroyInstance destroy_instance;
+	PFN_vkEnumeratePhysicalDevices enumerate_physical_devices;
+	PFN_vkGetPhysicalDeviceQueueFamilyProperties get_physical_device_queue_family_properties;
+	PFN_vkCreateDevice create_device;
+	PFN_vkDestroyDevice destroy_device;
 } vk_backend_t;
 
 static vk_backend_t vk = {
@@ -164,6 +171,166 @@ static void vk_cb_set_signal_semaphore(void* handle, VkSemaphore semaphore) {
 	(void)semaphore;
 }
 
+static VkInstance vk_create_instance_wrapper(void* opaque, const VkInstanceCreateInfo* create_info) {
+	(void)opaque;
+	if (!vk.create_instance) return VK_NULL_HANDLE;
+	VkInstance inst = VK_NULL_HANDLE;
+	if (vk.create_instance(create_info, NULL, &inst) != VK_SUCCESS) return VK_NULL_HANDLE;
+	return inst;
+}
+
+static const VkApplicationInfo* vk_get_app_info(void) {
+	if (vk.has_neg_iface && vk.neg_iface.get_application_info) {
+		const VkApplicationInfo* info = vk.neg_iface.get_application_info();
+		if (info) return info;
+	}
+	static const VkApplicationInfo default_app = {
+		.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+		.pApplicationName = "minarch",
+		.applicationVersion = 1,
+		.pEngineName = "minarch",
+		.engineVersion = 1,
+		.apiVersion = VK_API_VERSION_1_0,
+	};
+	return &default_app;
+}
+
+static bool vk_create_instance(void) {
+	if (vk.instance) return true;
+
+	vk.create_instance = (PFN_vkCreateInstance)vk.get_instance_proc_addr(NULL, "vkCreateInstance");
+	if (!vk.create_instance) return false;
+
+	const VkApplicationInfo* app_info = vk_get_app_info();
+	VkInstanceCreateInfo info = {
+		.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+		.pApplicationInfo = app_info,
+	};
+
+	if (vk.has_neg_iface && vk.neg_iface.create_instance) {
+		vk.instance = vk.neg_iface.create_instance(
+			vk.get_instance_proc_addr, app_info, vk_create_instance_wrapper, NULL);
+	}
+	if (!vk.instance && vk.create_instance(&info, NULL, &vk.instance) != VK_SUCCESS) {
+		return false;
+	}
+
+	vk.destroy_instance = (PFN_vkDestroyInstance)vk.get_instance_proc_addr(vk.instance, "vkDestroyInstance");
+	vk.enumerate_physical_devices = (PFN_vkEnumeratePhysicalDevices)vk.get_instance_proc_addr(vk.instance, "vkEnumeratePhysicalDevices");
+	vk.get_physical_device_queue_family_properties = (PFN_vkGetPhysicalDeviceQueueFamilyProperties)vk.get_instance_proc_addr(vk.instance, "vkGetPhysicalDeviceQueueFamilyProperties");
+	vk.create_device = (PFN_vkCreateDevice)vk.get_instance_proc_addr(vk.instance, "vkCreateDevice");
+	vk.destroy_device = (PFN_vkDestroyDevice)vk.get_instance_proc_addr(vk.instance, "vkDestroyDevice");
+	vk.get_device_proc_addr = (PFN_vkGetDeviceProcAddr)vk.get_instance_proc_addr(vk.instance, "vkGetDeviceProcAddr");
+	return true;
+}
+
+static bool vk_select_physical_device(void) {
+	if (vk.gpu) return true;
+	if (!vk.enumerate_physical_devices) return false;
+
+	uint32_t count = 0;
+	if (vk.enumerate_physical_devices(vk.instance, &count, NULL) != VK_SUCCESS || count == 0) {
+		return false;
+	}
+
+	VkPhysicalDevice gpus[4];
+	uint32_t max_gpus = (count > 4) ? 4 : count;
+	if (vk.enumerate_physical_devices(vk.instance, &max_gpus, gpus) != VK_SUCCESS || max_gpus == 0) {
+		return false;
+	}
+	vk.gpu = gpus[0];
+	return true;
+}
+
+static void vk_find_queue_family(void) {
+	if (!vk.get_physical_device_queue_family_properties || !vk.gpu) return;
+
+	uint32_t count = 0;
+	vk.get_physical_device_queue_family_properties(vk.gpu, &count, NULL);
+	if (count == 0) return;
+
+	VkQueueFamilyProperties props[4];
+	uint32_t max_props = (count > 4) ? 4 : count;
+	vk.get_physical_device_queue_family_properties(vk.gpu, &max_props, props);
+
+	for (uint32_t i = 0; i < max_props; i++) {
+		if (props[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+			vk.queue_family = i;
+			break;
+		}
+	}
+}
+
+static bool vk_create_fallback_device(void) {
+	if (!vk.create_device || !vk.gpu) return false;
+
+	float priority = 1.0f;
+	VkDeviceQueueCreateInfo q_info = {
+		.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+		.queueFamilyIndex = vk.queue_family,
+		.queueCount = 1,
+		.pQueuePriorities = &priority,
+	};
+	VkDeviceCreateInfo dev_info = {
+		.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+		.queueCreateInfoCount = 1,
+		.pQueueCreateInfos = &q_info,
+	};
+
+	if (vk.create_device(vk.gpu, &dev_info, NULL, &vk.device) != VK_SUCCESS) {
+		return false;
+	}
+	vk.core_owns_device = false;
+	return true;
+}
+
+static VkDevice vk_create_device_wrapper(VkPhysicalDevice gpu, void* opaque, const VkDeviceCreateInfo* create_info) {
+	(void)opaque;
+	if (!vk.create_device || !gpu) return VK_NULL_HANDLE;
+	VkDevice dev = VK_NULL_HANDLE;
+	if (vk.create_device(gpu, create_info, NULL, &dev) != VK_SUCCESS) return VK_NULL_HANDLE;
+	return dev;
+}
+
+static bool vk_try_negotiate_device(void) {
+	if (!vk.has_neg_iface) return false;
+	struct retro_vulkan_context ctx = { .gpu = vk.gpu };
+
+	if (vk.neg_iface.create_device2 &&
+		vk.neg_iface.create_device2(&ctx, vk.instance, vk.gpu, VK_NULL_HANDLE,
+									vk.get_instance_proc_addr, vk_create_device_wrapper, NULL)) {
+		vk.device = ctx.device;
+		vk.queue = ctx.queue;
+		vk.queue_family = ctx.queue_family_index;
+		if (ctx.gpu) vk.gpu = ctx.gpu;
+		vk.core_owns_device = true;
+		return true;
+	}
+	if (vk.neg_iface.create_device &&
+		vk.neg_iface.create_device(&ctx, vk.instance, vk.gpu, VK_NULL_HANDLE,
+								   vk.get_instance_proc_addr, NULL, 0, NULL, 0, NULL)) {
+		vk.device = ctx.device;
+		vk.queue = ctx.queue;
+		vk.queue_family = ctx.queue_family_index;
+		if (ctx.gpu) vk.gpu = ctx.gpu;
+		vk.core_owns_device = true;
+		return true;
+	}
+	return false;
+}
+
+static bool vk_create_device(void) {
+	if (vk.device) return true;
+	if (vk_try_negotiate_device()) return true;
+	if (!vk_create_fallback_device()) return false;
+
+	PFN_vkGetDeviceQueue get_queue = (PFN_vkGetDeviceQueue)vk.get_instance_proc_addr(vk.instance, "vkGetDeviceQueue");
+	if (get_queue) {
+		get_queue(vk.device, vk.queue_family, 0, &vk.queue);
+	}
+	return (vk.device != VK_NULL_HANDLE);
+}
+
 static void vk_populate_iface(void) {
 	vk.iface.interface_type = RETRO_HW_RENDER_INTERFACE_VULKAN;
 	vk.iface.interface_version = RETRO_HW_RENDER_INTERFACE_VULKAN_VERSION;
@@ -192,6 +359,18 @@ static bool vk_set_hw_render(struct retro_hw_render_callback* cb) {
 	return true;
 }
 
+static bool vk_get_hw_render_interface(void* data) {
+	const struct retro_hw_render_interface** out_iface =
+		(const struct retro_hw_render_interface**)data;
+	if (!out_iface) return false;
+	if (!vk.instance) vk_create_instance();
+	if (!vk.gpu) vk_select_physical_device();
+	if (!vk.device) vk_create_device();
+	vk_populate_iface();
+	*out_iface = (const struct retro_hw_render_interface*)&vk.iface;
+	return true;
+}
+
 static bool vk_handle_environ(unsigned cmd, void* data) {
 	if (!vk.lib && !vk_load_driver()) return false;
 
@@ -213,12 +392,7 @@ static bool vk_handle_environ(unsigned cmd, void* data) {
 	}
 
 	if (cmd == RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE) {
-		const struct retro_hw_render_interface** out_iface =
-			(const struct retro_hw_render_interface**)data;
-		if (!out_iface) return false;
-		vk_populate_iface();
-		*out_iface = (const struct retro_hw_render_interface*)&vk.iface;
-		return true;
+		return vk_get_hw_render_interface(data);
 	}
 
 	return false;
@@ -227,6 +401,15 @@ static bool vk_handle_environ(unsigned cmd, void* data) {
 static void vk_post_core_load(unsigned initial_w, unsigned initial_h) {
 	(void)initial_w;
 	(void)initial_h;
+	if (!vk_create_instance() || !vk_select_physical_device()) {
+		LOG_error("vk: failed to initialize Vulkan instance/device\n");
+		return;
+	}
+	vk_find_queue_family();
+	if (!vk_create_device()) {
+		LOG_error("vk: failed to create Vulkan logical device\n");
+		return;
+	}
 	vk_populate_iface();
 	if (vk.hw_render.context_reset) {
 		vk.hw_render.context_reset();
@@ -264,12 +447,24 @@ static SDL_Surface* vk_capture_surface(void) {
 	return surf;
 }
 
+static void vk_destroy_device_handle(void) {
+	if (vk.core_owns_device && vk.has_neg_iface && vk.neg_iface.destroy_device) {
+		vk.neg_iface.destroy_device();
+	} else if (vk.device && vk.destroy_device) {
+		vk.destroy_device(vk.device, NULL);
+	}
+	vk.device = VK_NULL_HANDLE;
+	vk.queue = VK_NULL_HANDLE;
+}
+
 static void vk_quit(void) {
 	if (vk.hw_render.context_destroy) {
 		vk.hw_render.context_destroy();
 	}
-	if (vk.has_neg_iface && vk.neg_iface.destroy_device) {
-		vk.neg_iface.destroy_device();
+	vk_destroy_device_handle();
+	if (vk.instance && vk.destroy_instance) {
+		vk.destroy_instance(vk.instance, NULL);
+		vk.instance = VK_NULL_HANDLE;
 	}
 	if (vk.lib) {
 		dlclose(vk.lib);
@@ -277,6 +472,7 @@ static void vk_quit(void) {
 	}
 	vk.available = false;
 	vk.initialized = false;
+	vk.core_owns_device = false;
 }
 
 render_backend_ops_t render_vk_ops = {
