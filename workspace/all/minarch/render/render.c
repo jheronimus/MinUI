@@ -1,6 +1,7 @@
 #include "render.h"
 #include <stdio.h>
 #include <string.h>
+#include "libretro.h"
 
 static render_backend_ops_t* current_backend = &render_sw_ops;
 static const char* preferred_backend = NULL;
@@ -20,7 +21,29 @@ void RENDER_init(int device_w, int device_h) {
 	current_backend = &render_sw_ops;
 }
 
+static bool handle_preferred_hw_render(void* data) {
+	unsigned* type = (unsigned*)data;
+	if (!type) return false;
+	if (preferred_backend && strcmp(preferred_backend, "gl") == 0) {
+		*type = RETRO_HW_CONTEXT_OPENGLES3;
+		return true;
+	}
+	if (preferred_backend && strcmp(preferred_backend, "vk") == 0) {
+		*type = RETRO_HW_CONTEXT_VULKAN;
+		return true;
+	}
+	if (render_vk_ops.handle_environ(RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER, NULL)) {
+		*type = RETRO_HW_CONTEXT_VULKAN;
+	} else {
+		*type = RETRO_HW_CONTEXT_OPENGLES3;
+	}
+	return true;
+}
+
 bool RENDER_handle_environ(unsigned cmd, void* data) {
+	if (cmd == RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER) {
+		return handle_preferred_hw_render(data);
+	}
 	if (preferred_backend && strcmp(preferred_backend, "gl") == 0) {
 		if (render_gl_ops.handle_environ(cmd, data)) {
 			current_backend = &render_gl_ops;

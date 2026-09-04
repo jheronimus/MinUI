@@ -185,15 +185,22 @@ static void vk_populate_iface(void) {
 	vk.iface.set_signal_semaphore = vk_cb_set_signal_semaphore;
 }
 
+static bool vk_set_hw_render(struct retro_hw_render_callback* cb) {
+	if (!cb || cb->context_type != RETRO_HW_CONTEXT_VULKAN) return false;
+	vk.hw_render = *cb;
+	cb->get_proc_address = (retro_hw_get_proc_address_t)vk.get_instance_proc_addr;
+	return true;
+}
+
 static bool vk_handle_environ(unsigned cmd, void* data) {
 	if (!vk.lib && !vk_load_driver()) return false;
 
-	if (cmd == RETRO_ENVIRONMENT_SET_HW_RENDER) {
-		struct retro_hw_render_callback* cb = (struct retro_hw_render_callback*)data;
-		if (!cb || cb->context_type != RETRO_HW_CONTEXT_VULKAN) return false;
-		vk.hw_render = *cb;
-		cb->get_proc_address = (retro_hw_get_proc_address_t)vk.get_instance_proc_addr;
+	if (cmd == RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER) {
 		return true;
+	}
+
+	if (cmd == RETRO_ENVIRONMENT_SET_HW_RENDER) {
+		return vk_set_hw_render((struct retro_hw_render_callback*)data);
 	}
 
 	if (cmd == RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE) {

@@ -2543,6 +2543,7 @@ static bool environment_callback(unsigned cmd,
     break;
   }
 
+  case RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER:                      /* 56 */
   case RETRO_ENVIRONMENT_SET_HW_RENDER:                                 /* 14 */
   case RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE:                      /* 41 | 0x10000 */
   case RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE: /* 43 | 0x10000 */
