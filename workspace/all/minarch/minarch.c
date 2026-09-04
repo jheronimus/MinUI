@@ -13,8 +13,8 @@
 #include <unistd.h>
 #include <zlib.h>
 
-#include <GLES2/gl2.h>
-#include <GLES2/gl2ext.h>
+#include "hud.h"
+#include "render.h"
 #include <samplerate.h>
 
 #include "api.h"
@@ -144,867 +144,13 @@ static struct Core {
 
 ///////////////////////////////////////
 
-#ifndef RETRO_HW_FRAME_BUFFER_VALID
-#define RETRO_HW_FRAME_BUFFER_VALID ((void *)-1)
-#endif
-
-static struct retro_hw_render_callback hw_render;
-static int hw_render_enabled = 0;
-static GLuint hw_fbo = 0;
-static GLuint hw_fbo_tex = 0;
-static GLuint hw_fbo_depth = 0;
-static unsigned hw_fbo_w = 0;
-static unsigned hw_fbo_h = 0;
-
-static GLuint comp_prog = 0;
-static GLuint comp_vbo = 0;
-static GLint comp_u_tex = -1;
-static GLint comp_u_sharpness = -1;
-static GLint comp_u_tex_size = -1;
-static GLint comp_u_out_size = -1;
-static GLint comp_u_effect = -1;
-static GLint comp_a_pos = -1;
-static GLint comp_a_texcoord = -1;
-
-static GLuint menu_prog = 0;
-static GLuint menu_vbo = 0;
-static GLuint menu_tex = 0;
-static GLint menu_u_tex = -1;
-static GLint menu_a_pos = -1;
-static GLint menu_a_texcoord = -1;
-
-static GLuint hud_vbo = 0;
-
-static SRC_STATE *audio_src_state = NULL;
-static float *audio_src_in = NULL;
-static float *audio_src_out = NULL;
-static size_t audio_src_in_cap = 0;
-static size_t audio_src_out_cap = 0;
-
-static uintptr_t hw_get_current_framebuffer(void) { return (uintptr_t)hw_fbo; }
-
-static GLuint hw_compile_shader(GLenum type, const char *src) {
-  GLuint shader = glCreateShader(type);
-  glShaderSource(shader, 1, &src, NULL);
-  glCompileShader(shader);
-  GLint ok = 0;
-  glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
-  if (!ok) {
-    char log[512];
-    glGetShaderInfoLog(shader, sizeof(log), NULL, log);
-    LOG_error("hw_compile_shader failed: %s\n", log);
-    glDeleteShader(shader);
-    return 0;
-  }
-  return shader;
-}
-
-static GLuint hw_create_program(const char *vsrc, const char *fsrc) {
-  GLuint vs = hw_compile_shader(GL_VERTEX_SHADER, vsrc);
-  GLuint fs = hw_compile_shader(GL_FRAGMENT_SHADER, fsrc);
-  if (!vs || !fs)
-    return 0;
-  GLuint prog = glCreateProgram();
-  glAttachShader(prog, vs);
-  glAttachShader(prog, fs);
-  glLinkProgram(prog);
-  glDeleteShader(vs);
-  glDeleteShader(fs);
-  GLint ok = 0;
-  glGetProgramiv(prog, GL_LINK_STATUS, &ok);
-  if (!ok) {
-    char log[512];
-    glGetProgramInfoLog(prog, sizeof(log), NULL, log);
-    LOG_error("hw_create_program link failed: %s\n", log);
-    glDeleteProgram(prog);
-    return 0;
-  }
-  return prog;
-}
-
-static void hw_render_menu_surface(SDL_Surface *surface);
-
-static void hw_init_compositor(void) {
-  if (comp_prog)
-    return;
-
-  const char *vsrc = "#version 100\n"
-                     "precision mediump float;\n"
-                     "attribute vec2 a_pos;\n"
-                     "attribute vec2 a_texcoord;\n"
-                     "varying vec2 v_texcoord;\n"
-                     "void main() {\n"
-                     "  gl_Position = vec4(a_pos, 0.0, 1.0);\n"
-                     "  v_texcoord = a_texcoord;\n"
-                     "}\n";
-
-  const char *fsrc =
-      "#version 100\n"
-      "precision mediump float;\n"
-      "varying vec2 v_texcoord;\n"
-      "uniform sampler2D u_tex;\n"
-      "uniform int u_sharpness;\n"
-      "uniform vec2 u_tex_size;\n"
-      "uniform vec2 u_out_size;\n"
-      "uniform int u_effect;\n"
-      "void main() {\n"
-      "  vec4 color;\n"
-      "  if (u_sharpness == 1) {\n"
-      "    vec2 p = v_texcoord * u_tex_size - 0.5;\n"
-      "    vec2 i = floor(p);\n"
-      "    vec2 f = p - i;\n"
-      "    vec2 f2 = f * f;\n"
-      "    vec2 f3 = f2 * f;\n"
-      "    vec2 w0 = f2 - 0.5 * (f3 + f);\n"
-      "    vec2 w1 = 1.5 * f3 - 2.5 * f2 + 1.0;\n"
-      "    vec2 tc = (i + 0.5 + f) / u_tex_size;\n"
-      "    color = texture2D(u_tex, tc);\n"
-      "  } else {\n"
-      "    color = texture2D(u_tex, v_texcoord);\n"
-      "  }\n"
-      "  if (u_effect == 1) {\n"
-      "    if (mod(gl_FragCoord.y, 2.0) < 1.0) color.rgb *= 0.7;\n"
-      "  } else if (u_effect == 2) {\n"
-      "    vec2 grid_val = mod(gl_FragCoord.xy, 2.0);\n"
-      "    if (grid_val.x < 1.0 || grid_val.y < 1.0) color.rgb *= 0.8;\n"
-      "  }\n"
-      "  gl_FragColor = color;\n"
-      "}\n";
-
-  comp_prog = hw_create_program(vsrc, fsrc);
-  if (comp_prog) {
-    comp_u_tex = glGetUniformLocation(comp_prog, "u_tex");
-    comp_u_sharpness = glGetUniformLocation(comp_prog, "u_sharpness");
-    comp_u_tex_size = glGetUniformLocation(comp_prog, "u_tex_size");
-    comp_u_out_size = glGetUniformLocation(comp_prog, "u_out_size");
-    comp_u_effect = glGetUniformLocation(comp_prog, "u_effect");
-    comp_a_pos = glGetAttribLocation(comp_prog, "a_pos");
-    comp_a_texcoord = glGetAttribLocation(comp_prog, "a_texcoord");
-    glGenBuffers(1, &comp_vbo);
-    glGenBuffers(1, &hud_vbo);
-  }
-
-  const char *menu_fsrc = "#version 100\n"
-                          "precision mediump float;\n"
-                          "varying vec2 v_texcoord;\n"
-                          "uniform sampler2D u_tex;\n"
-                          "void main() {\n"
-                          "  gl_FragColor = texture2D(u_tex, v_texcoord);\n"
-                          "}\n";
-
-  menu_prog = hw_create_program(vsrc, menu_fsrc);
-  if (menu_prog) {
-    menu_u_tex = glGetUniformLocation(menu_prog, "u_tex");
-    menu_a_pos = glGetAttribLocation(menu_prog, "a_pos");
-    menu_a_texcoord = glGetAttribLocation(menu_prog, "a_texcoord");
-    glGenBuffers(1, &menu_vbo);
-    glGenTextures(1, &menu_tex);
-    glBindTexture(GL_TEXTURE_2D, menu_tex);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    plat_custom_flip = hw_render_menu_surface;
-  }
-}
-
-static void hw_resize_fbo(unsigned width, unsigned height) {
-  if (width == 0 || height == 0)
-    return;
-  if (hw_fbo && hw_fbo_w == width && hw_fbo_h == height)
-    return;
-
-  hw_fbo_w = width;
-  hw_fbo_h = height;
-
-  if (!hw_fbo) {
-    glGenFramebuffers(1, &hw_fbo);
-    glGenTextures(1, &hw_fbo_tex);
-    if (hw_render.depth || hw_render.stencil)
-      glGenRenderbuffers(1, &hw_fbo_depth);
-  }
-
-  glBindTexture(GL_TEXTURE_2D, hw_fbo_tex);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA,
-               GL_UNSIGNED_BYTE, NULL);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-  if (hw_fbo_depth) {
-    glBindRenderbuffer(GL_RENDERBUFFER, hw_fbo_depth);
-    GLenum depth_fmt = GL_DEPTH_COMPONENT16;
-    if (hw_render.stencil)
-      depth_fmt = GL_DEPTH24_STENCIL8_OES;
-    glRenderbufferStorage(GL_RENDERBUFFER, depth_fmt, width, height);
-  }
-
-  glBindFramebuffer(GL_FRAMEBUFFER, hw_fbo);
-  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
-                         hw_fbo_tex, 0);
-  if (hw_fbo_depth) {
-    if (hw_render.depth)
-      glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-                                GL_RENDERBUFFER, hw_fbo_depth);
-    if (hw_render.stencil)
-      glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT,
-                                GL_RENDERBUFFER, hw_fbo_depth);
-  }
-
-  GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-  if (status != GL_FRAMEBUFFER_COMPLETE) {
-    LOG_error("hw_resize_fbo: FBO incomplete status=0x%x\n", status);
-  }
-  glBindFramebuffer(GL_FRAMEBUFFER, 0);
-}
-
-static SDL_Surface *hw_capture_fbo_surface(void) {
-  if (!hw_fbo || hw_fbo_w == 0 || hw_fbo_h == 0)
-    return NULL;
-  SDL_Surface *s = SDL_CreateRGBSurface(SDL_SWSURFACE, hw_fbo_w, hw_fbo_h,
-                                        FIXED_DEPTH, RGBA_MASK_565);
-  if (!s)
-    return NULL;
-  uint32_t *rgba = malloc(hw_fbo_w * hw_fbo_h * 4);
-  if (!rgba) {
-    SDL_FreeSurface(s);
-    return NULL;
-  }
-  glBindFramebuffer(GL_FRAMEBUFFER, hw_fbo);
-  glReadPixels(0, 0, hw_fbo_w, hw_fbo_h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
-  glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-  uint16_t *dst = (uint16_t *)s->pixels;
-  for (int y = 0; y < (int)hw_fbo_h; y++) {
-    int src_y = (hw_render.bottom_left_origin) ? ((int)hw_fbo_h - 1 - y) : y;
-    uint32_t *src_row = rgba + (src_y * hw_fbo_w);
-    uint16_t *dst_row = dst + (y * (s->pitch / 2));
-    for (int x = 0; x < (int)hw_fbo_w; x++) {
-      uint32_t px = src_row[x];
-      uint8_t r = px & 0xFF;
-      uint8_t g = (px >> 8) & 0xFF;
-      uint8_t b = (px >> 16) & 0xFF;
-      dst_row[x] = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
-    }
-  }
-  free(rgba);
-  return s;
-}
-
-static GLuint hw_hud_tex = 0;
-
-static void hw_render_menu_surface(SDL_Surface *surface) {
-  if (!surface || !menu_prog || !menu_tex || !menu_vbo)
-    return;
-
-  int phys_w = DEVICE_WIDTH;
-  int phys_h = DEVICE_HEIGHT;
-  int rot = PLAT_getScreenRotation();
-  if (rot == 90 || rot == 270) {
-    phys_w = DEVICE_HEIGHT;
-    phys_h = DEVICE_WIDTH;
-  }
-
-  glBindFramebuffer(GL_FRAMEBUFFER, 0);
-  glViewport(0, 0, phys_w, phys_h);
-  glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-  glClear(GL_COLOR_BUFFER_BIT);
-
-  glUseProgram(menu_prog);
-  glActiveTexture(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_2D, menu_tex);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, surface->w, surface->h, 0, GL_RGB,
-               GL_UNSIGNED_SHORT_5_6_5, surface->pixels);
-  glUniform1i(menu_u_tex, 0);
-
-#define ROT_X(lx, ly)                                                          \
-  ((rot == 90) ? (ly) : (rot == 180) ? -(lx) : (rot == 270) ? -(ly) : (lx))
-#define ROT_Y(lx, ly)                                                          \
-  ((rot == 90) ? -(lx) : (rot == 180) ? -(ly) : (rot == 270) ? (lx) : (ly))
-
-  float quad_verts[] = {
-      ROT_X(-1.0f, -1.0f), ROT_Y(-1.0f, -1.0f), 0.0f, 1.0f,
-      ROT_X(1.0f, -1.0f),  ROT_Y(1.0f, -1.0f),  1.0f, 1.0f,
-      ROT_X(-1.0f, 1.0f),  ROT_Y(-1.0f, 1.0f),  0.0f, 0.0f,
-      ROT_X(1.0f, 1.0f),   ROT_Y(1.0f, 1.0f),   1.0f, 0.0f,
-  };
-#undef ROT_X
-#undef ROT_Y
-
-  glBindBuffer(GL_ARRAY_BUFFER, menu_vbo);
-  glBufferData(GL_ARRAY_BUFFER, sizeof(quad_verts), quad_verts,
-               GL_DYNAMIC_DRAW);
-  glEnableVertexAttribArray(menu_a_pos);
-  glVertexAttribPointer(menu_a_pos, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
-                        (void *)0);
-  glEnableVertexAttribArray(menu_a_texcoord);
-  glVertexAttribPointer(menu_a_texcoord, 2, GL_FLOAT, GL_FALSE,
-                        4 * sizeof(float), (void *)(2 * sizeof(float)));
-
-  glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
-  glDisableVertexAttribArray(menu_a_pos);
-  glDisableVertexAttribArray(menu_a_texcoord);
-
-  PLAT_swapGL();
-}
-
-static const char *bitmap_font[] = {
-    ['0'] = " 111 "
-            "1   1"
-            "1   1"
-            "1  11"
-            "1 1 1"
-            "11  1"
-            "1   1"
-            "1   1"
-            " 111 ",
-    ['1'] = "   1 "
-            " 111 "
-            "   1 "
-            "   1 "
-            "   1 "
-            "   1 "
-            "   1 "
-            "   1 "
-            "   1 ",
-    ['2'] = " 111 "
-            "1   1"
-            "    1"
-            "   1 "
-            "  1  "
-            " 1   "
-            "1    "
-            "1    "
-            "11111",
-    ['3'] = " 111 "
-            "1   1"
-            "    1"
-            "    1"
-            " 111 "
-            "    1"
-            "    1"
-            "1   1"
-            " 111 ",
-    ['4'] = "1   1"
-            "1   1"
-            "1   1"
-            "1   1"
-            "1   1"
-            "1   1"
-            "11111"
-            "    1"
-            "    1",
-    ['5'] = "11111"
-            "1    "
-            "1    "
-            "1111 "
-            "    1"
-            "    1"
-            "    1"
-            "1   1"
-            " 111 ",
-    ['6'] = " 111 "
-            "1    "
-            "1    "
-            "1111 "
-            "1   1"
-            "1   1"
-            "1   1"
-            "1   1"
-            " 111 ",
-    ['7'] = "11111"
-            "    1"
-            "    1"
-            "   1 "
-            "  1  "
-            "  1  "
-            "  1  "
-            "  1  "
-            "  1  ",
-    ['8'] = " 111 "
-            "1   1"
-            "1   1"
-            "1   1"
-            " 111 "
-            "1   1"
-            "1   1"
-            "1   1"
-            " 111 ",
-    ['9'] = " 111 "
-            "1   1"
-            "1   1"
-            "1   1"
-            "1   1"
-            " 1111"
-            "    1"
-            "    1"
-            " 111 ",
-    ['.'] = "     "
-            "     "
-            "     "
-            "     "
-            "     "
-            "     "
-            "     "
-            " 11  "
-            " 11  ",
-    [','] = "     "
-            "     "
-            "     "
-            "     "
-            "     "
-            "     "
-            "  1  "
-            "  1  "
-            " 1   ",
-    [' '] = "     "
-            "     "
-            "     "
-            "     "
-            "     "
-            "     "
-            "     "
-            "     "
-            "     ",
-    ['('] = "   1 "
-            "  1  "
-            " 1   "
-            " 1   "
-            " 1   "
-            " 1   "
-            " 1   "
-            "  1  "
-            "   1 ",
-    [')'] = " 1   "
-            "  1  "
-            "   1 "
-            "   1 "
-            "   1 "
-            "   1 "
-            "   1 "
-            "  1  "
-            " 1   ",
-    ['/'] = "   1 "
-            "   1 "
-            "   1 "
-            "  1  "
-            "  1  "
-            "  1  "
-            " 1   "
-            " 1   "
-            " 1   ",
-    ['x'] = "     "
-            "     "
-            "1   1"
-            "1   1"
-            " 1 1 "
-            "  1  "
-            " 1 1 "
-            "1   1"
-            "1   1",
-    ['%'] = " 1   "
-            "1 1  "
-            "1 1 1"
-            " 1 1 "
-            "  1  "
-            " 1 1 "
-            "1 1 1"
-            "  1 1"
-            "   1 ",
-    ['-'] = "     "
-            "     "
-            "     "
-            "     "
-            " 111 "
-            "     "
-            "     "
-            "     "
-            "     ",
-};
-
-static void blitBitmapText(char *text, int ox, int oy, uint16_t *data,
-                           int stride, int width, int height) {
-#define CHAR_WIDTH 5
-#define CHAR_HEIGHT 9
-#define LETTERSPACING 1
-
-  int len = strlen(text);
-  int w = ((CHAR_WIDTH + LETTERSPACING) * len) - 1;
-  int h = CHAR_HEIGHT;
-
-  if (ox < 0)
-    ox = width - w + ox;
-  if (oy < 0)
-    oy = height - h + oy;
-
-  data += oy * stride + ox;
-  uint16_t *row = data - stride; // TODO: this will crash and burn if ox,oy==0,0
-                                 // but is fine as used currently :sweat_smile:
-  memset(row - 1, 0, (w + 2) * 2);
-  for (int y = 0; y < CHAR_HEIGHT; y++) {
-    row = data + y * stride;
-    memset(row - 1, 0, (w + 2) * 2);
-    for (int i = 0; i < len; i++) {
-      const char *c = bitmap_font[(unsigned char)text[i]];
-      if (!c)
-        continue;
-      for (int x = 0; x < CHAR_WIDTH; x++) {
-        int j = y * CHAR_WIDTH + x;
-        if (c[j] == '1')
-          *row = 0xffff;
-        row++;
-      }
-      row += LETTERSPACING;
-    }
-  }
-  row = data + CHAR_HEIGHT * stride;
-  memset(row - 1, 0, (w + 2) * 2);
-#undef CHAR_WIDTH
-#undef CHAR_HEIGHT
-#undef LETTERSPACING
-}
-
-static void blitBitmapTextRGBA(char *text, int ox, int oy, uint32_t *data,
-                               int stride, int width, int height) {
-#define CHAR_WIDTH 5
-#define CHAR_HEIGHT 9
-#define LETTERSPACING 1
-
-  int len = strlen(text);
-  int w = ((CHAR_WIDTH + LETTERSPACING) * len) - 1;
-  int h = CHAR_HEIGHT;
-
-  if (ox < 0)
-    ox = width - w + ox;
-  if (oy < 0)
-    oy = height - h + oy;
-
-  if (ox < 1)
-    ox = 1;
-  if (oy < 1)
-    oy = 1;
-  if (ox + w >= width)
-    ox = width - w - 1;
-  if (oy + h >= height)
-    oy = height - h - 1;
-
-  data += oy * stride + ox;
-  uint32_t *row = data - stride;
-  for (int i = -1; i <= w; i++)
-    row[i] = 0xFF000000;
-  for (int y = 0; y < CHAR_HEIGHT; y++) {
-    row = data + y * stride;
-    for (int i = -1; i <= w; i++)
-      row[i] = 0xFF000000;
-    for (int i = 0; i < len; i++) {
-      const char *c = bitmap_font[(unsigned char)text[i]];
-      if (!c)
-        continue;
-      for (int x = 0; x < CHAR_WIDTH; x++) {
-        int j = y * CHAR_WIDTH + x;
-        if (c[j] == '1')
-          row[i * (CHAR_WIDTH + LETTERSPACING) + x] = 0xFFFFFFFF;
-      }
-    }
-  }
-  row = data + CHAR_HEIGHT * stride;
-  for (int i = -1; i <= w; i++)
-    row[i] = 0xFF000000;
-
-#undef CHAR_WIDTH
-#undef CHAR_HEIGHT
-#undef LETTERSPACING
-}
-
-static SDL_Surface *hw_hud_surf = NULL;
-
-static void hw_draw_hud(void) {
-  if (!show_debug)
-    return;
-
-  if (!hw_hud_surf) {
-    hw_hud_surf = SDL_CreateRGBSurfaceWithFormat(0, DEVICE_WIDTH, DEVICE_HEIGHT,
-                                                 32, SDL_PIXELFORMAT_RGBA32);
-    if (!hw_hud_surf)
-      return;
-  }
-
-  if (!hw_hud_tex) {
-    glGenTextures(1, &hw_hud_tex);
-    glBindTexture(GL_TEXTURE_2D, hw_hud_tex);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, DEVICE_WIDTH, DEVICE_HEIGHT, 0,
-                 GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-  }
-
-  static double prev_fps = -1.0, prev_cpu = -1.0, prev_use = -1.0;
-  static unsigned prev_fw = 0, prev_fh = 0;
-  int hud_changed =
-      (fps_double != prev_fps || cpu_double != prev_cpu ||
-       use_double != prev_use || hw_fbo_w != prev_fw || hw_fbo_h != prev_fh);
-  if (hud_changed) {
-    prev_fps = fps_double;
-    prev_cpu = cpu_double;
-    prev_use = use_double;
-    prev_fw = hw_fbo_w;
-    prev_fh = hw_fbo_h;
-
-    memset(hw_hud_surf->pixels, 0, hw_hud_surf->pitch * hw_hud_surf->h);
-
-    int x = 2;
-    int y = 2;
-    char debug_text[128];
-
-    // 1. Top-Left: src_w x src_h scale
-    sprintf(debug_text, "%ux%u %ix", hw_fbo_w, hw_fbo_h, 1);
-    blitBitmapTextRGBA(debug_text, x, y, (uint32_t *)hw_hud_surf->pixels,
-                       hw_hud_surf->pitch / 4, DEVICE_WIDTH, DEVICE_HEIGHT);
-
-    // 2. Top-Right: 0,0 (src_w)x(src_h)
-    sprintf(debug_text, "%i,%i %ux%u", 0, 0, hw_fbo_w, hw_fbo_h);
-    blitBitmapTextRGBA(debug_text, -x, y, (uint32_t *)hw_hud_surf->pixels,
-                       hw_hud_surf->pitch / 4, DEVICE_WIDTH, DEVICE_HEIGHT);
-
-    // 3. Bottom-Left: fps / cpu_fps use%
-    sprintf(debug_text, "%.01f/%.01f %i%%", fps_double, cpu_double,
-            (int)use_double);
-    blitBitmapTextRGBA(debug_text, x, -y, (uint32_t *)hw_hud_surf->pixels,
-                       hw_hud_surf->pitch / 4, DEVICE_WIDTH, DEVICE_HEIGHT);
-
-    // 4. Bottom-Right: dst_w x dst_h
-    sprintf(debug_text, "%ix%i", DEVICE_WIDTH, DEVICE_HEIGHT);
-    blitBitmapTextRGBA(debug_text, -x, -y, (uint32_t *)hw_hud_surf->pixels,
-                       hw_hud_surf->pitch / 4, DEVICE_WIDTH, DEVICE_HEIGHT);
-
-    glBindTexture(GL_TEXTURE_2D, hw_hud_tex);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, DEVICE_WIDTH, DEVICE_HEIGHT,
-                    GL_RGBA, GL_UNSIGNED_BYTE, hw_hud_surf->pixels);
-  }
-
-  int rot = PLAT_getScreenRotation();
-
-#define ROT_X(lx, ly)                                                          \
-  ((rot == 90) ? (ly) : (rot == 180) ? -(lx) : (rot == 270) ? -(ly) : (lx))
-#define ROT_Y(lx, ly)                                                          \
-  ((rot == 90) ? -(lx) : (rot == 180) ? -(ly) : (rot == 270) ? (lx) : (ly))
-
-  float hud_verts[] = {
-      ROT_X(-1.0f, -1.0f), ROT_Y(-1.0f, -1.0f), 0.0f, 1.0f,
-      ROT_X(1.0f, -1.0f),  ROT_Y(1.0f, -1.0f),  1.0f, 1.0f,
-      ROT_X(-1.0f, 1.0f),  ROT_Y(-1.0f, 1.0f),  0.0f, 0.0f,
-      ROT_X(1.0f, 1.0f),   ROT_Y(1.0f, 1.0f),   1.0f, 0.0f,
-  };
-#undef ROT_X
-#undef ROT_Y
-
-  glEnable(GL_BLEND);
-  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-  GLuint prog = menu_prog ? menu_prog : comp_prog;
-  glUseProgram(prog);
-  glActiveTexture(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_2D, hw_hud_tex);
-  if (menu_prog) {
-    glUniform1i(menu_u_tex, 0);
-  } else {
-    glUniform1i(comp_u_tex, 0);
-    glUniform1i(comp_u_sharpness, 0);
-    glUniform2f(comp_u_tex_size, (float)DEVICE_WIDTH, (float)DEVICE_HEIGHT);
-    glUniform2f(comp_u_out_size, (float)DEVICE_WIDTH, (float)DEVICE_HEIGHT);
-    glUniform1i(comp_u_effect, EFFECT_NONE);
-  }
-
-  GLint pos_attr = menu_prog ? menu_a_pos : comp_a_pos;
-  GLint uv_attr = menu_prog ? menu_a_texcoord : comp_a_texcoord;
-
-  glBindBuffer(GL_ARRAY_BUFFER, hud_vbo);
-  glBufferData(GL_ARRAY_BUFFER, sizeof(hud_verts), hud_verts, GL_DYNAMIC_DRAW);
-  glEnableVertexAttribArray(pos_attr);
-  glVertexAttribPointer(pos_attr, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
-                        (void *)0);
-  glEnableVertexAttribArray(uv_attr);
-  glVertexAttribPointer(uv_attr, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
-                        (void *)(2 * sizeof(float)));
-
-  glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
-  glDisableVertexAttribArray(pos_attr);
-  glDisableVertexAttribArray(uv_attr);
-  glDisable(GL_BLEND);
-}
-
-static void hw_destroy_compositor(void) {
-  if (hw_hud_surf) {
-    SDL_FreeSurface(hw_hud_surf);
-    hw_hud_surf = NULL;
-  }
-  if (hw_hud_tex) {
-    glDeleteTextures(1, &hw_hud_tex);
-    hw_hud_tex = 0;
-  }
-  plat_custom_flip = NULL;
-  if (hw_fbo) {
-    glDeleteFramebuffers(1, &hw_fbo);
-    hw_fbo = 0;
-  }
-  if (hw_fbo_tex) {
-    glDeleteTextures(1, &hw_fbo_tex);
-    hw_fbo_tex = 0;
-  }
-  if (hw_fbo_depth) {
-    glDeleteRenderbuffers(1, &hw_fbo_depth);
-    hw_fbo_depth = 0;
-  }
-  hw_fbo_w = 0;
-  hw_fbo_h = 0;
-  if (comp_prog) {
-    glDeleteProgram(comp_prog);
-    comp_prog = 0;
-  }
-  if (comp_vbo) {
-    glDeleteBuffers(1, &comp_vbo);
-    comp_vbo = 0;
-  }
-  if (hud_vbo) {
-    glDeleteBuffers(1, &hud_vbo);
-    hud_vbo = 0;
-  }
-  if (menu_prog) {
-    glDeleteProgram(menu_prog);
-    menu_prog = 0;
-  }
-  if (menu_vbo) {
-    glDeleteBuffers(1, &menu_vbo);
-    menu_vbo = 0;
-  }
-  if (menu_tex) {
-    glDeleteTextures(1, &menu_tex);
-    menu_tex = 0;
-  }
+static void cleanup_audio_resampler(void) {
   if (audio_src_state) {
     src_delete(audio_src_state);
     audio_src_state = NULL;
   }
-  if (audio_src_in) {
-    free(audio_src_in);
-    audio_src_in = NULL;
-    audio_src_in_cap = 0;
-  }
-  if (audio_src_out) {
-    free(audio_src_out);
-    audio_src_out = NULL;
-    audio_src_out_cap = 0;
-  }
 }
 
-static void hw_render_compositor_frame(unsigned width, unsigned height) {
-  hw_resize_fbo(width, height);
-
-  int dst_x = 0, dst_y = 0, dst_w = DEVICE_WIDTH, dst_h = DEVICE_HEIGHT;
-  double aspect = core.aspect_ratio > 0.0 ? core.aspect_ratio
-                                          : ((double)width / (double)height);
-  if (screen_scaling == SCALE_ASPECT) {
-    dst_h = DEVICE_HEIGHT;
-    dst_w = (int)(dst_h * aspect);
-    if (dst_w > DEVICE_WIDTH) {
-      dst_w = DEVICE_WIDTH;
-      dst_h = (int)(dst_w / aspect);
-    }
-    dst_x = (DEVICE_WIDTH - dst_w) / 2;
-    dst_y = (DEVICE_HEIGHT - dst_h) / 2;
-  } else if (screen_scaling == SCALE_NATIVE) {
-    dst_w = width;
-    dst_h = height;
-    dst_x = (DEVICE_WIDTH - dst_w) / 2;
-    dst_y = (DEVICE_HEIGHT - dst_h) / 2;
-  }
-
-  int phys_w = DEVICE_WIDTH;
-  int phys_h = DEVICE_HEIGHT;
-  int rot = PLAT_getScreenRotation();
-  if (rot == 90 || rot == 270) {
-    phys_w = DEVICE_HEIGHT;
-    phys_h = DEVICE_WIDTH;
-  }
-
-  glBindFramebuffer(GL_FRAMEBUFFER, 0);
-  glViewport(0, 0, phys_w, phys_h);
-  glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-  glClear(GL_COLOR_BUFFER_BIT);
-
-  glUseProgram(comp_prog);
-  glActiveTexture(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_2D, hw_fbo_tex);
-  glUniform1i(comp_u_tex, 0);
-  glUniform1i(comp_u_sharpness, screen_sharpness);
-  glUniform2f(comp_u_tex_size, (float)width, (float)height);
-  glUniform2f(comp_u_out_size, (float)dst_w, (float)dst_h);
-  glUniform1i(comp_u_effect, screen_effect);
-
-  float v0 = hw_render.bottom_left_origin ? 0.0f : 1.0f;
-  float v1 = hw_render.bottom_left_origin ? 1.0f : 0.0f;
-
-  float x0 = (float)dst_x / (float)DEVICE_WIDTH * 2.0f - 1.0f;
-  float x1 = (float)(dst_x + dst_w) / (float)DEVICE_WIDTH * 2.0f - 1.0f;
-  float y0 = 1.0f - (float)(dst_y + dst_h) / (float)DEVICE_HEIGHT * 2.0f;
-  float y1 = 1.0f - (float)dst_y / (float)DEVICE_HEIGHT * 2.0f;
-
-  float p_bl_x = x0, p_bl_y = y0;
-  float p_br_x = x1, p_br_y = y0;
-  float p_tl_x = x0, p_tl_y = y1;
-  float p_tr_x = x1, p_tr_y = y1;
-
-#define ROT_X(lx, ly)                                                          \
-  ((rot == 90) ? (ly) : (rot == 180) ? -(lx) : (rot == 270) ? -(ly) : (lx))
-#define ROT_Y(lx, ly)                                                          \
-  ((rot == 90) ? -(lx) : (rot == 180) ? -(ly) : (rot == 270) ? (lx) : (ly))
-
-  float quad_verts[] = {
-      ROT_X(p_bl_x, p_bl_y), ROT_Y(p_bl_x, p_bl_y), 0.0f, v0,
-      ROT_X(p_br_x, p_br_y), ROT_Y(p_br_x, p_br_y), 1.0f, v0,
-      ROT_X(p_tl_x, p_tl_y), ROT_Y(p_tl_x, p_tl_y), 0.0f, v1,
-      ROT_X(p_tr_x, p_tr_y), ROT_Y(p_tr_x, p_tr_y), 1.0f, v1,
-  };
-#undef ROT_X
-#undef ROT_Y
-
-  glBindBuffer(GL_ARRAY_BUFFER, comp_vbo);
-  static float prev_quad[16] = {0};
-  static int quad_initialized = 0;
-  if (!quad_initialized ||
-      memcmp(prev_quad, quad_verts, sizeof(quad_verts)) != 0) {
-    memcpy(prev_quad, quad_verts, sizeof(quad_verts));
-    glBufferData(GL_ARRAY_BUFFER, sizeof(quad_verts), quad_verts,
-                 GL_DYNAMIC_DRAW);
-    quad_initialized = 1;
-  }
-  glEnableVertexAttribArray(comp_a_pos);
-  glVertexAttribPointer(comp_a_pos, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
-                        (void *)0);
-  glEnableVertexAttribArray(comp_a_texcoord);
-  glVertexAttribPointer(comp_a_texcoord, 2, GL_FLOAT, GL_FALSE,
-                        4 * sizeof(float), (void *)(2 * sizeof(float)));
-
-  glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
-  glDisableVertexAttribArray(comp_a_pos);
-  glDisableVertexAttribArray(comp_a_texcoord);
-
-  hw_draw_hud();
-
-  PLAT_swapGL();
-
-  // Re-bind core FBO for next frame
-  glBindFramebuffer(GL_FRAMEBUFFER, hw_fbo);
-  glViewport(0, 0, hw_fbo_w, hw_fbo_h);
-}
-
-///////////////////////////////////////
 // based on picoarch/unzip.c
 
 #define ZIP_HEADER_SIZE 30
@@ -2024,11 +1170,13 @@ static void Config_syncFrontend(char *key, int value) {
       GFX_setSharpness(screen_sharpness);
 
     renderer.dst_p = 0;
+    RENDER_set_scaling(screen_scaling);
     i = FE_OPT_SCALING;
   } else if (exactMatch(key, config.frontend.options[FE_OPT_EFFECT].key)) {
     screen_effect = value;
     GFX_setEffect(value);
     renderer.dst_p = 0;
+    RENDER_set_effect(value);
     i = FE_OPT_EFFECT;
   } else if (exactMatch(key, config.frontend.options[FE_OPT_SHARPNESS].key)) {
     screen_sharpness = value;
@@ -2039,6 +1187,7 @@ static void Config_syncFrontend(char *key, int value) {
       GFX_setSharpness(screen_sharpness);
 
     renderer.dst_p = 0;
+    RENDER_set_sharpness(screen_sharpness);
     i = FE_OPT_SHARPNESS;
   } else if (exactMatch(key, config.frontend.options[FE_OPT_TEARING].key)) {
     prevent_tearing = value;
@@ -3378,31 +2527,11 @@ static bool environment_callback(unsigned cmd,
     break;
   }
 
-  case RETRO_ENVIRONMENT_SET_HW_RENDER: { /* 14 */
-    struct retro_hw_render_callback *cb =
-        (struct retro_hw_render_callback *)data;
-    if (!cb)
-      return false;
-    if (cb->context_type != RETRO_HW_CONTEXT_OPENGLES2 &&
-        cb->context_type != RETRO_HW_CONTEXT_OPENGLES3 &&
-        cb->context_type != RETRO_HW_CONTEXT_OPENGL &&
-        cb->context_type != RETRO_HW_CONTEXT_OPENGL_CORE) {
-      LOG_info("minarch: unsupported HW render context type %u\n",
-               cb->context_type);
-      return false;
-    }
-    memcpy(&hw_render, cb, sizeof(hw_render));
-    hw_render.get_proc_address =
-        (retro_hw_get_proc_address_t)PLAT_getGLProcAddress;
-    hw_render.get_current_framebuffer = hw_get_current_framebuffer;
-    cb->get_proc_address = hw_render.get_proc_address;
-    cb->get_current_framebuffer = hw_render.get_current_framebuffer;
-    hw_render_enabled = 1;
-    LOG_info(
-        "minarch: HW render enabled: type=%u, v%u.%u, depth=%d, stencil=%d\n",
-        cb->context_type, cb->version_major, cb->version_minor, cb->depth,
-        cb->stencil);
-    return true;
+  case RETRO_ENVIRONMENT_SET_HW_RENDER:                                 /* 14 */
+  case RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE:                      /* 41 | 0x10000 */
+  case RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE: /* 43 | 0x10000 */
+  {
+    return RENDER_handle_environ(cmd, data);
   }
 
   // TODO: this is called whether using variables or options
@@ -4075,9 +3204,10 @@ static void selectScaler(int src_w, int src_h, int src_p) {
 }
 static void video_refresh_callback_main(const void *data, unsigned width,
                                         unsigned height, size_t pitch) {
-  if (hw_render_enabled) {
+  if (RENDER_is_hw_active()) {
     fps_ticks += 1;
-    hw_render_compositor_frame(width, height);
+    RENDER_update_debug(fps_double, cpu_double, use_double, show_debug);
+    RENDER_video_refresh(data, width, height, pitch);
     return;
   }
 
@@ -4120,7 +3250,7 @@ static void video_refresh_callback_main(const void *data, unsigned width,
   }
 
   // debug
-  if (show_debug && data && (intptr_t)data != -1 && !hw_render_enabled) {
+  if (show_debug && data && (intptr_t)data != -1 && !RENDER_is_hw_active()) {
     int x = 2 + renderer.src_x;
     int y = 2 + renderer.src_y;
     char debug_text[128];
@@ -4129,22 +3259,22 @@ static void video_refresh_callback_main(const void *data, unsigned width,
       scale = 1; // nearest neighbor flag
 
     sprintf(debug_text, "%ix%i %ix", renderer.src_w, renderer.src_h, scale);
-    blitBitmapText(debug_text, x, y, (uint16_t *)data, pitch / 2, width,
-                   height);
+    RENDER_blitBitmapTextRGB565(debug_text, x, y, (uint16_t *)data, pitch / 2, width,
+                                height);
 
     sprintf(debug_text, "%i,%i %ix%i", renderer.dst_x, renderer.dst_y,
             renderer.src_w * scale, renderer.src_h * scale);
-    blitBitmapText(debug_text, -x, y, (uint16_t *)data, pitch / 2, width,
-                   height);
+    RENDER_blitBitmapTextRGB565(debug_text, -x, y, (uint16_t *)data, pitch / 2, width,
+                                height);
 
     sprintf(debug_text, "%.01f/%.01f %i%%", fps_double, cpu_double,
             (int)use_double);
-    blitBitmapText(debug_text, x, -y, (uint16_t *)data, pitch / 2, width,
-                   height);
+    RENDER_blitBitmapTextRGB565(debug_text, x, -y, (uint16_t *)data, pitch / 2, width,
+                                height);
 
     sprintf(debug_text, "%ix%i", renderer.dst_w, renderer.dst_h);
-    blitBitmapText(debug_text, -x, -y, (uint16_t *)data, pitch / 2, width,
-                   height);
+    RENDER_blitBitmapTextRGB565(debug_text, -x, -y, (uint16_t *)data, pitch / 2, width,
+                                height);
   }
 
   if (downsample) {
@@ -4165,7 +3295,7 @@ static void video_refresh_callback_main(const void *data, unsigned width,
 }
 static void video_refresh_callback(const void *data, unsigned width,
                                    unsigned height, size_t pitch) {
-  if (hw_render_enabled) {
+  if (RENDER_is_hw_active()) {
     video_refresh_callback_main(data, width, height, pitch);
     return;
   }
@@ -4365,28 +3495,15 @@ void Core_load(void) {
   LOG_info("aspect_ratio: %f (%ix%i) fps: %f\n", a, av_info.geometry.base_width,
            av_info.geometry.base_height, core.fps);
 
-  if (hw_render_enabled) {
-    int gles = (hw_render.context_type == RETRO_HW_CONTEXT_OPENGLES2 ||
-                hw_render.context_type == RETRO_HW_CONTEXT_OPENGLES3);
-    int major = hw_render.version_major ? hw_render.version_major : 3;
-    LOG_info("minarch: calling PLAT_initGLContext\n");
-    PLAT_initGLContext(major, hw_render.version_minor, gles);
-    LOG_info("minarch: calling hw_init_compositor\n");
-    hw_init_compositor();
-    unsigned initial_w =
-        av_info.geometry.base_width ? av_info.geometry.base_width : 640;
-    unsigned initial_h =
-        av_info.geometry.base_height ? av_info.geometry.base_height : 480;
-    LOG_info("minarch: calling hw_resize_fbo(%u, %u)\n", initial_w, initial_h);
-    hw_resize_fbo(initial_w, initial_h);
-    glBindFramebuffer(GL_FRAMEBUFFER, hw_fbo);
-    glViewport(0, 0, initial_w, initial_h);
-    if (hw_render.context_reset) {
-      LOG_info("minarch: calling context_reset\n");
-      hw_render.context_reset();
-    }
-    LOG_info("minarch: HW render initialized\n");
-  }
+  RENDER_set_scaling(screen_scaling);
+  RENDER_set_sharpness(screen_sharpness);
+  RENDER_set_effect(screen_effect);
+  RENDER_set_aspect(core.aspect_ratio);
+  unsigned initial_w =
+      av_info.geometry.base_width ? av_info.geometry.base_width : 640;
+  unsigned initial_h =
+      av_info.geometry.base_height ? av_info.geometry.base_height : 480;
+  RENDER_post_core_load(initial_w, initial_h);
 }
 void Core_reset(void) {
   core.reset();
@@ -4397,16 +3514,11 @@ void Core_quit(void) {
   if (core.initialized) {
     SRAM_write();
     RTC_write();
-    if (hw_render_enabled && hw_render.context_destroy)
-      hw_render.context_destroy();
     core.unload_game();
     core.deinit();
     core.initialized = 0;
-    if (hw_render_enabled) {
-      hw_destroy_compositor();
-      PLAT_quitGLContext();
-      hw_render_enabled = 0;
-    }
+    cleanup_audio_resampler();
+    RENDER_quit();
   }
 }
 void Core_close(void) {
@@ -5140,8 +4252,8 @@ static void Menu_saveState(void) {
 
   SDL_Surface *bitmap = menu.bitmap;
   if (!bitmap) {
-    if (hw_render_enabled)
-      bitmap = hw_capture_fbo_surface();
+    if (RENDER_is_hw_active())
+      bitmap = RENDER_capture_surface();
     else if (renderer.src)
       bitmap = SDL_CreateRGBSurfaceFrom(renderer.src, renderer.true_w,
                                         renderer.true_h, FIXED_DEPTH,
@@ -5232,8 +4344,8 @@ static char *getAlias(char *path, char *alias) {
 }
 
 static void Menu_loop(void) {
-  if (hw_render_enabled) {
-    menu.bitmap = hw_capture_fbo_surface();
+  if (RENDER_is_hw_active()) {
+    menu.bitmap = RENDER_capture_surface();
   } else if (renderer.src) {
     menu.bitmap =
         SDL_CreateRGBSurfaceFrom(renderer.src, renderer.true_w, renderer.true_h,
@@ -5594,10 +4706,8 @@ static void Menu_loop(void) {
   SDL_FreeSurface(menu.bitmap);
   menu.bitmap = NULL;
   SDL_FreeSurface(backing);
-  if (hw_render_enabled) {
-    PLAT_initGLContext(3, 0, 1);
-    glBindFramebuffer(GL_FRAMEBUFFER, hw_fbo);
-    glViewport(0, 0, hw_fbo_w, hw_fbo_h);
+  if (RENDER_is_hw_active()) {
+    RENDER_post_menu();
   }
   PWR_disableAutosleep();
 }
@@ -6554,7 +5664,7 @@ static void run_frame(void) {
 static void *coreThread(void *arg) {
   // force a vsync immediately before loop
   // for better frame pacing?
-  if (!hw_render_enabled) {
+  if (!RENDER_is_hw_active()) {
     GFX_clearAll();
     GFX_flip(screen);
   }
@@ -6598,6 +5708,8 @@ int main(int argc, char *argv[]) {
   DEVICE_WIDTH = screen->w;
   DEVICE_HEIGHT = screen->h;
   DEVICE_PITCH = screen->pitch;
+  RENDER_init(DEVICE_WIDTH, DEVICE_HEIGHT);
+  RENDER_set_preferred_backend(getenv("MINARCH_RENDERER"));
   // LOG_info("DEVICE_SIZE: %ix%i (%i)\n",
   // DEVICE_WIDTH,DEVICE_HEIGHT,DEVICE_PITCH);
 
@@ -6674,7 +5786,7 @@ int main(int argc, char *argv[]) {
 
   // force a vsync immediately before loop
   // for better frame pacing?
-  if (!hw_render_enabled) {
+  if (!RENDER_is_hw_active()) {
     GFX_clearAll();
     GFX_flip(screen);
   }

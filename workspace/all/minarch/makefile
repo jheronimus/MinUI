@@ -20,8 +20,8 @@ SDL?=SDL
 ###########################################################
 
 TARGET = minarch
-INCDIR = -I. -I./libretro-common/include/ -I../common/ -I../../$(PLATFORM)/platform/
-SOURCE = $(TARGET).c ../common/scaler.c ../common/utils.c ../common/api.c ../common/menu.c ../../$(PLATFORM)/platform/platform.c
+INCDIR = -I. -I./render/ -I./libretro-common/include/ -I../common/ -I../../$(PLATFORM)/platform/
+SOURCE = $(TARGET).c render/render.c render/viewport.c render/hud.c render/sw.c render/gl.c render/vk.c ../common/scaler.c ../common/utils.c ../common/api.c ../common/menu.c ../../$(PLATFORM)/platform/platform.c
 
 CC = $(CROSS_COMPILE)gcc
 CFLAGS   = $(ARCH) -fomit-frame-pointer
