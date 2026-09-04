@@ -198,8 +198,12 @@ static const VkApplicationInfo* vk_get_app_info(void) {
 static bool vk_create_instance(void) {
 	if (vk.instance) return true;
 
+	LOG_info("vk: creating Vulkan instance...\n");
 	vk.create_instance = (PFN_vkCreateInstance)vk.get_instance_proc_addr(NULL, "vkCreateInstance");
-	if (!vk.create_instance) return false;
+	if (!vk.create_instance) {
+		LOG_error("vk: vkCreateInstance symbol not found\n");
+		return false;
+	}
 
 	const VkApplicationInfo* app_info = vk_get_app_info();
 	VkInstanceCreateInfo info = {
@@ -208,13 +212,16 @@ static bool vk_create_instance(void) {
 	};
 
 	if (vk.has_neg_iface && vk.neg_iface.create_instance) {
+		LOG_info("vk: using neg_iface.create_instance\n");
 		vk.instance = vk.neg_iface.create_instance(
 			vk.get_instance_proc_addr, app_info, vk_create_instance_wrapper, NULL);
 	}
 	if (!vk.instance && vk.create_instance(&info, NULL, &vk.instance) != VK_SUCCESS) {
+		LOG_error("vk: vkCreateInstance call failed\n");
 		return false;
 	}
 
+	LOG_info("vk: Vulkan instance created: %p\n", (void*)vk.instance);
 	vk.destroy_instance = (PFN_vkDestroyInstance)vk.get_instance_proc_addr(vk.instance, "vkDestroyInstance");
 	vk.enumerate_physical_devices = (PFN_vkEnumeratePhysicalDevices)vk.get_instance_proc_addr(vk.instance, "vkEnumeratePhysicalDevices");
 	vk.get_physical_device_queue_family_properties = (PFN_vkGetPhysicalDeviceQueueFamilyProperties)vk.get_instance_proc_addr(vk.instance, "vkGetPhysicalDeviceQueueFamilyProperties");
@@ -226,19 +233,25 @@ static bool vk_create_instance(void) {
 
 static bool vk_select_physical_device(void) {
 	if (vk.gpu) return true;
-	if (!vk.enumerate_physical_devices) return false;
+	if (!vk.enumerate_physical_devices) {
+		LOG_error("vk: enumerate_physical_devices symbol not found\n");
+		return false;
+	}
 
 	uint32_t count = 0;
 	if (vk.enumerate_physical_devices(vk.instance, &count, NULL) != VK_SUCCESS || count == 0) {
+		LOG_error("vk: no physical devices found (count=%u)\n", count);
 		return false;
 	}
 
 	VkPhysicalDevice gpus[4];
 	uint32_t max_gpus = (count > 4) ? 4 : count;
 	if (vk.enumerate_physical_devices(vk.instance, &max_gpus, gpus) != VK_SUCCESS || max_gpus == 0) {
+		LOG_error("vk: failed to get physical device handles\n");
 		return false;
 	}
 	vk.gpu = gpus[0];
+	LOG_info("vk: selected physical device: %p (total %u)\n", (void*)vk.gpu, count);
 	return true;
 }
 
@@ -256,6 +269,7 @@ static void vk_find_queue_family(void) {
 	for (uint32_t i = 0; i < max_props; i++) {
 		if (props[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
 			vk.queue_family = i;
+			LOG_info("vk: found graphics queue family: %u (flags 0x%x)\n", i, props[i].queueFlags);
 			break;
 		}
 	}
@@ -294,7 +308,11 @@ static VkDevice vk_create_device_wrapper(VkPhysicalDevice gpu, void* opaque, con
 
 static bool vk_try_negotiate_device(void) {
 	if (!vk.has_neg_iface) return false;
-	struct retro_vulkan_context ctx = { .gpu = vk.gpu };
+	struct retro_vulkan_context ctx = {
+		.gpu = vk.gpu,
+		.queue_family_index = vk.queue_family,
+		.presentation_queue_family_index = vk.queue_family,
+	};
 
 	if (vk.neg_iface.create_device2 &&
 		vk.neg_iface.create_device2(&ctx, vk.instance, vk.gpu, VK_NULL_HANDLE,
@@ -304,6 +322,7 @@ static bool vk_try_negotiate_device(void) {
 		vk.queue_family = ctx.queue_family_index;
 		if (ctx.gpu) vk.gpu = ctx.gpu;
 		vk.core_owns_device = true;
+		LOG_info("vk: negotiated device via create_device2: dev=%p q=%p\n", (void*)vk.device, (void*)vk.queue);
 		return true;
 	}
 	if (vk.neg_iface.create_device &&
@@ -314,20 +333,24 @@ static bool vk_try_negotiate_device(void) {
 		vk.queue_family = ctx.queue_family_index;
 		if (ctx.gpu) vk.gpu = ctx.gpu;
 		vk.core_owns_device = true;
+		LOG_info("vk: negotiated device via create_device: dev=%p q=%p qf=%u\n", (void*)vk.device, (void*)vk.queue, vk.queue_family);
 		return true;
 	}
+	LOG_info("vk: neg_iface present but create_device failed\n");
 	return false;
 }
 
 static bool vk_create_device(void) {
 	if (vk.device) return true;
 	if (vk_try_negotiate_device()) return true;
+	LOG_info("vk: falling back to direct device creation\n");
 	if (!vk_create_fallback_device()) return false;
 
 	PFN_vkGetDeviceQueue get_queue = (PFN_vkGetDeviceQueue)vk.get_instance_proc_addr(vk.instance, "vkGetDeviceQueue");
 	if (get_queue) {
 		get_queue(vk.device, vk.queue_family, 0, &vk.queue);
 	}
+	LOG_info("vk: fallback device created: dev=%p q=%p\n", (void*)vk.device, (void*)vk.queue);
 	return (vk.device != VK_NULL_HANDLE);
 }
 
@@ -350,6 +373,8 @@ static void vk_populate_iface(void) {
 	vk.iface.lock_queue = vk_cb_lock_queue;
 	vk.iface.unlock_queue = vk_cb_unlock_queue;
 	vk.iface.set_signal_semaphore = vk_cb_set_signal_semaphore;
+	LOG_info("vk: populated iface (inst=%p, gpu=%p, dev=%p, q=%p, qf=%u)\n",
+			 (void*)vk.instance, (void*)vk.gpu, (void*)vk.device, (void*)vk.queue, vk.queue_family);
 }
 
 static bool vk_set_hw_render(struct retro_hw_render_callback* cb) {
@@ -401,6 +426,7 @@ static bool vk_handle_environ(unsigned cmd, void* data) {
 static void vk_post_core_load(unsigned initial_w, unsigned initial_h) {
 	(void)initial_w;
 	(void)initial_h;
+	LOG_info("vk: post_core_load starting...\n");
 	if (!vk_create_instance() || !vk_select_physical_device()) {
 		LOG_error("vk: failed to initialize Vulkan instance/device\n");
 		return;
@@ -412,7 +438,9 @@ static void vk_post_core_load(unsigned initial_w, unsigned initial_h) {
 	}
 	vk_populate_iface();
 	if (vk.hw_render.context_reset) {
+		LOG_info("vk: calling core context_reset (%p)...\n", (void*)vk.hw_render.context_reset);
 		vk.hw_render.context_reset();
+		LOG_info("vk: core context_reset finished\n");
 	}
 	vk.initialized = true;
 }
@@ -420,6 +448,10 @@ static void vk_post_core_load(unsigned initial_w, unsigned initial_h) {
 static void vk_video_refresh(const void* data, unsigned width, unsigned height, size_t pitch) {
 	(void)data;
 	(void)pitch;
+	static int refresh_count = 0;
+	if (refresh_count < 10) {
+		LOG_info("vk: video_refresh #%d: %ux%u\n", ++refresh_count, width, height);
+	}
 	render_viewport_t vp;
 	RENDER_computeViewport(width, height, vk.aspect, vk.scale_mode,
 						   vk.dev_w, vk.dev_h, 0, false, &vp);
