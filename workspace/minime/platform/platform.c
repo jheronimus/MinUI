@@ -477,7 +477,7 @@ void PLAT_setVsync(int vsync) {
 		if (vsync == 0)
 			SDL_GL_SetSwapInterval(0);
 		else if (vsync == 1)
-			SDL_GL_SetSwapInterval(SDL_GL_SetSwapInterval(-1) == 0 ? -1 : 0);
+			SDL_GL_SetSwapInterval(SDL_GL_SetSwapInterval(-1) == 0 ? -1 : 1);
 		else
 			SDL_GL_SetSwapInterval(1);
 	}
@@ -790,7 +790,7 @@ SDL_GLContext PLAT_initGLContext(int major, int minor, int gles) {
 	}
 	if (vid.gl_ctx) {
 		SDL_GL_MakeCurrent(vid.window, vid.gl_ctx);
-		SDL_GL_SetSwapInterval(0);
+		SDL_GL_SetSwapInterval(1);
 	}
 	return vid.gl_ctx;
 }
