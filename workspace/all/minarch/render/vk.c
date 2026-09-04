@@ -211,7 +211,7 @@ static bool vk_create_instance(void) {
 		.pApplicationInfo = app_info,
 	};
 
-	if (vk.has_neg_iface && vk.neg_iface.create_instance) {
+	if (vk.has_neg_iface && vk.neg_iface.interface_version >= 2 && vk.neg_iface.create_instance) {
 		LOG_info("vk: using neg_iface.create_instance\n");
 		vk.instance = vk.neg_iface.create_instance(
 			vk.get_instance_proc_addr, app_info, vk_create_instance_wrapper, NULL);
@@ -314,7 +314,7 @@ static bool vk_try_negotiate_device(void) {
 		.presentation_queue_family_index = vk.queue_family,
 	};
 
-	if (vk.neg_iface.create_device2 &&
+	if (vk.neg_iface.interface_version >= 2 && vk.neg_iface.create_device2 &&
 		vk.neg_iface.create_device2(&ctx, vk.instance, vk.gpu, VK_NULL_HANDLE,
 									vk.get_instance_proc_addr, vk_create_device_wrapper, NULL)) {
 		vk.device = ctx.device;
@@ -396,6 +396,23 @@ static bool vk_get_hw_render_interface(void* data) {
 	return true;
 }
 
+static bool vk_set_negotiation_interface(const struct retro_hw_render_context_negotiation_interface_vulkan* neg) {
+	if (!neg) return false;
+	memset(&vk.neg_iface, 0, sizeof(vk.neg_iface));
+	vk.neg_iface.interface_type = neg->interface_type;
+	vk.neg_iface.interface_version = neg->interface_version;
+	vk.neg_iface.get_application_info = neg->get_application_info;
+	vk.neg_iface.create_device = neg->create_device;
+	vk.neg_iface.destroy_device = neg->destroy_device;
+	if (neg->interface_version >= 2) {
+		vk.neg_iface.create_instance = neg->create_instance;
+		vk.neg_iface.create_device2 = neg->create_device2;
+	}
+	vk.has_neg_iface = true;
+	LOG_info("vk: negotiation interface set (ver %u)\n", vk.neg_iface.interface_version);
+	return true;
+}
+
 static bool vk_handle_environ(unsigned cmd, void* data) {
 	if (!vk.lib && !vk_load_driver()) return false;
 
@@ -408,12 +425,8 @@ static bool vk_handle_environ(unsigned cmd, void* data) {
 	}
 
 	if (cmd == RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE) {
-		struct retro_hw_render_context_negotiation_interface_vulkan* neg =
-			(struct retro_hw_render_context_negotiation_interface_vulkan*)data;
-		if (!neg) return false;
-		vk.neg_iface = *neg;
-		vk.has_neg_iface = true;
-		return true;
+		return vk_set_negotiation_interface(
+			(const struct retro_hw_render_context_negotiation_interface_vulkan*)data);
 	}
 
 	if (cmd == RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE) {
