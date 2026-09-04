@@ -1,4 +1,5 @@
 #include <dlfcn.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -99,6 +100,9 @@ static void vk_update_debug(double fps, double cpu, double use, int show_debug) 
 static bool vk_load_driver(void) {
 	if (vk.lib) return true;
 
+	setenv("PAN_I_WANT_A_BROKEN_VULKAN_DRIVER", "1", 0);
+	setenv("XDG_CACHE_HOME", "/tmp", 0);
+
 	const char* libs[] = {
 		"libvulkan.so.1",
 		"libvulkan.so",
@@ -164,8 +168,17 @@ static void vk_cb_set_command_buffers(void* handle, uint32_t num_cmd, const VkCo
 	(void)cmd;
 }
 
-static void vk_cb_lock_queue(void* handle) { (void)handle; }
-static void vk_cb_unlock_queue(void* handle) { (void)handle; }
+static pthread_mutex_t vk_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static void vk_cb_lock_queue(void* handle) {
+	(void)handle;
+	pthread_mutex_lock(&vk_queue_mutex);
+}
+
+static void vk_cb_unlock_queue(void* handle) {
+	(void)handle;
+	pthread_mutex_unlock(&vk_queue_mutex);
+}
 static void vk_cb_set_signal_semaphore(void* handle, VkSemaphore semaphore) {
 	(void)handle;
 	(void)semaphore;
@@ -388,9 +401,13 @@ static bool vk_get_hw_render_interface(void* data) {
 	const struct retro_hw_render_interface** out_iface =
 		(const struct retro_hw_render_interface**)data;
 	if (!out_iface) return false;
-	if (!vk.instance) vk_create_instance();
-	if (!vk.gpu) vk_select_physical_device();
-	if (!vk.device) vk_create_device();
+	if (!vk.instance && !vk_create_instance()) return false;
+	if (!vk.gpu && !vk_select_physical_device()) return false;
+	if (!vk.device && !vk_create_device()) return false;
+	if (!vk.instance || !vk.gpu || !vk.device) {
+		LOG_error("vk: cannot provide hw_render_interface without valid instance/gpu/device\n");
+		return false;
+	}
 	vk_populate_iface();
 	*out_iface = (const struct retro_hw_render_interface*)&vk.iface;
 	return true;
